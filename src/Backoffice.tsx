@@ -1,36 +1,34 @@
-import { useRef, useState, type ReactNode } from 'react'
-import { LayoutDashboard, Newspaper, ListChecks, Lightbulb, CalendarDays, Users, BookOpen, Sparkles, Plus, Check, Camera, Search, CalendarClock, Send, X } from 'lucide-react'
+import { useMemo, useRef, useState, type ReactNode } from 'react'
+import { LayoutDashboard, Newspaper, ListChecks, Lightbulb, CalendarDays, Users, BookOpen, Sparkles, Plus, Check, Camera, Search, CalendarClock, Send, X, Trash2 } from 'lucide-react'
 import { Terminbuch } from './Calendar'
-import { useApp } from './store'
-import { STAFF } from './staff'
-import { NEWS, TASK_TEMPLATES, BRANCH_PROGRESS, EVENTS, WIKI, ASSIGNEES, BRANCHES, SKILL_CATALOG } from './data'
-import { Status } from './Mobile'
+import { useApp, isoDay, appliesOn, fmtDate, fmtTime, zurichHour, type Ticket } from './store'
+import { supabase } from './lib/supabase'
+import { Status, ASSISTANT } from './Mobile'
 
 type View = 'overview' | 'book' | 'news' | 'tasks' | 'tickets' | 'events' | 'team' | 'wiki'
 const NAV: [View, string, typeof Users][] = [['overview', 'Übersicht', LayoutDashboard], ['book', 'Kundentermine', CalendarClock], ['news', 'News', Newspaper], ['tasks', 'Aufgaben', ListChecks], ['tickets', 'Meldungen & Ideen', Lightbulb], ['events', 'Schulungen & Events', CalendarDays], ['team', 'Team & Skills', Users], ['wiki', 'Wissen', BookOpen]]
 
-// Lesestatus der Pflicht-News: fest verteilte Beispielwerte, Bea über den echten Klick.
-const readers = (id: number, meRead: boolean) => STAFF.map((s, i) => ({ s, ok: s.first === 'Bea' ? meRead : (i * 7 + id) % 10 < 6 }))
-
 export default function Backoffice() {
+  const { me } = useApp()
   const [v, setV] = useState<View>('overview')
   const [ai, setAi] = useState(false)
-  const [draft, setDraft] = useState<{ title: string; body: string } | null>(null)
+  // Filialleitung verwaltet nur ihre Filiale; Inhalte (News, Wissen, Vorlagen, Team) pflegt das Büro.
+  const nav = me.app_role === 'buero' ? NAV : NAV.filter(([k]) => ['overview', 'book', 'tasks', 'tickets', 'events'].includes(k))
   return (
     <div className="flex h-full bg-white rounded-[20px] overflow-hidden border border-sage-200">
       <aside className="w-60 shrink-0 bg-sage-50 p-4 flex flex-col">
         <div className="flex items-center gap-2.5 px-2 py-2"><span className="w-9 h-9 rounded-xl bg-sage-400 text-white flex items-center justify-center font-semibold">bl</span><div><p className="font-semibold leading-tight">TeamHub</p><p className="text-xs text-mute">Backoffice</p></div></div>
         <nav className="mt-6 space-y-0.5">
-          {NAV.map(([k, l, I]) => <button key={k} onClick={() => setV(k)} className={`w-full h-10 px-3 rounded-xl flex items-center gap-3 text-[14px] ${v === k ? 'bg-white text-ink font-medium' : 'text-sage-800 hover:bg-white/60'}`}><I size={18} />{l}</button>)}
+          {nav.map(([k, l, I]) => <button key={k} onClick={() => setV(k)} className={`w-full h-10 px-3 rounded-xl flex items-center gap-3 text-[14px] ${v === k ? 'bg-white text-ink font-medium' : 'text-sage-800 hover:bg-white/60'}`}><I size={18} />{l}</button>)}
         </nav>
-        <button onClick={() => setAi(!ai)} className={`mt-auto h-11 rounded-xl flex items-center justify-center gap-2 text-[14px] font-medium ${ai ? 'bg-sage-800 text-white' : 'bg-ink text-white'}`}><Sparkles size={17} />Benni fragen</button>
+        <button onClick={() => setAi(!ai)} className={`mt-auto h-11 rounded-xl flex items-center justify-center gap-2 text-[14px] font-medium ${ai ? 'bg-sage-800 text-white' : 'bg-ink text-white'}`}><Sparkles size={17} />{ASSISTANT} fragen</button>
       </aside>
       <main className={`flex-1 no-scrollbar p-8 ${v === 'book' ? 'flex flex-col overflow-hidden' : 'overflow-y-auto'}`}>
         {v === 'book' && <><H>Kundentermine</H><div className="flex-1 min-h-0"><Terminbuch /></div></>}
-        {v === 'overview' && <Overview go={setV} />}{v === 'news' && <NewsAdmin draft={draft} />}{v === 'tasks' && <TasksAdmin />}
+        {v === 'overview' && <Overview go={setV} />}{v === 'news' && <NewsAdmin />}{v === 'tasks' && <TasksAdmin />}
         {v === 'tickets' && <TicketsAdmin />}{v === 'events' && <EventsAdmin />}{v === 'team' && <TeamAdmin />}{v === 'wiki' && <WikiAdmin />}
       </main>
-      {ai && <AdminChat onClose={() => setAi(false)} onDraft={d => { setDraft(d); setV('news') }} go={setV} />}
+      {ai && <AdminChat onClose={() => setAi(false)} />}
     </div>
   )
 }
@@ -40,157 +38,318 @@ const Box = ({ children, className = '' }: { children: ReactNode; className?: st
 const New = ({ children, onClick }: { children: ReactNode; onClick?: () => void }) => <button onClick={onClick} className="h-10 px-4 rounded-xl bg-ink text-white text-[14px] flex items-center gap-1.5"><Plus size={16} />{children}</button>
 const Th = ({ children }: { children: ReactNode }) => <th className="text-left font-normal text-xs text-mute px-4 py-3">{children}</th>
 const Bar = ({ p }: { p: number }) => <div className="h-1.5 w-full rounded-full bg-sage-100 overflow-hidden"><div className="h-full bg-sage-600 rounded-full" style={{ width: p + '%' }} /></div>
+const Field = ({ label, children }: { label: string; children: ReactNode }) => <label className="block"><span className="block text-xs text-mute mb-1">{label}</span>{children}</label>
+const inp = 'w-full h-10 rounded-xl border border-sage-200 px-3 text-[14px] bg-white outline-none'
+const Err = ({ m }: { m: string }) => m ? <p className="text-[13px] text-[#B5483B]">{m}</p> : null
+
+/* Wer gehört zur Zielgruppe (leer = alle aktiven)? */
+function useAudience() {
+  const { staff } = useApp()
+  return (branches: string[]) => staff.filter(s => s.active && s.branch_id !== 'buero' && (branches.length === 0 || branches.includes(s.branch_id)))
+}
+/* Fortschritt der Tagesaufgaben je Studio heute */
+function useTaskProgress() {
+  const { templates, completionsToday, branches } = useApp()
+  const day = isoDay()
+  return branches.filter(b => !b.is_office).map(b => {
+    const items = templates.filter(t => appliesOn(t, day, b.id)).flatMap(t => t.items)
+    const done = completionsToday.filter(c => c.branch_id === b.id && items.some(i => i.id === c.item_id)).length
+    return { branch: b.name, id: b.id, done, total: items.length }
+  })
+}
 
 function Overview({ go }: { go: (v: View) => void }) {
-  const { read, tickets } = useApp()
-  const r = readers(1, read.has(1)); const pct = Math.round(r.filter(x => x.ok).length / r.length * 100)
+  const { tickets, news, newsReads, events, me } = useApp()
+  const audience = useAudience(), progress = useTaskProgress()
+  const must = news.find(n => n.mustRead && new Date(n.publishAt) <= new Date())
+  const mustPeople = must ? audience(must.audienceBranches) : []
+  const mustPct = must && mustPeople.length ? Math.round(mustPeople.filter(p => newsReads.some(r => r.news_id === must.id && r.employee_id === p.id && r.confirmed_at)).length / mustPeople.length * 100) : 0
   const open = tickets.filter(t => t.status !== 'Erledigt')
-  const tasks = Math.round(BRANCH_PROGRESS.reduce((a, b) => a + b.done / b.total, 0) / BRANCH_PROGRESS.length * 100)
-  const kpis: [string, string, string, View][] = [['Pflicht-News gelesen', pct + ' %', 'Hygienerichtlinie', 'news'], ['Tagesaufgaben', tasks + ' %', 'alle Studios heute', 'tasks'], ['Offene Meldungen', String(open.length), `${open.filter(t => t.status === 'Neu').length} ohne Zuweisung`, 'tickets'], ['Nächste Schulung', '05.10.', '5 von 8 Plätzen', 'events']]
+  const tot = progress.reduce((a, b) => a + b.total, 0), dn = progress.reduce((a, b) => a + b.done, 0)
+  const nextEv = events.find(e => new Date(e.startsAt) > new Date())
+  const kpis: [string, string, string, View][] = [
+    ['Pflicht-News gelesen', must ? mustPct + ' %' : '–', must?.title ?? 'keine Pflicht-News', 'news'],
+    ['Tagesaufgaben', tot ? Math.round(dn / tot * 100) + ' %' : '–', 'alle Studios heute', 'tasks'],
+    ['Offene Meldungen', String(open.length), `${open.filter(t => t.status === 'Neu').length} ohne Zuweisung`, 'tickets'],
+    ['Nächster Termin', nextEv ? fmtDate(nextEv.startsAt, { day: '2-digit', month: '2-digit' }) : '–', nextEv ? `${nextEv.title.slice(0, 26)}${nextEv.capacity ? ` · ${nextEv.taken}/${nextEv.capacity}` : ''}` : 'nichts geplant', 'events'],
+  ]
+  const hour = zurichHour()
   return (<>
-    <H>Guten Morgen, Renée</H>
-    <div className="grid grid-cols-4 gap-4">{kpis.map(([l, n, s, to]) => <button key={l} onClick={() => go(to)} className="text-left"><Box className="p-5 hover:border-sage-400 transition"><p className="text-xs text-mute">{l}</p><p className="text-[30px] font-semibold mt-1">{n}</p><p className="text-xs text-mute">{s}</p></Box></button>)}</div>
+    <H>{hour < 11 ? 'Guten Morgen' : hour < 17 ? 'Hallo' : 'Guten Abend'}, {me.first}</H>
+    <div className="grid grid-cols-4 gap-4">{kpis.map(([l, n, s, to]) => <button key={l} onClick={() => go(to)} className="text-left"><Box className="p-5 hover:border-sage-400 transition"><p className="text-xs text-mute">{l}</p><p className="text-[30px] font-semibold mt-1">{n}</p><p className="text-xs text-mute truncate">{s}</p></Box></button>)}</div>
     <div className="grid grid-cols-2 gap-4 mt-4">
-      <Box className="p-5"><p className="font-medium mb-4">Tagesaufgaben je Studio</p><div className="space-y-3">{BRANCH_PROGRESS.map(b => <div key={b.branch} className="grid grid-cols-[90px_1fr_40px] items-center gap-3 text-[14px]"><span>{b.branch}</span><Bar p={b.done / b.total * 100} /><span className="text-right text-mute">{b.done}/{b.total}</span></div>)}</div></Box>
-      <Box className="p-5"><p className="font-medium mb-3">Neueste Meldungen</p><div className="divide-y divide-sage-50">{tickets.slice(0, 4).map(t => <div key={t.id} className="py-2.5 flex justify-between gap-3 text-[14px]"><span className="truncate">{t.title}{t.viaAI && <Sparkles size={12} className="inline ml-1.5 text-sage-600" />}</span><span className="text-xs shrink-0"><Status s={t.status} /></span></div>)}</div></Box>
+      <Box className="p-5"><p className="font-medium mb-4">Tagesaufgaben je Studio</p><div className="space-y-3">{progress.map(b => <div key={b.id} className="grid grid-cols-[90px_1fr_40px] items-center gap-3 text-[14px]"><span>{b.branch}</span><Bar p={b.total ? b.done / b.total * 100 : 0} /><span className="text-right text-mute">{b.done}/{b.total}</span></div>)}</div></Box>
+      <Box className="p-5"><p className="font-medium mb-3">Neueste Meldungen</p><div className="divide-y divide-sage-50">{tickets.length === 0 && <p className="text-[14px] text-mute">Noch keine.</p>}{tickets.slice(0, 5).map(t => <div key={t.id} className="py-2.5 flex justify-between gap-3 text-[14px]"><span className="truncate">{t.title}{t.viaAI && <Sparkles size={12} className="inline ml-1.5 text-sage-600" />}</span><span className="text-xs shrink-0"><Status s={t.status} /></span></div>)}</div></Box>
     </div>
   </>)
 }
 
-function NewsAdmin({ draft }: { draft: { title: string; body: string } | null }) {
-  const { read } = useApp()
-  const [sel, setSel] = useState(1), [compose, setCompose] = useState(!!draft)
-  const n = NEWS.find(x => x.id === sel)!
-  const r = readers(n.id, read.has(n.id))
+/* ---------- News ---------- */
+function NewsAdmin() {
+  const { news, newsReads, branches, me, reload } = useApp()
+  const audience = useAudience()
+  const [sel, setSel] = useState<string | null>(news[0]?.id ?? null), [compose, setCompose] = useState(false)
+  const [f, setF] = useState({ title: '', teaser: '', body: '', tag: 'Studio', must: false, branches: [] as string[], when: '', wiki: '' })
+  const [err, setErr] = useState(''), [busy, setBusy] = useState(false)
+  const n = news.find(x => x.id === sel)
+  const pctOf = (id: string, br: string[]) => { const p = audience(br); return p.length ? Math.round(p.filter(s => newsReads.some(r => r.news_id === id && r.employee_id === s.id && r.confirmed_at)).length / p.length * 100) : 0 }
+  const publish = async () => {
+    if (!f.title.trim() || !f.body.trim()) { setErr('Titel und Text sind nötig.'); return }
+    setBusy(true); setErr('')
+    const { error } = await supabase!.from('news').insert({
+      title: f.title.trim(), teaser: f.teaser.trim() || f.body.trim().slice(0, 140), body: f.body.trim(), tag: f.must ? 'Pflicht' : f.tag, must_read: f.must,
+      audience_branches: f.branches, author_id: me.id, author_name: `${me.first} ${me.last}`, publish_at: f.when ? new Date(f.when).toISOString() : new Date().toISOString(), wiki_category: f.wiki || null,
+    })
+    setBusy(false)
+    if (error) { setErr('Veröffentlichen hat nicht geklappt.'); return }
+    setCompose(false); setF({ title: '', teaser: '', body: '', tag: 'Studio', must: false, branches: [], when: '', wiki: '' }); await reload()
+  }
+  const people = n ? audience(n.audienceBranches) : []
   return (<>
     <H action={<New onClick={() => setCompose(!compose)}>Neue News</New>}>News</H>
-    {compose && <Box className="p-5 mb-6 grid grid-cols-[1fr_260px] gap-6">
-      <div><input key={draft?.title} defaultValue={draft?.title} placeholder="Titel" className="w-full text-[20px] font-medium outline-none" /><textarea key={draft?.body} defaultValue={draft?.body} rows={5} placeholder="Text, Bilder oder Video einfügen …" className="mt-3 w-full resize-none outline-none text-[15px]" /></div>
+    {compose && <Box className="p-5 mb-6 grid grid-cols-[1fr_280px] gap-6">
+      <div className="space-y-3"><input value={f.title} onChange={e => setF({ ...f, title: e.target.value })} placeholder="Titel" className="w-full text-[20px] font-medium outline-none" />
+        <input value={f.teaser} onChange={e => setF({ ...f, teaser: e.target.value })} placeholder="Kurzfassung für die Karte (optional)" className="w-full text-[15px] outline-none text-mute" />
+        <textarea value={f.body} onChange={e => setF({ ...f, body: e.target.value })} rows={8} placeholder="Text. Absätze mit einer Leerzeile trennen." className="w-full resize-none outline-none text-[15px]" /></div>
       <div className="space-y-3 text-[14px]">
-        {[['Zielgruppe', 'Alle Studios'], ['Veröffentlichen', 'Sofort'], ['Lesebestätigung', 'Pflicht'], ['Auch ins Wissen', 'Hygiene']].map(([a, b]) => <div key={a}><p className="text-xs text-mute mb-1">{a}</p><div className="h-10 rounded-xl border border-sage-200 px-3 flex items-center">{b}</div></div>)}
-        <button className="w-full h-10 rounded-xl bg-ink text-white">Veröffentlichen</button>
+        <Field label="Zielgruppe"><div className="flex flex-wrap gap-1.5">{branches.filter(b => !b.is_office).map(b => <button key={b.id} onClick={() => setF({ ...f, branches: f.branches.includes(b.id) ? f.branches.filter(x => x !== b.id) : [...f.branches, b.id] })} className={`px-2.5 h-8 rounded-full text-[13px] ${f.branches.includes(b.id) ? 'bg-ink text-white' : 'bg-sage-50'}`}>{b.name}</button>)}</div><span className="text-[11px] text-mute">{f.branches.length ? '' : 'Keine Auswahl = alle Studios'}</span></Field>
+        <Field label="Kategorie"><select value={f.tag} onChange={e => setF({ ...f, tag: e.target.value })} className={inp}>{['Studio', 'Marketing', 'Team', 'Hygiene'].map(x => <option key={x}>{x}</option>)}</select></Field>
+        <label className="flex items-center gap-2"><input type="checkbox" checked={f.must} onChange={e => setF({ ...f, must: e.target.checked })} />Pflicht mit Lesebestätigung</label>
+        <Field label="Veröffentlichen"><input type="datetime-local" value={f.when} onChange={e => setF({ ...f, when: e.target.value })} className={inp} /><span className="text-[11px] text-mute">Leer = sofort</span></Field>
+        <Field label="Auch ins Wissen (Kategorie)"><input value={f.wiki} onChange={e => setF({ ...f, wiki: e.target.value })} placeholder="z. B. Hygiene" className={inp} /></Field>
+        <Err m={err} /><button disabled={busy} onClick={publish} className="w-full h-10 rounded-xl bg-ink text-white disabled:opacity-60">{f.when ? 'Einplanen' : 'Veröffentlichen'}</button>
       </div>
     </Box>}
     <div className="grid grid-cols-[1fr_320px] gap-4">
       <Box><table className="w-full text-[14px]"><thead><tr><Th>Titel</Th><Th>Zielgruppe</Th><Th>Datum</Th><Th>Gelesen</Th></tr></thead>
-        <tbody className="divide-y divide-sage-50">{NEWS.map(x => { const rr = readers(x.id, read.has(x.id)); const p = x.mustRead ? Math.round(rr.filter(y => y.ok).length / rr.length * 100) : null
-          return <tr key={x.id} onClick={() => setSel(x.id)} className={`cursor-pointer ${sel === x.id ? 'bg-sage-50' : ''}`}><td className="px-4 py-3">{x.title}{x.mustRead && <span className="ml-2 text-xs text-[#C0634B]">Pflicht</span>}</td><td className="px-4 text-mute">{x.audience}</td><td className="px-4 text-mute">{x.date}</td><td className="px-4 w-32">{p !== null ? <div className="flex items-center gap-2"><Bar p={p} /><span className="text-xs text-mute">{p}%</span></div> : <span className="text-xs text-mute">–</span>}</td></tr>
+        <tbody className="divide-y divide-sage-50">{news.map(x => { const p = x.mustRead ? pctOf(x.id, x.audienceBranches) : null, planned = new Date(x.publishAt) > new Date()
+          return <tr key={x.id} onClick={() => setSel(x.id)} className={`cursor-pointer ${sel === x.id ? 'bg-sage-50' : ''}`}><td className="px-4 py-3">{x.title}{x.mustRead && <span className="ml-2 text-xs text-[#C0634B]">Pflicht</span>}{planned && <span className="ml-2 text-xs text-mute">geplant</span>}</td><td className="px-4 text-mute">{x.audience}</td><td className="px-4 text-mute">{x.date}</td><td className="px-4 w-32">{p !== null ? <div className="flex items-center gap-2"><Bar p={p} /><span className="text-xs text-mute">{p}%</span></div> : <span className="text-xs text-mute">–</span>}</td></tr>
         })}</tbody></table></Box>
-      <Box className="p-4"><p className="font-medium">{n.title}</p><p className="text-xs text-mute mt-1">{n.mustRead ? `${r.filter(x => x.ok).length} von ${r.length} bestätigt` : 'Ohne Lesebestätigung'}</p>
-        {n.mustRead && <div className="mt-3 max-h-[420px] overflow-y-auto no-scrollbar divide-y divide-sage-50">{r.map(({ s, ok }) => <div key={s.id} className="py-2 flex items-center justify-between text-[13px]"><span>{s.first} {s.last} <span className="text-mute">· {s.branch}</span></span>{ok ? <Check size={15} className="text-sage-600" /> : <span className="text-xs text-[#C0634B]">offen</span>}</div>)}</div>}
-      </Box>
+      {n && <Box className="p-4"><p className="font-medium">{n.title}</p><p className="text-xs text-mute mt-1">{n.mustRead ? `${people.filter(s => newsReads.some(r => r.news_id === n.id && r.employee_id === s.id && r.confirmed_at)).length} von ${people.length} bestätigt` : 'Ohne Lesebestätigung'}</p>
+        {n.mustRead && <div className="mt-3 max-h-[420px] overflow-y-auto no-scrollbar divide-y divide-sage-50">{people.map(s => { const r = newsReads.find(x => x.news_id === n.id && x.employee_id === s.id)
+          return <div key={s.id} className="py-2 flex items-center justify-between text-[13px]"><span>{s.first} {s.last} <span className="text-mute">· {s.branch}</span></span>{r?.confirmed_at ? <Check size={15} className="text-sage-600" /> : <span className="text-xs text-[#C0634B]">{r ? 'geöffnet' : 'offen'}</span>}</div> })}</div>}
+        <button onClick={async () => { if (confirm('Diese News löschen?')) { await supabase!.from('news').delete().eq('id', n.id); setSel(null); await reload() } }} className="mt-4 text-[13px] text-mute flex items-center gap-1"><Trash2 size={13} />Löschen</button>
+      </Box>}
     </div>
   </>)
 }
 
+/* ---------- Aufgaben ---------- */
+const REP = { daily: 'Täglich', weekly: 'Wöchentlich', monthly: 'Monatlich' } as const
+const WD = ['', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag']
 function TasksAdmin() {
+  const { templates, branches, me, reload } = useApp()
+  const progress = useTaskProgress().filter(b => me.app_role === 'buero' || b.id === me.branch_id)
+  const [form, setForm] = useState(false)
+  const [f, setF] = useState({ name: '', repeat: 'daily' as 'daily' | 'weekly' | 'monthly', weekday: 1, monthday: 1, branches: [] as string[], items: '' })
+  const [err, setErr] = useState('')
+  const save = async () => {
+    const lines = f.items.split('\n').map(l => l.trim()).filter(Boolean)
+    if (!f.name.trim() || !lines.length) { setErr('Name und mindestens ein Punkt sind nötig.'); return }
+    const { data, error } = await supabase!.from('task_templates').insert({ name: f.name.trim(), repeat: f.repeat, weekday: f.repeat === 'weekly' ? f.weekday : null, monthday: f.repeat === 'monthly' ? f.monthday : null, branch_ids: f.branches, sort: templates.length }).select('id').single()
+    if (error || !data) { setErr('Speichern hat nicht geklappt.'); return }
+    // Zeile: "07:45 Kabinen desinfizieren !foto !wichtig"
+    const rows = lines.map((l, i) => { const m = l.match(/^(\d{1,2}:\d{2})\s+(.*)$/); const text = (m ? m[2] : l)
+      return { template_id: data.id, title: text.replace(/!foto|!wichtig/gi, '').trim(), due_time: m ? m[1] : null, proof_photo: /!foto/i.test(text), prio: /!wichtig/i.test(text), sort: i } })
+    await supabase!.from('task_items').insert(rows)
+    setForm(false); setErr(''); setF({ name: '', repeat: 'daily', weekday: 1, monthday: 1, branches: [], items: '' }); await reload()
+  }
   return (<>
-    <H action={<New>Neue Vorlage</New>}>Aufgaben</H>
+    <H action={me.app_role === 'buero' && <New onClick={() => setForm(!form)}>Neue Vorlage</New>}>Aufgaben</H>
+    {form && <Box className="p-5 mb-6 grid grid-cols-[1fr_260px] gap-6">
+      <div className="space-y-3"><input value={f.name} onChange={e => setF({ ...f, name: e.target.value })} placeholder="Name der Vorlage, z. B. Öffnung" className="w-full text-[18px] font-medium outline-none" />
+        <textarea value={f.items} onChange={e => setF({ ...f, items: e.target.value })} rows={7} placeholder={'Ein Punkt pro Zeile, optional mit Uhrzeit:\n07:45 Studio aufschliessen\n07:50 Kabinen desinfizieren !foto !wichtig'} className="w-full resize-none outline-none text-[14px] font-mono" /></div>
+      <div className="space-y-3 text-[14px]">
+        <Field label="Wiederholung"><select value={f.repeat} onChange={e => setF({ ...f, repeat: e.target.value as typeof f.repeat })} className={inp}><option value="daily">Täglich</option><option value="weekly">Wöchentlich</option><option value="monthly">Monatlich</option></select></Field>
+        {f.repeat === 'weekly' && <Field label="Wochentag"><select value={f.weekday} onChange={e => setF({ ...f, weekday: Number(e.target.value) })} className={inp}>{WD.slice(1).map((d, i) => <option key={d} value={i + 1}>{d}</option>)}</select></Field>}
+        {f.repeat === 'monthly' && <Field label="Tag im Monat"><input type="number" min={1} max={31} value={f.monthday} onChange={e => setF({ ...f, monthday: Number(e.target.value) })} className={inp} /></Field>}
+        <Field label="Gilt für"><div className="flex flex-wrap gap-1.5">{branches.filter(b => !b.is_office).map(b => <button key={b.id} onClick={() => setF({ ...f, branches: f.branches.includes(b.id) ? f.branches.filter(x => x !== b.id) : [...f.branches, b.id] })} className={`px-2.5 h-8 rounded-full text-[13px] ${f.branches.includes(b.id) ? 'bg-ink text-white' : 'bg-sage-50'}`}>{b.name}</button>)}</div><span className="text-[11px] text-mute">{f.branches.length ? '' : 'Keine Auswahl = alle Studios'}</span></Field>
+        <Err m={err} /><button onClick={save} className="w-full h-10 rounded-xl bg-ink text-white">Speichern</button>
+      </div>
+    </Box>}
     <div className="grid grid-cols-2 gap-4">
-      <Box><p className="font-medium px-4 pt-4">Vorlagen</p><table className="w-full text-[14px]"><thead><tr><Th>Name</Th><Th>Punkte</Th><Th>Wiederholung</Th><Th>Gilt für</Th></tr></thead>
-        <tbody className="divide-y divide-sage-50">{TASK_TEMPLATES.map(t => <tr key={t.name}><td className="px-4 py-3">{t.name}</td><td className="px-4 text-mute">{t.items}</td><td className="px-4 text-mute">{t.repeat}</td><td className="px-4 text-mute">{t.branches}</td></tr>)}</tbody></table></Box>
-      <Box className="p-4"><p className="font-medium mb-4">Heute je Studio</p><div className="space-y-3">{BRANCH_PROGRESS.map(b => <div key={b.branch} className="grid grid-cols-[90px_1fr_40px] items-center gap-3 text-[14px]"><span>{b.branch}</span><Bar p={b.done / b.total * 100} /><span className="text-right text-mute">{b.done}/{b.total}</span></div>)}</div>
-        <p className="mt-5 text-xs text-mute flex items-center gap-1.5"><Camera size={13} />Fotonachweise mit Person und Uhrzeit bleiben 12 Monate abrufbar.</p></Box>
+      <Box><p className="font-medium px-4 pt-4">Vorlagen</p><table className="w-full text-[14px]"><thead><tr><Th>Name</Th><Th>Punkte</Th><Th>Wiederholung</Th><Th>Gilt für</Th><Th> </Th></tr></thead>
+        <tbody className="divide-y divide-sage-50">{templates.map(t => <tr key={t.id}><td className="px-4 py-3">{t.name}</td><td className="px-4 text-mute">{t.items.length}</td><td className="px-4 text-mute">{REP[t.repeat]}{t.repeat === 'weekly' && t.weekday ? `, ${WD[t.weekday]}` : ''}{t.repeat === 'monthly' && t.monthday ? `, ${t.monthday}.` : ''}</td><td className="px-4 text-mute">{t.branchIds.length ? t.branchIds.map(id => branches.find(b => b.id === id)?.name).join(', ') : 'Alle Studios'}</td>
+          <td className="px-2">{me.app_role === 'buero' && <button title="Deaktivieren" onClick={async () => { if (confirm(`Vorlage „${t.name}“ deaktivieren? Alte Nachweise bleiben.`)) { await supabase!.from('task_templates').update({ active: false }).eq('id', t.id); await reload() } }} className="text-mute"><Trash2 size={14} /></button>}</td></tr>)}</tbody></table></Box>
+      <Box className="p-4"><p className="font-medium mb-4">Heute je Studio</p><div className="space-y-3">{progress.map(b => <div key={b.id} className="grid grid-cols-[90px_1fr_40px] items-center gap-3 text-[14px]"><span>{b.branch}</span><Bar p={b.total ? b.done / b.total * 100 : 0} /><span className="text-right text-mute">{b.done}/{b.total}</span></div>)}</div>
+        <p className="mt-5 text-xs text-mute flex items-center gap-1.5"><Camera size={13} />Nachweise mit Person, Uhrzeit und Foto bleiben gespeichert, jeder Tag beginnt neu.</p></Box>
     </div>
   </>)
 }
 
+/* ---------- Meldungen & Ideen ---------- */
 function TicketsAdmin() {
-  const { tickets, assign, setStatus } = useApp()
+  const { tickets, assign, setStatus, staff, me } = useApp()
   const [f, setF] = useState<'Alle' | 'Meldung' | 'Idee'>('Alle')
+  const assignees = ['Facility', ...staff.filter(s => s.active && s.app_role !== 'mitarbeiterin').map(s => `${s.first} ${s.last}`)]
+  const canEdit = me.app_role === 'buero'
   return (<>
     <H action={<div className="flex gap-1 p-1 rounded-xl bg-sage-50">{(['Alle', 'Meldung', 'Idee'] as const).map(k => <button key={k} onClick={() => setF(k)} className={`h-8 px-3 rounded-lg text-[13px] ${f === k ? 'bg-white font-medium' : 'text-sage-800'}`}>{k}</button>)}</div>}>Meldungen & Ideen</H>
     <Box><table className="w-full text-[14px]"><thead><tr><Th>Art</Th><Th>Titel</Th><Th>Studio</Th><Th>Von</Th><Th>Zuständig</Th><Th>Status</Th></tr></thead>
-      <tbody className="divide-y divide-sage-50">{tickets.filter(t => f === 'Alle' || t.kind === f).map(t => (
+      <tbody className="divide-y divide-sage-50">{tickets.length === 0 && <tr><td colSpan={6} className="px-4 py-4 text-mute">Noch keine Meldungen oder Ideen.</td></tr>}
+        {tickets.filter(t => f === 'Alle' || t.kind === f).map(t => (
         <tr key={t.id}><td className="px-4 py-3 text-mute">{t.kind}</td>
-          <td className="px-4">{t.title}<span className="ml-2 inline-flex gap-1.5 text-mute align-middle">{t.photo && <Camera size={13} />}{t.viaAI && <Sparkles size={13} className="text-sage-600" />}</span><p className="text-xs text-mute">{t.when}</p></td>
+          <td className="px-4">{t.title}<span className="ml-2 inline-flex gap-1.5 text-mute align-middle">{t.photo && <a href={t.photo} target="_blank" rel="noreferrer"><Camera size={13} /></a>}{t.viaAI && <Sparkles size={13} className="text-sage-600" />}</span><p className="text-xs text-mute">{t.when}</p></td>
           <td className="px-4 text-mute">{t.branch}</td><td className="px-4 text-mute">{t.who}</td>
-          <td className="px-4"><select value={t.assignee ?? ''} onChange={e => assign(t.id, e.target.value)} className="h-9 rounded-lg border border-sage-200 px-2 bg-white text-[13px]"><option value="">Zuweisen …</option>{ASSIGNEES.map(a => <option key={a}>{a}</option>)}</select></td>
-          <td className="px-4"><select value={t.status} onChange={e => setStatus(t.id, e.target.value as typeof t.status)} className="h-9 rounded-lg border border-sage-200 px-2 bg-white text-[13px]">{['Neu', 'Zugewiesen', 'In Arbeit', 'Erledigt'].map(s => <option key={s}>{s}</option>)}</select></td></tr>
+          <td className="px-4">{canEdit ? <select value={t.assignee ?? ''} onChange={e => assign(t.id, e.target.value)} className="h-9 rounded-lg border border-sage-200 px-2 bg-white text-[13px]"><option value="">Zuweisen …</option>{assignees.map(a => <option key={a}>{a}</option>)}</select> : <span className="text-mute">{t.assignee ?? '–'}</span>}</td>
+          <td className="px-4">{canEdit ? <select value={t.status} onChange={e => setStatus(t.id, e.target.value as Ticket['status'])} className="h-9 rounded-lg border border-sage-200 px-2 bg-white text-[13px]">{['Neu', 'Zugewiesen', 'In Arbeit', 'Erledigt'].map(s => <option key={s}>{s}</option>)}</select> : <Status s={t.status} />}</td></tr>
       ))}</tbody></table></Box>
-    <p className="mt-3 text-xs text-mute">Meldungen gehen zusätzlich sofort per E-Mail an die Facility. Die Meldende sieht jeden Statuswechsel in der App.</p>
+    <p className="mt-3 text-xs text-mute">Jede Zuweisung und jeder Statuswechsel wird mit Person und Zeit protokolliert. Die Meldende sieht den Stand in der App. Versand per E-Mail an die Facility folgt mit BLTH-20.</p>
   </>)
 }
 
+/* ---------- Schulungen & Events ---------- */
 function EventsAdmin() {
-  const { joined } = useApp()
-  const [sel, setSel] = useState(1)
-  const e = EVENTS.find(x => x.id === sel)!
-  const people = [...e.people, ...(joined.has(e.id) ? ['Bea M.'] : [])]
+  const { events, registrations, staff, branches, skillCatalog, me, reload } = useApp()
+  const [sel, setSel] = useState<string | null>(events[0]?.id ?? null), [form, setForm] = useState(false), [err, setErr] = useState('')
+  const [f, setF] = useState({ title: '', kind: 'Schulung', description: '', date: '', from: '09:00', to: '12:00', place: '', link: '', capacity: '', until: '', branches: [] as string[], skills: [] as string[] })
+  const e = events.find(x => x.id === sel)
+  const people = e ? registrations.filter(r => r.event_id === e.id).map(r => staff.find(s => s.id === r.employee_id)).filter(Boolean) : []
+  const save = async () => {
+    if (!f.title.trim() || !f.date) { setErr('Titel und Datum sind nötig.'); return }
+    const at = (d: string, t: string) => new Date(`${d}T${t}:00`).toISOString()
+    const { error } = await supabase!.from('events').insert({
+      title: f.title.trim(), kind: f.kind, description: f.description.trim(), starts_at: at(f.date, f.from), ends_at: f.to ? at(f.date, f.to) : null,
+      place: f.place.trim(), link: f.link.trim() || null, capacity: f.capacity ? Number(f.capacity) : null, register_until: f.until ? new Date(f.until + 'T23:59:00').toISOString() : null,
+      audience_branches: f.branches, audience_skills: f.skills,
+    })
+    if (error) { setErr('Speichern hat nicht geklappt.'); return }
+    setForm(false); setErr(''); await reload()
+  }
+  const tog = (k: 'branches' | 'skills', v: string) => setF({ ...f, [k]: f[k].includes(v) ? f[k].filter(x => x !== v) : [...f[k], v] })
   return (<>
-    <H action={<New>Neue Schulung</New>}>Schulungen & Events</H>
+    <H action={me.app_role === 'buero' && <New onClick={() => setForm(!form)}>Neue Schulung</New>}>Schulungen & Events</H>
+    {form && <Box className="p-5 mb-6 grid grid-cols-[1fr_300px] gap-6">
+      <div className="space-y-3"><input value={f.title} onChange={x => setF({ ...f, title: x.target.value })} placeholder="Titel" className="w-full text-[18px] font-medium outline-none" />
+        <textarea value={f.description} onChange={x => setF({ ...f, description: x.target.value })} rows={4} placeholder="Beschreibung: Inhalt, was mitbringen, für wen" className="w-full resize-none outline-none text-[14px]" />
+        <div className="grid grid-cols-3 gap-2"><Field label="Datum"><input type="date" value={f.date} onChange={x => setF({ ...f, date: x.target.value })} className={inp} /></Field><Field label="Von"><input type="time" value={f.from} onChange={x => setF({ ...f, from: x.target.value })} className={inp} /></Field><Field label="Bis"><input type="time" value={f.to} onChange={x => setF({ ...f, to: x.target.value })} className={inp} /></Field></div>
+        <div className="grid grid-cols-2 gap-2"><Field label="Ort"><input value={f.place} onChange={x => setF({ ...f, place: x.target.value })} placeholder="Studio Basel 1" className={inp} /></Field><Field label="Meeting-Link (optional)"><input value={f.link} onChange={x => setF({ ...f, link: x.target.value })} placeholder="https://…" className={inp} /></Field></div>
+      </div>
+      <div className="space-y-3 text-[14px]">
+        <Field label="Art"><select value={f.kind} onChange={x => setF({ ...f, kind: x.target.value })} className={inp}>{['Schulung', 'Meeting', 'Team'].map(k => <option key={k}>{k}</option>)}</select></Field>
+        <div className="grid grid-cols-2 gap-2"><Field label="Max. Plätze"><input type="number" min={1} value={f.capacity} onChange={x => setF({ ...f, capacity: x.target.value })} placeholder="unbegrenzt" className={inp} /></Field><Field label="Anmeldung bis"><input type="date" value={f.until} onChange={x => setF({ ...f, until: x.target.value })} className={inp} /></Field></div>
+        <Field label="Studios"><div className="flex flex-wrap gap-1.5">{branches.filter(b => !b.is_office).map(b => <button key={b.id} onClick={() => tog('branches', b.id)} className={`px-2.5 h-7 rounded-full text-[12px] ${f.branches.includes(b.id) ? 'bg-ink text-white' : 'bg-sage-50'}`}>{b.name}</button>)}</div></Field>
+        <Field label="Skills (Zielgruppe)"><div className="flex flex-wrap gap-1.5">{skillCatalog.map(s => <button key={s} onClick={() => tog('skills', s)} className={`px-2.5 h-7 rounded-full text-[12px] ${f.skills.includes(s) ? 'bg-ink text-white' : 'bg-sage-50'}`}>{s}</button>)}</div></Field>
+        <Err m={err} /><button onClick={save} className="w-full h-10 rounded-xl bg-ink text-white">Anlegen</button>
+      </div>
+    </Box>}
     <div className="grid grid-cols-[1fr_320px] gap-4">
       <Box><table className="w-full text-[14px]"><thead><tr><Th>Termin</Th><Th>Datum</Th><Th>Zielgruppe</Th><Th>Plätze</Th></tr></thead>
-        <tbody className="divide-y divide-sage-50">{EVENTS.map(x => <tr key={x.id} onClick={() => setSel(x.id)} className={`cursor-pointer ${sel === x.id ? 'bg-sage-50' : ''}`}><td className="px-4 py-3">{x.title}<p className="text-xs text-mute">{x.deadline}</p></td><td className="px-4 text-mute">{x.date}, {x.time}</td><td className="px-4 text-mute">{x.audience}</td><td className="px-4 text-mute">{x.taken + (joined.has(x.id) ? 1 : 0)}/{x.seats}</td></tr>)}</tbody></table></Box>
-      <Box className="p-4"><p className="font-medium">{e.title}</p><p className="text-xs text-mute mt-1">{people.length} Anmeldungen · {e.place}</p>
-        <div className="mt-3 divide-y divide-sage-50">{people.map(p => <p key={p} className="py-2 text-[13px]">{p}</p>)}</div>
-        <button className="mt-4 w-full h-10 rounded-xl border border-sage-200 text-[14px]">Erinnerung an Zielgruppe senden</button></Box>
+        <tbody className="divide-y divide-sage-50">{events.map(x => <tr key={x.id} onClick={() => setSel(x.id)} className={`cursor-pointer ${sel === x.id ? 'bg-sage-50' : ''}`}><td className="px-4 py-3">{x.title}<p className="text-xs text-mute">{x.registerUntil ? `Anmeldung bis ${fmtDate(x.registerUntil, { day: '2-digit', month: '2-digit' })}` : x.kind}</p></td>
+          <td className="px-4 text-mute">{fmtDate(x.startsAt)}, {fmtTime(x.startsAt)}{x.endsAt ? `–${fmtTime(x.endsAt)}` : ''}</td>
+          <td className="px-4 text-mute">{[...x.audienceBranches.map(id => branches.find(b => b.id === id)?.name), ...x.audienceSkills].filter(Boolean).join(', ') || 'Alle'}</td>
+          <td className="px-4 text-mute">{x.taken}{x.capacity ? `/${x.capacity}` : ''}</td></tr>)}</tbody></table></Box>
+      {e && <Box className="p-4"><p className="font-medium">{e.title}</p><p className="text-xs text-mute mt-1">{e.taken} Anmeldungen · {e.link ? 'Online' : e.place}</p>
+        {e.description && <p className="mt-2 text-[13px]">{e.description}</p>}
+        <div className="mt-3 divide-y divide-sage-50">{people.length === 0 && <p className="py-2 text-[13px] text-mute">{me.app_role === 'buero' ? 'Noch niemand angemeldet.' : 'Aus deiner Filiale noch niemand angemeldet.'}</p>}{people.map(p => <p key={p!.id} className="py-2 text-[13px]">{p!.first} {p!.last} <span className="text-mute">· {p!.branch}</span></p>)}</div>
+        <button disabled title="Braucht den eigenen Mailversand (Resend)" className="mt-4 w-full h-10 rounded-xl border border-sage-200 text-[14px] text-mute">Erinnerung per E-Mail · folgt mit Mailversand</button>
+        {me.app_role === 'buero' && <button onClick={async () => { if (confirm('Diesen Termin löschen? Anmeldungen gehen verloren.')) { await supabase!.from('events').delete().eq('id', e.id); setSel(null); await reload() } }} className="mt-3 text-[13px] text-mute flex items-center gap-1"><Trash2 size={13} />Löschen</button>}
+      </Box>}
     </div>
   </>)
 }
 
+/* ---------- Team & Skills ---------- */
 function TeamAdmin() {
-  const [q, setQ] = useState(''), [b, setB] = useState('Alle')
-  const list = STAFF.filter(s => (b === 'Alle' || s.branch === b) && `${s.first} ${s.last} ${s.role} ${s.skills.join(' ')}`.toLowerCase().includes(q.toLowerCase()))
+  const { staff, branches, skillCatalog, reload } = useApp()
+  const [q, setQ] = useState(''), [b, setB] = useState('Alle'), [form, setForm] = useState(false), [skill, setSkill] = useState(''), [err, setErr] = useState(''), [busy, setBusy] = useState(false)
+  const [f, setF] = useState({ first_name: '', last_name: '', email: '', job_title: 'Kosmetikerin', app_role: 'mitarbeiterin', branch_id: 'basel-1' })
+  const list = useMemo(() => staff.filter(s => (b === 'Alle' || s.branch === b) && `${s.first} ${s.last} ${s.role} ${s.skills.join(' ')}`.toLowerCase().includes(q.toLowerCase())), [staff, q, b])
+  const call = async (body: Record<string, unknown>) => { const { data, error } = await supabase!.functions.invoke('admin-employee', { body }); return error ? { ok: false, error: 'failed' } : data }
+  const create = async () => {
+    setBusy(true); setErr('')
+    const r = await call({ action: 'create', ...f })
+    setBusy(false)
+    if (!r?.ok) { setErr(r?.error === 'exists' ? 'Diese E-Mail gibt es schon.' : r?.error === 'missing_fields' ? 'Vorname, Nachname, E-Mail und Studio sind nötig.' : 'Anlegen hat nicht geklappt.'); return }
+    setForm(false); setF({ ...f, first_name: '', last_name: '', email: '' }); await reload()
+  }
   return (<>
-    <H action={<New>Person anlegen</New>}>Team & Skills</H>
+    <H action={<New onClick={() => setForm(!form)}>Person anlegen</New>}>Team & Skills</H>
+    {form && <Box className="p-5 mb-6"><div className="grid grid-cols-3 gap-3">
+      <Field label="Vorname"><input value={f.first_name} onChange={e => setF({ ...f, first_name: e.target.value })} className={inp} /></Field>
+      <Field label="Nachname"><input value={f.last_name} onChange={e => setF({ ...f, last_name: e.target.value })} className={inp} /></Field>
+      <Field label="Firmen-Mail"><input value={f.email} onChange={e => setF({ ...f, email: e.target.value })} placeholder="vorname@beautylounge.ch" className={inp} /></Field>
+      <Field label="Funktion"><input value={f.job_title} onChange={e => setF({ ...f, job_title: e.target.value })} className={inp} /></Field>
+      <Field label="Rechte"><select value={f.app_role} onChange={e => setF({ ...f, app_role: e.target.value })} className={inp}><option value="mitarbeiterin">Mitarbeiterin</option><option value="filialleitung">Filialleitung</option><option value="buero">Büro</option></select></Field>
+      <Field label="Studio"><select value={f.branch_id} onChange={e => setF({ ...f, branch_id: e.target.value })} className={inp}>{branches.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}</select></Field>
+    </div><div className="mt-4 flex items-center gap-3"><button disabled={busy} onClick={create} className="h-10 px-5 rounded-xl bg-ink text-white disabled:opacity-60">Anlegen</button><Err m={err} /><p className="text-xs text-mute">Es geht keine Einladung raus. Anmelden kann sie sich mit ihrer Firmen-Mail.</p></div></Box>}
     <div className="flex gap-3 mb-4"><div className="h-10 flex-1 rounded-xl border border-sage-200 px-3 flex items-center gap-2"><Search size={16} className="text-mute" /><input value={q} onChange={e => setQ(e.target.value)} placeholder="Name, Rolle oder Skill" className="flex-1 outline-none text-[14px]" /></div>
-      <select value={b} onChange={e => setB(e.target.value)} className="h-10 rounded-xl border border-sage-200 px-3 text-[14px] bg-white">{['Alle', ...BRANCHES].map(x => <option key={x}>{x}</option>)}</select></div>
+      <select value={b} onChange={e => setB(e.target.value)} className="h-10 rounded-xl border border-sage-200 px-3 text-[14px] bg-white">{['Alle', ...branches.map(x => x.name)].map(x => <option key={x}>{x}</option>)}</select></div>
     <div className="grid grid-cols-[1fr_260px] gap-4">
-      <Box><table className="w-full text-[14px]"><thead><tr><Th>Name</Th><Th>Rolle</Th><Th>Studio</Th><Th>Skills</Th></tr></thead>
-        <tbody className="divide-y divide-sage-50">{list.map(s => <tr key={s.id}><td className="px-4 py-2.5">{s.first} {s.last}</td><td className="px-4 text-mute">{s.role}</td><td className="px-4 text-mute">{s.branch}</td><td className="px-4 text-mute text-[13px]">{s.skills.join(', ')}</td></tr>)}</tbody></table></Box>
-      <Box className="p-4 self-start"><p className="font-medium">Skill-Katalog</p><p className="text-xs text-mute mt-1">Mitarbeiterinnen wählen daraus.</p><div className="mt-3 flex flex-wrap gap-1.5">{SKILL_CATALOG.map(k => <span key={k} className="px-2.5 h-7 rounded-full bg-sage-50 text-[12px] flex items-center">{k}</span>)}</div></Box>
+      <Box><table className="w-full text-[14px]"><thead><tr><Th>Name</Th><Th>Funktion</Th><Th>Studio</Th><Th>Skills</Th><Th> </Th></tr></thead>
+        <tbody className="divide-y divide-sage-50">{list.map(s => <tr key={s.id} className={s.active ? '' : 'opacity-50'}><td className="px-4 py-2.5">{s.first} {s.last}</td><td className="px-4 text-mute">{s.role}</td><td className="px-4 text-mute">{s.branch}</td><td className="px-4 text-mute text-[13px]">{s.skills.join(', ')}</td>
+          <td className="px-2"><button onClick={async () => { if (confirm(s.active ? `${s.first} ${s.last} deaktivieren? Sie kann sich dann nicht mehr anmelden.` : `${s.first} ${s.last} wieder aktivieren?`)) { await call({ action: 'set_active', employee_id: s.id, active: !s.active }); await reload() } }} className="text-xs text-mute underline">{s.active ? 'deaktivieren' : 'aktivieren'}</button></td></tr>)}</tbody></table></Box>
+      <Box className="p-4 self-start"><p className="font-medium">Skill-Katalog</p><p className="text-xs text-mute mt-1">Mitarbeiterinnen wählen daraus.</p>
+        <div className="mt-3 flex flex-wrap gap-1.5">{skillCatalog.map(k => <span key={k} className="px-2.5 h-7 rounded-full bg-sage-50 text-[12px] flex items-center gap-1">{k}<button onClick={async () => { await supabase!.from('skills').delete().eq('name', k); await reload() }} className="text-mute"><X size={11} /></button></span>)}</div>
+        <div className="mt-3 flex gap-2"><input value={skill} onChange={e => setSkill(e.target.value)} placeholder="Neuer Skill" className={inp} /><button onClick={async () => { if (skill.trim()) { await supabase!.from('skills').insert({ name: skill.trim(), sort: skillCatalog.length }); setSkill(''); await reload() } }} className="h-10 px-3 rounded-xl bg-ink text-white"><Plus size={15} /></button></div></Box>
     </div>
   </>)
 }
 
+/* ---------- Wissen ---------- */
 function WikiAdmin() {
+  const { wiki, steps, reload } = useApp()
+  const own = wiki.filter(a => !a.fromNews)
+  const [edit, setEdit] = useState<null | { id?: string; category: string; title: string; body: string; minutes: number; media_kind: string; media_url: string; published: boolean }>(null)
+  const [err, setErr] = useState('')
+  const file = useRef<HTMLInputElement>(null)
+  const save = async () => {
+    if (!edit || !edit.title.trim() || !edit.category.trim()) { setErr('Titel und Kategorie sind nötig.'); return }
+    const row = { category: edit.category.trim(), title: edit.title.trim(), body: edit.body.trim(), minutes: edit.minutes, media_kind: edit.media_kind, media_url: edit.media_url || null, published: edit.published, updated_at: new Date().toISOString() }
+    const { error } = edit.id ? await supabase!.from('wiki_articles').update(row).eq('id', edit.id) : await supabase!.from('wiki_articles').insert({ ...row, sort: own.length })
+    if (error) { setErr('Speichern hat nicht geklappt.'); return }
+    setEdit(null); setErr(''); await reload()
+  }
+  const upload = async (f: File) => {
+    const path = `wiki/${Date.now()}-${f.name.replace(/[^\w.-]/g, '_')}`
+    const { error } = await supabase!.storage.from('media').upload(path, f, { contentType: f.type })
+    if (!error && edit) setEdit({ ...edit, media_url: path, media_kind: f.type.startsWith('video') ? 'video' : 'photo' })
+  }
   return (<>
-    <H action={<New>Neuer Artikel</New>}>Wissen</H>
-    <Box><table className="w-full text-[14px]"><thead><tr><Th>Artikel</Th><Th>Kategorie</Th><Th>Medien</Th><Th>Aktualisiert</Th></tr></thead>
-      <tbody className="divide-y divide-sage-50">{WIKI.map(a => <tr key={a.id}><td className="px-4 py-3">{a.title}</td><td className="px-4 text-mute">{a.cat}</td><td className="px-4 text-mute">{a.video ? 'Video' : 'Foto'}</td><td className="px-4 text-mute">{a.updated}</td></tr>)}</tbody></table></Box>
-    <p className="mt-3 text-xs text-mute">Artikel in Deutsch, Englisch und Französisch. Benni beantwortet Fragen nur aus freigegebenen Artikeln.</p>
+    <H action={<New onClick={() => setEdit({ category: '', title: '', body: '', minutes: 3, media_kind: 'none', media_url: '', published: true })}>Neuer Artikel</New>}>Wissen</H>
+    {edit && <Box className="p-5 mb-6 grid grid-cols-[1fr_260px] gap-6">
+      <div className="space-y-3"><input value={edit.title} onChange={e => setEdit({ ...edit, title: e.target.value })} placeholder="Titel" className="w-full text-[18px] font-medium outline-none" />
+        <textarea value={edit.body} onChange={e => setEdit({ ...edit, body: e.target.value })} rows={10} placeholder="Text. Absätze mit einer Leerzeile trennen, Schritte als 1., 2., 3." className="w-full resize-none outline-none text-[14px]" /></div>
+      <div className="space-y-3 text-[14px]">
+        <Field label="Kategorie"><input value={edit.category} onChange={e => setEdit({ ...edit, category: e.target.value })} list="wiki-cats" placeholder="z. B. Hygiene" className={inp} /><datalist id="wiki-cats">{[...new Set(own.map(a => a.cat))].map(c => <option key={c} value={c} />)}</datalist></Field>
+        <Field label="Lesezeit (Min.)"><input type="number" min={1} value={edit.minutes} onChange={e => setEdit({ ...edit, minutes: Number(e.target.value) })} className={inp} /></Field>
+        <Field label="Medien"><select value={edit.media_kind} onChange={e => setEdit({ ...edit, media_kind: e.target.value })} className={inp}><option value="none">Keine</option><option value="photo">Foto</option><option value="video">Internes Video</option><option value="youtube">YouTube</option></select></Field>
+        {edit.media_kind === 'youtube' && <Field label="YouTube-Link"><input value={edit.media_url} onChange={e => setEdit({ ...edit, media_url: e.target.value })} placeholder="https://youtu.be/…" className={inp} /></Field>}
+        {(edit.media_kind === 'photo' || edit.media_kind === 'video') && <><button onClick={() => file.current?.click()} className="w-full h-10 rounded-xl border border-sage-200">{edit.media_url ? 'Datei ersetzen' : 'Datei hochladen'}</button><input ref={file} type="file" accept="image/*,video/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) upload(f) }} />{edit.media_url && <p className="text-[11px] text-mute truncate">{edit.media_url}</p>}</>}
+        <label className="flex items-center gap-2"><input type="checkbox" checked={edit.published} onChange={e => setEdit({ ...edit, published: e.target.checked })} />Freigegeben (für alle sichtbar)</label>
+        <Err m={err} /><div className="flex gap-2"><button onClick={save} className="flex-1 h-10 rounded-xl bg-ink text-white">Speichern</button><button onClick={() => setEdit(null)} className="h-10 px-3 rounded-xl border border-sage-200">Abbrechen</button></div>
+      </div>
+    </Box>}
+    <Box><table className="w-full text-[14px]"><thead><tr><Th>Artikel</Th><Th>Kategorie</Th><Th>Medien</Th><Th>Aktualisiert</Th><Th>Status</Th></tr></thead>
+      <tbody className="divide-y divide-sage-50">{own.map(a => <tr key={a.id} onClick={() => setEdit({ id: a.id, category: a.cat, title: a.title, body: a.body.join('\n\n'), minutes: a.minutes, media_kind: a.mediaKind, media_url: a.mediaUrl ?? '', published: a.published })} className="cursor-pointer hover:bg-sage-50"><td className="px-4 py-3">{a.title}</td><td className="px-4 text-mute">{a.cat}</td><td className="px-4 text-mute">{{ none: '–', photo: 'Foto', video: 'Video', youtube: 'YouTube' }[a.mediaKind] ?? '–'}</td><td className="px-4 text-mute">{a.updated}</td><td className="px-4 text-mute">{a.published ? 'freigegeben' : 'Entwurf'}</td></tr>)}</tbody></table></Box>
+    <p className="mt-3 text-xs text-mute">{ASSISTANT} beantwortet Fragen nur aus freigegebenen Artikeln. News mit Wissens-Kategorie erscheinen zusätzlich im Wissen. Onboarding: {steps.length} Schritte.</p>
   </>)
 }
 
-/* ---------- Benni im Backoffice ---------- */
-type M = { me: boolean; t: string; card?: ReactNode }
-function AdminChat({ onClose, onDraft, go }: { onClose: () => void; onDraft: (d: { title: string; body: string }) => void; go: (v: View) => void }) {
-  const { read, tickets, assign } = useApp()
+/* ---------- KI im Backoffice ---------- */
+type M = { me: boolean; t: string }
+function AdminChat({ onClose }: { onClose: () => void }) {
   const [msgs, setMsgs] = useState<M[]>([]), [v, setV] = useState(''), [busy, setBusy] = useState(false)
   const end = useRef<HTMLDivElement>(null)
-  const ideas = ['Schreib eine News zur neuen Hygieneregel', 'Wer hat die Hygienerichtlinie noch nicht bestätigt?', 'Welche Meldungen sind noch offen?', 'Wie ausgelastet ist Basel 1 heute?']
-  const answer = (q: string): M => {
-    const s = q.toLowerCase()
-    if (/news|schreib|entwurf/.test(s)) {
-      const d = { title: 'Neue Hygienerichtlinie ab 1. Oktober', body: 'Liebes Team, ab dem 1. Oktober desinfizieren wir Liegen und Kopfstützen nach jeder Behandlung, nicht mehr stündlich. Die Checkliste in euren Tagesaufgaben ist schon angepasst. Bitte lest die Richtlinie im Wissen und bestätigt kurz.' }
-      return { me: false, t: 'Hier ein Entwurf. Zielgruppe: alle Studios, mit Lesebestätigung.', card: <div className="mt-2 rounded-xl bg-sage-50 p-3"><p className="text-[13px] font-medium">{d.title}</p><p className="text-[13px] text-mute mt-1">{d.body}</p><button onClick={() => onDraft(d)} className="mt-2.5 h-8 px-3 rounded-full bg-ink text-white text-[12px]">Als Entwurf öffnen</button></div> }
-    }
-    if (/bestätigt|gelesen/.test(s)) {
-      const open = readers(1, read.has(1)).filter(x => !x.ok)
-      return { me: false, t: `${open.length} von ${STAFF.length} haben noch nicht bestätigt. Am meisten fehlen in ${['Basel 1', 'Oberwil'].join(' und ')}.`, card: <div className="mt-2 rounded-xl bg-sage-50 p-3 text-[13px]"><p>{open.slice(0, 6).map(x => `${x.s.first} ${x.s.last[0]}.`).join(', ')} …</p><button className="mt-2.5 h-8 px-3 rounded-full bg-ink text-white text-[12px]">Erinnerung an alle offenen senden</button></div> }
-    }
-    if (/meldung|offen|ticket/.test(s)) {
-      const open = tickets.filter(t => t.status !== 'Erledigt')
-      const neu = open.find(t => !t.assignee)
-      return { me: false, t: `${open.length} offen, davon ${open.filter(t => !t.assignee).length} ohne Zuständige.`, card: <div className="mt-2 rounded-xl bg-sage-50 divide-y divide-white text-[13px]">{open.map(t => <p key={t.id} className="px-3 py-2">{t.title} <span className="text-mute">· {t.branch} · {t.assignee ?? 'offen'}</span></p>)}{neu && <div className="px-3 py-2"><button onClick={() => { assign(neu.id, 'Facility'); go('tickets') }} className="h-8 px-3 rounded-full bg-ink text-white text-[12px]">„{neu.title.slice(0, 24)}…“ der Facility zuweisen</button></div>}</div> }
-    }
-    if (/auslast|basel|termin|heute/.test(s)) return { me: false, t: 'Basel 1 heute: 5 Mitarbeiterinnen im Dienst, 31 Termine, Auslastung 84 %. Freie Lücken: Alma 14:00–15:00, Gina ab 17:00.', card: <p className="mt-2 text-xs text-mute">Quelle: Phorest, Kundentermine Basel 1</p> }
-    return { me: false, t: 'Dazu habe ich keine Daten. Ich kann News entwerfen, Lesestatus prüfen, Meldungen zuweisen oder Termine aus Phorest auswerten.' }
+  const ideas = ['Wie lange wirkt das Desinfektionsmittel?', 'Wie entferne ich Shellac ohne Nagelschaden?']
+  const send = async (q = v) => {
+    if (!q.trim() || busy) return
+    setMsgs(m => [...m, { me: true, t: q }]); setV(''); setBusy(true)
+    const { data, error } = await supabase!.functions.invoke('assistant', { body: { message: q, history: msgs } })
+    setMsgs(m => [...m, { me: false, t: error || !data?.ok ? 'Gerade nicht erreichbar.' : data.text }]); setBusy(false)
+    setTimeout(() => end.current?.scrollIntoView({ behavior: 'smooth' }), 50)
   }
-  const send = (q = v) => { if (!q.trim() || busy) return; setMsgs(m => [...m, { me: true, t: q }]); setV(''); setBusy(true)
-    setTimeout(() => { setMsgs(m => [...m, answer(q)]); setBusy(false); setTimeout(() => end.current?.scrollIntoView({ behavior: 'smooth' }), 50) }, 700) }
   return (
     <aside className="w-[380px] shrink-0 border-l border-sage-100 flex flex-col bg-paper">
-      <div className="h-16 px-5 flex items-center justify-between border-b border-sage-100"><p className="font-medium flex items-center gap-2"><Sparkles size={17} />Benni</p><button onClick={onClose} className="w-8 h-8 rounded-lg hover:bg-sage-50 flex items-center justify-center"><X size={17} /></button></div>
+      <div className="h-16 px-5 flex items-center justify-between border-b border-sage-100"><p className="font-medium flex items-center gap-2"><Sparkles size={17} />{ASSISTANT}</p><button onClick={onClose} className="w-8 h-8 rounded-lg hover:bg-sage-50 flex items-center justify-center"><X size={17} /></button></div>
       <div className="flex-1 overflow-y-auto no-scrollbar p-5 space-y-3">
-        {msgs.length === 0 && <><p className="text-[14px] text-mute">Benni hat hier dieselben Zugriffe wie in der App, plus die Verwaltung: News, Lesestatus, Meldungen, Aufgaben und die Kundentermine aller Studios.</p>
+        {msgs.length === 0 && <><p className="text-[14px] text-mute">{ASSISTANT} beantwortet Fragen aus dem freigegebenen Wissen und kennt deinen Tag aus Phorest.</p>
           {ideas.map(i => <button key={i} onClick={() => send(i)} className="w-full text-left rounded-2xl bg-white px-4 py-3 text-[14px]">{i}</button>)}</>}
-        {msgs.map((m, i) => <div key={i} className={m.me ? 'flex justify-end' : ''}><div className={`max-w-[92%] rounded-[18px] px-4 py-3 text-[14px] leading-snug ${m.me ? 'bg-ink text-white' : 'bg-white'}`}>{m.t}{m.card}</div></div>)}
+        {msgs.map((m, i) => <div key={i} className={m.me ? 'flex justify-end' : ''}><div className={`max-w-[92%] rounded-[18px] px-4 py-3 text-[14px] leading-snug ${m.me ? 'bg-ink text-white' : 'bg-white'}`}>{m.t}</div></div>)}
         {busy && <div className="w-16 rounded-[18px] bg-white px-4 py-3 flex gap-1">{[0, 1, 2].map(i => <span key={i} className="w-1.5 h-1.5 rounded-full bg-sage-400 animate-pulse" />)}</div>}
         <div ref={end} />
       </div>
-      <div className="p-4 flex gap-2 border-t border-sage-100"><input value={v} onChange={e => setV(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} placeholder="Frag Benni …" className="flex-1 h-11 rounded-xl bg-white border border-sage-200 px-3 text-[14px] outline-none" /><button onClick={() => send()} className="w-11 h-11 rounded-xl bg-ink text-white flex items-center justify-center"><Send size={16} /></button></div>
+      <div className="p-4 flex gap-2 border-t border-sage-100"><input value={v} onChange={e => setV(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} placeholder={`Frag ${ASSISTANT} …`} className="flex-1 h-11 rounded-xl bg-white border border-sage-200 px-3 text-[14px] outline-none" /><button onClick={() => send()} className="w-11 h-11 rounded-xl bg-ink text-white flex items-center justify-center"><Send size={16} /></button></div>
     </aside>
   )
 }

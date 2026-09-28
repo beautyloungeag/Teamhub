@@ -1,21 +1,24 @@
-import { useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { motion } from 'motion/react'
 import {
   Home, ListChecks, BookOpen, LayoutGrid, Sparkles, ChevronLeft, ChevronRight, Check, Camera, MapPin, Users,
   Search, Lightbulb, AlertTriangle, CalendarDays, Inbox, Send, Newspaper, Plane, Play, Flag, Video,
-  ArrowUpRight, Reply, LogOut, GraduationCap, Link2, Lock,
+  ArrowUpRight, LogOut, GraduationCap, Link2, Lock,
 } from 'lucide-react'
 import { useAuth } from './lib/auth'
-import { useApp, type Lang } from './store'
-import { Terminbuch, EventCalendar, PRATTELN_TODAY } from './Calendar'
-import { STAFF, type Staff } from './staff'
-import { NEWS, TASKS, WIKI, INBOX, WEEK, TEAM_TODAY, ONBOARDING, SKILL_CATALOG, BRANCHES, type News, type WikiArticle, type Mail } from './data'
+import { supabase } from './lib/supabase'
+import { phorest, type MyDay, type TeamToday } from './lib/phorest'
+import { useApp, isoDay, type Lang, type News, type WikiArticle, type Staff } from './store'
+import { Terminbuch, EventCalendar } from './Calendar'
+
+// Name des KI-Reiters (im Vertrag „Marc Beau“, im abgestimmten Prototyp „Benni“)
+export const ASSISTANT = 'Benni'
 
 type Tab = 'home' | 'tasks' | 'ai' | 'wiki' | 'menu'
 type Sub = null | { k: 'news-list' } | { k: 'news'; item: News } | { k: 'wiki'; item: WikiArticle } | { k: 'onboarding' } | { k: 'team' } | { k: 'profile'; item: Staff }
-  | { k: 'me' } | { k: 'conn' } | { k: 'book' } | { k: 'tickets' } | { k: 'events' } | { k: 'inbox' } | { k: 'mail'; item: Mail } | { k: 'time' }
+  | { k: 'me' } | { k: 'conn' } | { k: 'book' } | { k: 'tickets' } | { k: 'events' } | { k: 'inbox' } | { k: 'time' }
 
-const ini = (s: Staff) => (s.first[0] + (s.last[0] ?? '')).toUpperCase()
+const ini = (s: { first: string; last: string }) => ((s.first[0] ?? '') + (s.last[0] ?? '')).toUpperCase()
 
 export default function Mobile() {
   const { signOut } = useAuth()
@@ -47,16 +50,17 @@ const Chips = ({ items, value, onChange }: { items: string[]; value: string; onC
     {items.map(x => <button key={x} onClick={() => onChange(x)} className={`shrink-0 px-3.5 h-8 rounded-full text-[13px] transition ${value === x ? 'bg-ink text-white' : 'bg-white text-ink'}`}>{x}</button>)}
   </div>
 )
-const Btn = ({ children, onClick, ghost }: { children: ReactNode; onClick?: () => void; ghost?: boolean }) =>
-  <button onClick={onClick} className={`w-full h-12 rounded-2xl font-medium flex items-center justify-center gap-2 ${ghost ? 'bg-white text-ink' : 'bg-ink text-white'}`}>{children}</button>
+const Btn = ({ children, onClick, ghost, disabled }: { children: ReactNode; onClick?: () => void; ghost?: boolean; disabled?: boolean }) =>
+  <button disabled={disabled} onClick={onClick} className={`w-full h-12 rounded-2xl font-medium flex items-center justify-center gap-2 disabled:opacity-60 ${ghost ? 'bg-white text-ink' : 'bg-ink text-white'}`}>{children}</button>
 const SearchBox = ({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder: string }) => (
   <div className="h-11 rounded-2xl bg-white px-3.5 flex items-center gap-2"><Search size={18} className="text-mute" />
     <input value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} className="flex-1 bg-transparent outline-none text-[15px] placeholder:text-mute" /></div>
 )
+const Empty = ({ children }: { children: ReactNode }) => <p className="px-4 py-4 text-[14px] text-mute">{children}</p>
 
 /* ---------- Shell ---------- */
 function Shell({ onLogout }: { onLogout: () => void }) {
-  const { t, read } = useApp()
+  const { t, read, news, loading } = useApp()
   const [tab, setTab] = useState<Tab>('home')
   const [stack, setStack] = useState<Sub[]>([])
   const sub = stack[stack.length - 1] ?? null
@@ -64,14 +68,14 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   const back = () => setStack(st => st.slice(0, -1))
   const go = (x: Tab) => { setStack([]); setTab(x) }
   const scroller = useRef<HTMLDivElement>(null)
-  const mustOpen = NEWS.filter(n => n.mustRead && !read.has(n.id)).length
+  const mustOpen = news.filter(n => n.mustRead && !read.has(n.id)).length
 
   let screen: ReactNode
   switch (sub?.k) {
     case 'news-list': screen = <NewsList open={open} />; break
     case 'news': screen = <NewsDetail n={sub.item} />; break
     case 'wiki': screen = <WikiDetail a={sub.item} />; break
-    case 'onboarding': screen = <Onboarding />; break
+    case 'onboarding': screen = <Onboarding open={open} />; break
     case 'team': screen = <Team open={open} />; break
     case 'profile': screen = <Profile s={sub.item} />; break
     case 'me': screen = <MyProfile />; break
@@ -79,23 +83,23 @@ function Shell({ onLogout }: { onLogout: () => void }) {
     case 'events': screen = <Events />; break
     case 'conn': screen = <Connections />; break
     case 'book': screen = <div className="px-5 pb-4 h-[calc(100dvh-150px)] md:h-[640px]"><h1 className="text-[26px] font-semibold tracking-tight mb-3">Kundentermine</h1><Terminbuch compact /></div>; break
-    case 'inbox': screen = <InboxView open={open} />; break
-    case 'mail': screen = <MailView m={sub.item} />; break
-    case 'time': screen = <TimeOff open={open} />; break
+    case 'inbox': screen = <NotConnected title="Posteingang" tool="dein Postfach" what="deine E-Mails" />; break
+    case 'time': screen = <NotConnected title="Zeit & Ferien" tool="Timebutler" what="deinen Resturlaub, deine Anträge und die Stempeluhr" />; break
     default:
       screen = tab === 'home' ? <Today open={open} go={go} /> : tab === 'tasks' ? <Tasks /> : tab === 'ai' ? <AI open={open} />
         : tab === 'wiki' ? <Wiki open={open} /> : <MenuView open={open} onLogout={onLogout} />
   }
-  const key = (sub ? sub.k + ('item' in sub ? JSON.stringify((sub.item as { id?: number; first?: string }).id) : '') : tab) + stack.length
+  const key = (sub ? sub.k + ('item' in sub ? String((sub.item as { id?: string }).id) : '') : tab) + stack.length
   const nav: [Tab, string, typeof Home][] = [['home', 'Heute', Home], ['tasks', 'Aufgaben', ListChecks], ['ai', 'KI', Sparkles], ['wiki', 'Wissen', BookOpen], ['menu', 'Menü', LayoutGrid]]
   return (
     <>
       <div ref={scroller} className="flex-1 overflow-y-auto no-scrollbar bg-sage-50/60">
         <div className="h-11" />
         {sub && <button onClick={back} className="px-4 pb-1 flex items-center gap-0.5 text-sage-800 text-[15px]"><ChevronLeft size={20} />{t('Zurück')}</button>}
-        <motion.div key={key} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }} className={tab === 'ai' && !sub ? 'h-[calc(100%-44px)]' : ''}>
-          {screen}
-        </motion.div>
+        {loading ? <p className="px-5 pt-10 text-mute">Lädt …</p> :
+          <motion.div key={key} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }} className={tab === 'ai' && !sub ? 'h-[calc(100%-44px)]' : ''}>
+            {screen}
+          </motion.div>}
       </div>
       <nav className="shrink-0 bg-white px-3 pb-7 pt-2 grid grid-cols-5 items-end">
         {nav.map(([x, label, Icon]) => {
@@ -118,28 +122,42 @@ function Shell({ onLogout }: { onLogout: () => void }) {
 }
 
 /* ---------- Heute ---------- */
+function useMyDay() {
+  const [day, setDay] = useState<MyDay | null>(null)
+  useEffect(() => { phorest<MyDay>({ action: 'my_day' }).then(setDay) }, [])
+  return day
+}
+function weekDays() {
+  const now = new Date(isoDay() + 'T12:00:00Z'), dow = (now.getUTCDay() + 6) % 7
+  return Array.from({ length: 7 }, (_, i) => { const d = new Date(now.getTime() + (i - dow) * 864e5); return { d: ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'][i], n: d.getUTCDate(), today: i === dow } })
+}
 function Today({ open, go }: { open: (s: Sub) => void; go: (t: Tab) => void }) {
-  const { me, t, done, read } = useApp()
-  const pct = Math.round((done.size / TASKS.length) * 100)
-  const next = TASKS.find(x => !done.has(x.id))
-  const must = NEWS.filter(n => n.mustRead && !read.has(n.id))
-  const isRespo = /Respo|Stv|Berufsbild/.test(me.role)
-  const myAppts = PRATTELN_TODAY[0].blocks.filter(b => b.client)
+  const { me, t, done, read, tasks, news } = useApp()
+  const day = useMyDay()
+  const [team, setTeam] = useState<TeamToday | null>(null)
+  const isLead = me.app_role === 'filialleitung'
+  useEffect(() => { if (isLead) phorest<TeamToday>({ action: 'team_today', branch: me.branch_id }).then(setTeam) }, [isLead, me.branch_id])
+  const pct = tasks.length ? Math.round((tasks.filter(x => done.has(x.id)).length / tasks.length) * 100) : 0
+  const next = tasks.find(x => !done.has(x.id))
+  const must = news.filter(n => n.mustRead && !read.has(n.id))
+  const shift = day?.shifts?.[0]
+  const dateLabel = new Intl.DateTimeFormat('de-CH', { timeZone: 'Europe/Zurich', weekday: 'long', day: 'numeric', month: 'long' }).format(new Date())
   return (
     <div className="px-5 pb-10">
       <div className="pt-3 pb-5 flex items-end justify-between">
-        <div><p className="text-[13px] text-mute">Freitag, 25. September</p><h1 className="text-[30px] font-semibold tracking-tight">{t('Hallo')} {me.first}</h1></div>
-        <button onClick={() => open({ k: 'me' })} className="w-11 h-11 rounded-full bg-sage-200 flex items-center justify-center text-sm font-medium text-sage-800">{ini(me)}</button>
+        <div><p className="text-[13px] text-mute">{dateLabel}</p><h1 className="text-[30px] font-semibold tracking-tight">{t('Hallo')} {me.first}</h1></div>
+        <button onClick={() => open({ k: 'me' })}><Avatar s={me} photo={me.photo} size="w-11 h-11" /></button>
       </div>
 
       <div className="rounded-[20px] bg-ink text-white p-5">
         <div className="flex justify-between">
-          <div><p className="text-xs text-white/55">{t('Deine Schicht heute')}</p><p className="text-[22px] font-medium mt-1">08:00 – 17:00</p>
+          <div><p className="text-xs text-white/55">{t('Deine Schicht heute')}</p>
+            <p className="text-[22px] font-medium mt-1">{!day ? '…' : shift ? `${shift.start} – ${shift.end}` : day.mapped ? 'Frei' : '–'}</p>
             <p className="text-xs text-white/55 mt-1.5 flex items-center gap-1"><MapPin size={12} />Studio {me.branch}</p></div>
-          <div className="text-right"><p className="text-4xl font-semibold leading-none">{myAppts.length}</p><p className="text-xs text-white/55 mt-1">{t('Termine')}</p></div>
+          <div className="text-right"><p className="text-4xl font-semibold leading-none">{day?.appointments?.length ?? '–'}</p><p className="text-xs text-white/55 mt-1">{t('Termine')}</p></div>
         </div>
         <div className="mt-4 grid grid-cols-7 gap-1">
-          {WEEK.map(d => <div key={d.n} className={`rounded-lg py-1.5 text-center ${d.n === 25 ? 'bg-white text-ink' : 'text-white/70'}`}><p className="text-[10px]">{d.d}</p><p className="text-[13px] font-medium">{d.n}</p></div>)}
+          {weekDays().map(d => <div key={d.n} className={`rounded-lg py-1.5 text-center ${d.today ? 'bg-white text-ink' : 'text-white/70'}`}><p className="text-[10px]">{d.d}</p><p className="text-[13px] font-medium">{d.n}</p></div>)}
         </div>
       </div>
 
@@ -153,45 +171,55 @@ function Today({ open, go }: { open: (s: Sub) => void; go: (t: Tab) => void }) {
 
       <Label action={<button onClick={() => go('tasks')} className="text-[13px] text-sage-800">{t('Alle')}</button>}>{t('Tagesaufgaben')}</Label>
       <Card onClick={() => go('tasks')} className="p-4">
-        <div className="flex justify-between text-sm"><span>{done.size} / {TASKS.length} {t('erledigt')}</span><span className="text-mute">{pct} %</span></div>
+        <div className="flex justify-between text-sm"><span>{tasks.filter(x => done.has(x.id)).length} / {tasks.length} {t('erledigt')}</span><span className="text-mute">{pct} %</span></div>
         <div className="mt-2.5 h-1.5 rounded-full bg-sage-100 overflow-hidden"><div className="h-full bg-sage-600 rounded-full transition-all" style={{ width: pct + '%' }} /></div>
-        {next && <p className="mt-3 text-[13px] text-mute">Als Nächstes: <span className="text-ink">{next.title}</span> · {next.time}</p>}
+        {next && <p className="mt-3 text-[13px] text-mute">Als Nächstes: <span className="text-ink">{next.title}</span>{next.time && ` · ${next.time}`}</p>}
       </Card>
 
       <Label action={<button onClick={() => open({ k: 'book' })} className="text-[13px] text-sage-800">Alle Kundentermine</button>}>{t('Mein Tag · aus Phorest')}</Label>
       <List>
-        {myAppts.map((a, i) => (
+        {!day && <Empty>Lädt aus Phorest …</Empty>}
+        {day && !day.ok && <Empty>Phorest ist gerade nicht erreichbar. Bitte später noch einmal öffnen.</Empty>}
+        {day?.ok && !day.mapped && <Empty>Du bist noch keiner Phorest-Spalte zugeordnet. Das Büro prüft deine Firmen-Mail in Phorest.</Empty>}
+        {day?.ok && day.mapped && day.appointments.length === 0 && <Empty>Heute keine Termine.</Empty>}
+        {day?.appointments?.map((a, i) => (
           <div key={i} className="flex gap-4 px-4 py-3">
-            <div className="w-11 shrink-0"><p className="text-[15px] font-medium">{hm(a.start)}</p><p className="text-xs text-mute">{hm(a.start + a.dur)}</p></div>
-            <div className="flex-1 border-l-[3px] pl-3" style={{ borderColor: a.color }}><p className="text-[15px]">{a.client}</p><p className="text-[13px] text-mute">{a.service}</p></div>
+            <div className="w-11 shrink-0"><p className="text-[15px] font-medium">{a.start}</p><p className="text-xs text-mute">{a.end}</p></div>
+            <div className="flex-1 border-l-[3px] border-sage-400 pl-3"><p className="text-[15px]">{a.client}</p><p className="text-[13px] text-mute">{a.service}</p></div>
           </div>
         ))}
       </List>
-      <p className="mt-2 px-1 text-[11px] text-mute">Aus Phorest · Spalte „Bea (D/SR)“, Pratteln · zugeordnet über bea@beautylounge.ch</p>
+      {day?.mapped && <p className="mt-2 px-1 text-[11px] text-mute">Aus Phorest · zugeordnet über {me.email}</p>}
 
-      {isRespo && <>
+      {isLead && <>
         <Label>{t('Heute im Studio')} · {me.branch}</Label>
-        <List>{TEAM_TODAY.map(p => <Row key={p.name} title={p.name} sub={`${p.shift} · ${p.appts} Termine`} right={<span />} />)}</List>
+        <List>
+          {!team && <Empty>Lädt …</Empty>}
+          {team && !team.ok && <Empty>Phorest ist gerade nicht erreichbar.</Empty>}
+          {team?.team?.map(p => <Row key={p.name + p.start} title={p.name} sub={`${p.start}–${p.end} · ${p.appointments} Termine`} right={<span />} />)}
+        </List>
       </>}
 
       <Label action={<button onClick={() => open({ k: 'news-list' })} className="text-[13px] text-sage-800">{t('Alle')}</button>}>{t('News')}</Label>
-      <List>{NEWS.filter(n => !n.mustRead).slice(0, 2).map(n => <Row key={n.id} title={n.title} sub={`${n.tag} · ${n.date}`} onClick={() => open({ k: 'news', item: n })} />)}</List>
+      <List>{news.filter(n => !n.mustRead).slice(0, 2).map(n => <Row key={n.id} title={n.title} sub={`${n.tag} · ${n.date}`} onClick={() => open({ k: 'news', item: n })} />)}
+        {news.filter(n => !n.mustRead).length === 0 && <Empty>Keine News.</Empty>}</List>
     </div>
   )
 }
 
 /* ---------- News ---------- */
 function NewsList({ open }: { open: (s: Sub) => void }) {
-  const { read, t } = useApp()
+  const { read, t, news } = useApp()
   const [f, setF] = useState('Alle')
+  const tags = ['Alle', ...new Set(news.map(n => n.tag))]
   return (
     <div className="pb-10"><Title>{t('News')}</Title>
-      <div className="px-5"><Chips items={['Alle', 'Pflicht', 'Studio', 'Marketing', 'Team']} value={f} onChange={setF} />
+      <div className="px-5"><Chips items={tags} value={f} onChange={setF} />
         <div className="mt-4 space-y-3">
-          {NEWS.filter(n => f === 'Alle' || n.tag === f).map(n => (
+          {news.filter(n => f === 'Alle' || n.tag === f).map(n => (
             <Card key={n.id} onClick={() => open({ k: 'news', item: n })} className="p-4">
               <div className="flex items-center gap-2 text-xs text-mute">
-                <span className={n.mustRead ? 'text-[#C0634B] font-medium' : 'text-sage-800'}>{n.tag}</span>·<span>{n.date}</span>·<span>{n.audience}</span>
+                <span className={n.mustRead ? 'text-[#C0634B] font-medium' : 'text-sage-800'}>{n.tag}</span>·<span>{n.date}</span>·<span className="truncate">{n.audience}</span>
                 {n.mustRead && (read.has(n.id) ? <span className="ml-auto flex items-center gap-1 text-sage-800"><Check size={12} />bestätigt</span> : <span className="ml-auto w-2 h-2 rounded-full bg-[#C0634B]" />)}
               </div>
               <p className="mt-1.5 text-[16px] font-medium leading-snug">{n.title}</p><p className="mt-1 text-[14px] text-mute leading-snug">{n.teaser}</p>
@@ -203,17 +231,20 @@ function NewsList({ open }: { open: (s: Sub) => void }) {
   )
 }
 function NewsDetail({ n }: { n: News }) {
-  const { read, confirm, t } = useApp()
+  const { read, confirm, openNews, t } = useApp()
+  const [busy, setBusy] = useState(false)
+  // „Gelesen & verstanden“ geht erst, nachdem die News geöffnet wurde — das Öffnen wird hier gespeichert.
+  useEffect(() => { openNews(n.id) }, [n.id]) // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <article className="px-5 pb-10">
       <p className="text-xs text-mute mt-3">{n.tag} · {n.audience} · {n.date}</p>
       <h1 className="mt-2 text-[26px] font-semibold tracking-tight leading-tight">{n.title}</h1>
       <p className="mt-2 text-[13px] text-mute">von {n.author}</p>
       <div className="mt-5 space-y-4 text-[16px] leading-relaxed">{n.body.split('\n\n').map((p, i) => <p key={i}>{p}</p>)}</div>
-      {n.toWiki && <p className="mt-4 text-[13px] text-sage-800 flex items-center gap-1"><BookOpen size={14} />Auch im Wissen unter Hygiene abgelegt</p>}
+      {n.wikiCategory && <p className="mt-4 text-[13px] text-sage-800 flex items-center gap-1"><BookOpen size={14} />Auch im Wissen unter {n.wikiCategory} abgelegt</p>}
       {n.mustRead && <div className="mt-8">
         {read.has(n.id) ? <div className="h-12 rounded-2xl bg-sage-100 text-sage-800 flex items-center justify-center gap-2 font-medium"><Check size={18} />Gelesen und bestätigt</div>
-          : <Btn onClick={() => confirm(n.id)}>{t('Gelesen und verstanden')}</Btn>}
+          : <Btn disabled={busy} onClick={async () => { setBusy(true); await confirm(n.id); setBusy(false) }}>{t('Gelesen und verstanden')}</Btn>}
       </div>}
     </article>
   )
@@ -221,22 +252,26 @@ function NewsDetail({ n }: { n: News }) {
 
 /* ---------- Aufgaben ---------- */
 function Tasks() {
-  const { me, done, toggle, t } = useApp()
-  const groups = [...new Set(TASKS.map(x => x.group))]
-  const [photoFor, setPhotoFor] = useState<number | null>(null)
+  const { me, done, toggle, t, tasks } = useApp()
+  const groups = [...new Set(tasks.map(x => x.group))]
+  const [photoFor, setPhotoFor] = useState<string | null>(null)
+  const [busy, setBusy] = useState<string | null>(null)
+  const file = useRef<HTMLInputElement>(null)
+  const run = async (id: string, f?: File) => { setBusy(id); await toggle(id, f); setBusy(null) }
   return (
     <div className="pb-10"><Title sub={`Studio ${me.branch} · heute`}>{t('Aufgaben')}</Title>
       <div className="px-5">
+        {tasks.length === 0 && <Card className="p-4 text-[14px] text-mute">Für dein Studio sind heute keine Aufgaben hinterlegt.</Card>}
         {groups.map(g => <div key={g}><Label>{g}</Label>
-          <List>{TASKS.filter(x => x.group === g).map(x => {
+          <List>{tasks.filter(x => x.group === g).map(x => {
             const d = done.get(x.id)
             return (
               <div key={x.id} className="flex items-center gap-3 px-4 py-3.5">
-                <button onClick={() => x.proof && !d ? setPhotoFor(x.id) : toggle(x.id)} className={`w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 transition ${d ? 'bg-sage-600 border-sage-600' : 'border-sage-200'}`}>{d && <Check size={14} className="text-white" strokeWidth={3} />}</button>
+                <button disabled={busy === x.id} onClick={() => x.proof && !d ? setPhotoFor(x.id) : run(x.id)} className={`w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 transition ${d ? 'bg-sage-600 border-sage-600' : 'border-sage-200'} ${busy === x.id ? 'opacity-50' : ''}`}>{d && <Check size={14} className="text-white" strokeWidth={3} />}</button>
                 <div className="flex-1 min-w-0">
                   <p className={`text-[15px] ${d ? 'text-mute line-through' : ''}`}>{x.title}</p>
                   <p className="text-xs text-mute mt-0.5 flex items-center gap-2">
-                    {d ? <>{me.first} · {d}</> : <>{x.time}</>}
+                    {d ? <>{d.by} · {d.at}</> : <>{x.time}</>}
                     {x.prio && !d && <span className="text-[#C0634B]">Wichtig</span>}
                     {x.proof && <span className="flex items-center gap-0.5"><Camera size={12} />Foto</span>}
                   </p>
@@ -246,10 +281,11 @@ function Tasks() {
           })}</List></div>)}
         <p className="mt-5 text-xs text-mute">Vorlagen, Wiederholungen und Fotonachweise legt das Büro fest. Jeden Morgen neu, alte Nachweise bleiben gespeichert.</p>
       </div>
+      <input ref={file} type="file" accept="image/*" capture="environment" className="hidden" onChange={async e => { const f = e.target.files?.[0]; const id = photoFor; e.target.value = ''; if (f && id) { setPhotoFor(null); await run(id, f) } }} />
       {photoFor && <Sheet onClose={() => setPhotoFor(null)}>
         <p className="font-medium text-[17px]">Foto als Nachweis</p>
-        <div className="mt-4 aspect-[4/3] rounded-2xl bg-sage-100 flex items-center justify-center text-sage-800"><Camera size={32} /></div>
-        <div className="mt-4"><Btn onClick={() => { toggle(photoFor); setPhotoFor(null) }}>Foto aufnehmen und abhaken</Btn></div>
+        <p className="mt-1 text-[14px] text-mute">Das Foto wird mit deinem Namen und der Uhrzeit gespeichert.</p>
+        <div className="mt-4"><Btn onClick={() => file.current?.click()}><Camera size={18} />Foto aufnehmen und abhaken</Btn></div>
       </Sheet>}
     </div>
   )
@@ -263,34 +299,23 @@ function Sheet({ children, onClose }: { children: ReactNode; onClose: () => void
   )
 }
 
-/* ---------- KI (Benni) ---------- */
-type Msg = { me: boolean; t: string; card?: ReactNode }
+/* ---------- KI ---------- */
+type Msg = { me: boolean; t: string; sources?: { id: string; title: string }[]; ticket?: { kind: 'Meldung' | 'Idee'; title: string } }
 function AI({ open }: { open: (s: Sub) => void }) {
-  const { me, addTicket, tickets } = useApp()
+  const { me, addTicket, wiki } = useApp()
   const [msgs, setMsgs] = useState<Msg[]>([])
   const [v, setV] = useState('')
   const [busy, setBusy] = useState(false)
   const end = useRef<HTMLDivElement>(null)
-  const ideas = ['Wer ist morgen in Reinach im Dienst?', 'Fasse die Kundenhistorie von Rita M. zusammen', 'Wie lange wirkt das Desinfektionsmittel?', 'Das Wachsgerät in Kabine 3 ist kaputt', 'Wie viele Ferientage habe ich noch?']
-
-  const answer = (q: string): Msg => {
-    const s = q.toLowerCase()
-    if (/kaputt|defekt|funktioniert nicht|geht nicht/.test(s)) {
-      const title = q.replace(/^(das|der|die)\s/i, '')
-      return { me: false, t: 'Das kann ich nicht selbst lösen. Soll ich eine Meldung an die Facility erstellen?', card: <TicketDraft title={title} onSend={() => addTicket({ kind: 'Meldung', title, branch: me.branch, who: `${me.first} ${me.last[0]}.`, viaAI: true, photo: false })} /> }
-    }
-    if (/historie|kundin|kunde|notiz/.test(s)) return { me: false, t: 'Rita M., Kundin seit 2023, 14 Besuche. Kommt alle 5–6 Wochen zur Gesichtsbehandlung Classic, zuletzt am 14.08. bei Alma. Notiz: empfindliche Haut, keine Fruchtsäure. Hat zweimal Pflegeprodukte gekauft.', card: <Src>Quelle: Phorest, Kundenkartei</Src> }
-    if (/dienst|morgen|frei|schicht|wer/.test(s)) return { me: false, t: 'Morgen, Samstag, sind in Reinach im Dienst:', card: <MiniList rows={[['Xenia R.', '09:00–15:00 · 6 Termine'], ['Mila F.', '09:00–13:00 · 3 Termine']]} src="Phorest, Dienstplan Reinach" /> }
-    if (/ferien|urlaub|ferientag/.test(s)) return { me: false, t: 'Du hast noch 9 Ferientage für 2026. Beantragt sind 2 Tage im Oktober (15.–16.10.), noch nicht bestätigt.', card: <Src>Quelle: Timebutler</Src> }
-    if (/desinf|hygiene|lash|wachs|wie/.test(s)) return { me: false, t: 'Laut Hygienerichtlinie 60 Sekunden einwirken lassen, danach mit einem frischen Tuch nachwischen und eine neue Auflage auflegen.', card: <button onClick={() => open({ k: 'wiki', item: WIKI[0] })} className="mt-2 text-[13px] text-sage-800 flex items-center gap-1"><BookOpen size={14} />Desinfektion nach jeder Behandlung<ArrowUpRight size={13} /></button> }
-    return { me: false, t: 'Dazu finde ich nichts im Wissen. Ich kann dir eine Frage ans Büro als Idee oder Meldung weiterleiten.' }
-  }
-  const send = (q = v) => {
-    if (!q.trim() || busy) return
+  const ideas = ['Was steht heute bei mir an?', 'Wie lange wirkt das Desinfektionsmittel?', 'Das Wachsgerät in Kabine 3 ist kaputt', 'Wie entferne ich Shellac ohne Nagelschaden?']
+  const send = async (q = v) => {
+    if (!q.trim() || busy || !supabase) return
+    const history = msgs
     setMsgs(m => [...m, { me: true, t: q }]); setV(''); setBusy(true)
-    setTimeout(() => { setMsgs(m => [...m, answer(q)]); setBusy(false); setTimeout(() => end.current?.scrollIntoView({ behavior: 'smooth' }), 50) }, 700)
+    const { data, error } = await supabase.functions.invoke('assistant', { body: { message: q, history } })
+    setMsgs(m => [...m, error || !data?.ok ? { me: false, t: 'Ich bin gerade nicht erreichbar. Bitte versuche es gleich noch einmal.' } : { me: false, t: data.text, sources: data.sources, ticket: data.ticket }])
+    setBusy(false); setTimeout(() => end.current?.scrollIntoView({ behavior: 'smooth' }), 50)
   }
-  const sentFromAI = tickets.filter(x => x.viaAI).length
   return (
     <div className="flex flex-col h-full">
       <div className="flex-1 px-5">
@@ -298,91 +323,95 @@ function AI({ open }: { open: (s: Sub) => void }) {
           <div className="pt-6">
             <div className="w-14 h-14 rounded-2xl bg-ink text-white flex items-center justify-center"><Sparkles size={26} /></div>
             <h1 className="mt-5 text-[28px] font-semibold tracking-tight leading-tight">Hallo {me.first},<br />wie kann ich helfen?</h1>
-            <p className="mt-2 text-[14px] text-mute">Benni kennt eure Termine und Dienstpläne aus Phorest, das Wissen, den Kalender und Timebutler. Was er nicht lösen kann, gibt er als Meldung weiter.</p>
+            <p className="mt-2 text-[14px] text-mute">{ASSISTANT} kennt das Wissen und deinen Tag aus Phorest. Was er nicht lösen kann, gibt er als Meldung weiter.</p>
             <div className="mt-6 space-y-2">{ideas.map(i => <button key={i} onClick={() => send(i)} className="w-full text-left rounded-2xl bg-white px-4 py-3 text-[14px]">{i}</button>)}</div>
           </div>
         ) : (
           <div className="pt-3 space-y-3 pb-4">
             {msgs.map((m, i) => (
               <div key={i} className={m.me ? 'flex justify-end' : ''}>
-                <div className={`max-w-[88%] rounded-[20px] px-4 py-3 text-[15px] leading-snug ${m.me ? 'bg-ink text-white' : 'bg-white'}`}>{m.t}{m.card}</div>
+                <div className={`max-w-[88%] rounded-[20px] px-4 py-3 text-[15px] leading-snug ${m.me ? 'bg-ink text-white' : 'bg-white'}`}>{m.t}
+                  {m.sources?.map(s => { const a = wiki.find(x => x.id === s.id); return a && <button key={s.id} onClick={() => open({ k: 'wiki', item: a })} className="mt-2 text-[13px] text-sage-800 flex items-center gap-1"><BookOpen size={14} />{s.title}<ArrowUpRight size={13} /></button> })}
+                  {m.ticket && <TicketDraft kind={m.ticket.kind} title={m.ticket.title} onSend={() => addTicket({ kind: m.ticket!.kind, title: m.ticket!.title, viaAI: true })} />}
+                </div>
               </div>
             ))}
             {busy && <div className="w-16 rounded-[20px] bg-white px-4 py-3 flex gap-1">{[0, 1, 2].map(i => <span key={i} className="w-1.5 h-1.5 rounded-full bg-sage-400 animate-pulse" style={{ animationDelay: i * 150 + 'ms' }} />)}</div>}
-            {sentFromAI > 0 && <p className="text-center text-xs text-mute">Meldung liegt im Backoffice bei Renée</p>}
             <div ref={end} />
           </div>
         )}
       </div>
       <div className="sticky bottom-0 px-4 py-3 bg-sage-50/95 flex gap-2">
-        <input value={v} onChange={e => setV(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} placeholder="Frag Benni …" className="flex-1 h-12 rounded-2xl bg-white px-4 text-[15px] outline-none placeholder:text-mute" />
+        <input value={v} onChange={e => setV(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} placeholder={`Frag ${ASSISTANT} …`} className="flex-1 h-12 rounded-2xl bg-white px-4 text-[15px] outline-none placeholder:text-mute" />
         <button onClick={() => send()} className="w-12 h-12 rounded-2xl bg-ink text-white flex items-center justify-center"><Send size={18} /></button>
       </div>
     </div>
   )
 }
-const Src = ({ children }: { children: ReactNode }) => <p className="mt-2 text-xs text-mute">{children}</p>
-const MiniList = ({ rows, src }: { rows: [string, string][]; src: string }) => (
-  <div className="mt-2"><div className="rounded-xl bg-sage-50 divide-y divide-white">{rows.map(([a, b]) => <div key={a} className="px-3 py-2"><p className="text-[14px]">{a}</p><p className="text-xs text-mute">{b}</p></div>)}</div><Src>Quelle: {src}</Src></div>
-)
-function TicketDraft({ title, onSend }: { title: string; onSend: () => void }) {
-  const [sent, setSent] = useState(false)
+function TicketDraft({ kind, title, onSend }: { kind: 'Meldung' | 'Idee'; title: string; onSend: () => Promise<boolean> }) {
+  const [state, setState] = useState<'draft' | 'busy' | 'sent' | 'error'>('draft')
   return (
     <div className="mt-3 rounded-xl bg-sage-50 p-3">
-      <p className="text-xs text-mute">Meldung · Facility</p><p className="text-[14px] font-medium mt-0.5">{title}</p>
-      {sent ? <p className="mt-2 text-[13px] text-sage-800 flex items-center gap-1"><Check size={14} />Gesendet, du bekommst Bescheid</p>
-        : <button onClick={() => { onSend(); setSent(true) }} className="mt-2.5 h-9 px-4 rounded-full bg-ink text-white text-[13px]">Meldung senden</button>}
+      <p className="text-xs text-mute">{kind === 'Meldung' ? 'Meldung · Facility' : 'Idee · Büro'}</p><p className="text-[14px] font-medium mt-0.5">{title}</p>
+      {state === 'sent' ? <p className="mt-2 text-[13px] text-sage-800 flex items-center gap-1"><Check size={14} />Gesendet, du siehst den Stand unter Melden & Ideen</p>
+        : <button disabled={state === 'busy'} onClick={async () => { setState('busy'); setState(await onSend() ? 'sent' : 'error') }} className="mt-2.5 h-9 px-4 rounded-full bg-ink text-white text-[13px] disabled:opacity-60">{state === 'error' ? 'Nochmal senden' : `${kind} senden`}</button>}
     </div>
   )
 }
 
 /* ---------- Wissen ---------- */
 function Wiki({ open }: { open: (s: Sub) => void }) {
-  const { t } = useApp()
+  const { t, wiki, steps, obDone } = useApp()
   const [q, setQ] = useState('')
-  const cats = [...new Set(WIKI.map(a => a.cat))]
-  const hits = WIKI.filter(a => (a.title + a.cat).toLowerCase().includes(q.toLowerCase()))
+  const cats = [...new Set(wiki.map(a => a.cat))]
+  const hits = wiki.filter(a => (a.title + a.cat + a.body.join(' ')).toLowerCase().includes(q.toLowerCase()))
   return (
     <div className="pb-10"><Title>{t('Wissen')}</Title>
       <div className="px-5">
         <SearchBox value={q} onChange={setQ} placeholder={`${t('Suchen')}, z. B. Wachs`} />
-        {!q && <Card onClick={() => open({ k: 'onboarding' })} className="mt-4 p-4 flex items-center gap-3">
+        {!q && steps.length > 0 && <Card onClick={() => open({ k: 'onboarding' })} className="mt-4 p-4 flex items-center gap-3">
           <span className="w-11 h-11 rounded-xl bg-sage-400 text-white flex items-center justify-center"><GraduationCap size={22} /></span>
-          <span className="flex-1"><span className="block text-[15px] font-medium">Onboarding für Neue</span><span className="block text-xs text-mute mt-0.5">5 Schritte · 2 von 5 erledigt</span></span>
+          <span className="flex-1"><span className="block text-[15px] font-medium">Onboarding für Neue</span><span className="block text-xs text-mute mt-0.5">{steps.length} Schritte · {steps.filter(s => obDone.has(s.id)).length} von {steps.length} erledigt</span></span>
           <ChevronRight size={18} className="text-sage-400" />
         </Card>}
         {cats.map(c => { const items = hits.filter(a => a.cat === c); if (!items.length) return null
-          return <div key={c}><Label>{c}</Label><List>{items.map(a => <Row key={a.id} icon={a.video ? <Video size={17} /> : <BookOpen size={17} />} title={a.title} sub={`${a.minutes} Min. · aktualisiert ${a.updated}`} onClick={() => open({ k: 'wiki', item: a })} />)}</List></div>
+          return <div key={c}><Label>{c}</Label><List>{items.map(a => <Row key={a.id} icon={a.mediaKind === 'video' || a.mediaKind === 'youtube' ? <Video size={17} /> : a.fromNews ? <Newspaper size={17} /> : <BookOpen size={17} />} title={a.title} sub={`${a.minutes} Min. · aktualisiert ${a.updated}`} onClick={() => open({ k: 'wiki', item: a })} />)}</List></div>
         })}
+        {q && hits.length === 0 && <p className="mt-6 text-[14px] text-mute">Nichts gefunden. Frag {ASSISTANT} oder schick eine Idee ans Büro.</p>}
       </div>
     </div>
   )
 }
+const ytId = (u: string) => u.match(/(?:youtu\.be\/|v=|embed\/)([\w-]{11})/)?.[1]
 function WikiDetail({ a }: { a: WikiArticle }) {
+  const { signedUrl } = useApp()
+  const [src, setSrc] = useState<string | null>(null)
+  useEffect(() => { if (a.mediaUrl && (a.mediaKind === 'photo' || a.mediaKind === 'video') && !/^https?:/.test(a.mediaUrl)) signedUrl('media', a.mediaUrl).then(setSrc); else setSrc(a.mediaUrl) }, [a, signedUrl])
+  const yt = a.mediaKind === 'youtube' && a.mediaUrl ? ytId(a.mediaUrl) : null
   return (
     <article className="px-5 pb-10">
       <p className="text-xs text-mute mt-3">{a.cat} · {a.minutes} Min. · aktualisiert {a.updated}</p>
       <h1 className="mt-2 text-[26px] font-semibold tracking-tight leading-tight">{a.title}</h1>
-      {a.video ? <div className="mt-5 aspect-video rounded-[20px] bg-ink flex items-center justify-center"><span className="w-14 h-14 rounded-full bg-white/15 flex items-center justify-center text-white"><Play size={24} fill="currentColor" /></span></div>
-        : <div className="mt-5 aspect-[16/9] rounded-[20px] bg-sage-100" />}
-      <p className="mt-2 text-xs text-mute">{a.video ? 'Internes Video oder YouTube, im Artikel abspielbar' : 'Foto zum Artikel'}</p>
+      {yt ? <iframe className="mt-5 w-full aspect-video rounded-[20px]" src={`https://www.youtube-nocookie.com/embed/${yt}`} title={a.title} allow="encrypted-media; picture-in-picture" allowFullScreen />
+        : a.mediaKind === 'video' && src ? <video className="mt-5 w-full rounded-[20px] bg-ink" src={src} controls playsInline />
+        : a.mediaKind === 'photo' && src ? <img className="mt-5 w-full rounded-[20px]" src={src} alt="" />
+        : a.mediaKind === 'video' ? <div className="mt-5 aspect-video rounded-[20px] bg-ink flex items-center justify-center"><span className="w-14 h-14 rounded-full bg-white/15 flex items-center justify-center text-white"><Play size={24} fill="currentColor" /></span></div> : null}
       <div className="mt-5 space-y-3 text-[16px] leading-relaxed">{a.body.map((p, i) => <p key={i}>{p}</p>)}</div>
     </article>
   )
 }
-function Onboarding() {
-  const [done, setDone] = useState(new Set([0, 1]))
+function Onboarding({ open }: { open: (s: Sub) => void }) {
+  const { steps, obDone, toggleStep, wiki } = useApp()
   return (
     <div className="px-5 pb-10"><h1 className="mt-3 text-[26px] font-semibold tracking-tight">Onboarding</h1>
       <p className="mt-1 text-[14px] text-mute">Alles für deine ersten Tage. Deine Respo sieht, wie weit du bist.</p>
-      <div className="mt-4 h-1.5 rounded-full bg-sage-100 overflow-hidden"><div className="h-full bg-sage-600 transition-all" style={{ width: done.size / ONBOARDING.length * 100 + '%' }} /></div>
+      <div className="mt-4 h-1.5 rounded-full bg-sage-100 overflow-hidden"><div className="h-full bg-sage-600 transition-all" style={{ width: (steps.length ? steps.filter(s => obDone.has(s.id)).length / steps.length * 100 : 0) + '%' }} /></div>
       <div className="mt-5 space-y-2">
-        {ONBOARDING.map((s, i) => (
-          <Card key={i} onClick={() => setDone(d => new Set(d).add(i))} className="p-4 flex items-center gap-3">
-            <span className={`w-8 h-8 rounded-full flex items-center justify-center text-[13px] font-medium ${done.has(i) ? 'bg-sage-600 text-white' : 'bg-sage-50 text-sage-800'}`}>{done.has(i) ? <Check size={15} /> : i + 1}</span>
-            <span className="flex-1"><span className="block text-[15px]">{s.title}</span><span className="block text-xs text-mute">{s.minutes} Min.</span></span>
-          </Card>
-        ))}
+        {steps.map((s, i) => { const art = wiki.find(w => w.id === s.articleId)
+          return <div key={s.id} className="rounded-[20px] bg-white p-4 flex items-center gap-3">
+            <button onClick={() => toggleStep(s.id)} className={`w-8 h-8 rounded-full flex items-center justify-center text-[13px] font-medium shrink-0 ${obDone.has(s.id) ? 'bg-sage-600 text-white' : 'bg-sage-50 text-sage-800'}`}>{obDone.has(s.id) ? <Check size={15} /> : i + 1}</button>
+            <button onClick={() => art ? open({ k: 'wiki', item: art }) : toggleStep(s.id)} className="flex-1 text-left"><span className="block text-[15px]">{s.title}</span><span className="block text-xs text-mute">{s.minutes} Min.{art ? ' · Artikel öffnen' : ''}</span></button>
+          </div> })}
       </div>
     </div>
   )
@@ -390,23 +419,25 @@ function Onboarding() {
 
 /* ---------- Menü ---------- */
 function MenuView({ open, onLogout }: { open: (s: Sub) => void; onLogout: () => void }) {
-  const { me, t, tickets, photo } = useApp()
+  const { me, t, tickets, news, read, staff, events, joined } = useApp()
+  const unread = news.filter(n => n.mustRead && !read.has(n.id)).length
+  const upcoming = events.filter(e => new Date(e.startsAt) > new Date()).length
   const tiles: [string, string, typeof Users, Sub][] = [
-    ['News', '1 ungelesen', Newspaper, { k: 'news-list' }], ['Kalender', 'Termine, Schulungen, Ferien', CalendarDays, { k: 'events' }],
-    ['Team', '50 Personen', Users, { k: 'team' }], ['Melden & Ideen', `${tickets.filter(x => x.status !== 'Erledigt').length} offen`, Lightbulb, { k: 'tickets' }],
-    ['Posteingang', '2 ungelesen', Inbox, { k: 'inbox' }], ['Zeit & Ferien', 'Timebutler', Plane, { k: 'time' }],
+    ['News', unread ? `${unread} ungelesen` : 'alles gelesen', Newspaper, { k: 'news-list' }], ['Kalender', `${upcoming} Termine · ${joined.size} angemeldet`, CalendarDays, { k: 'events' }],
+    ['Team', `${staff.filter(s => s.active).length} Personen`, Users, { k: 'team' }], ['Melden & Ideen', `${tickets.filter(x => x.status !== 'Erledigt').length} offen`, Lightbulb, { k: 'tickets' }],
+    ['Posteingang', 'folgt', Inbox, { k: 'inbox' }], ['Zeit & Ferien', 'Timebutler folgt', Plane, { k: 'time' }],
   ]
   return (
     <div className="pb-10"><Title>{t('Menü')}</Title>
       <div className="px-5">
         <Card onClick={() => open({ k: 'me' })} className="p-4 flex items-center gap-3">
-          <Avatar s={me} photo={photo} size="w-12 h-12" />
+          <Avatar s={me} photo={me.photo} size="w-12 h-12" />
           <span className="flex-1"><span className="block font-medium">{me.first} {me.last}</span><span className="block text-[13px] text-mute">{me.role} · {me.branch}</span></span>
           <ChevronRight size={18} className="text-sage-400" />
         </Card>
         <Card onClick={() => open({ k: 'book' })} className="mt-3 p-4 flex items-center gap-3">
           <span className="w-11 h-11 rounded-xl bg-ink text-white flex items-center justify-center"><CalendarDays size={20} /></span>
-          <span className="flex-1"><span className="block text-[15px] font-medium">Kundentermine</span><span className="block text-xs text-mute mt-0.5">Alle Studios · live aus Phorest</span></span>
+          <span className="flex-1"><span className="block text-[15px] font-medium">Kundentermine</span><span className="block text-xs text-mute mt-0.5">{me.app_role === 'buero' ? 'Alle Studios' : 'Dein Studio'} · live aus Phorest</span></span>
           <ChevronRight size={18} className="text-sage-400" />
         </Card>
         <div className="mt-3 grid grid-cols-2 gap-3">
@@ -427,17 +458,18 @@ function MenuView({ open, onLogout }: { open: (s: Sub) => void; onLogout: () => 
     </div>
   )
 }
-const Avatar = ({ s, photo, size = 'w-10 h-10' }: { s: Staff; photo?: string | null; size?: string }) =>
-  photo ? <img src={photo} className={`${size} rounded-full object-cover`} /> : <span className={`${size} rounded-full bg-sage-200 flex items-center justify-center text-sm font-medium text-sage-800 shrink-0`}>{ini(s)}</span>
+export const Avatar = ({ s, photo, size = 'w-10 h-10' }: { s: { first: string; last: string }; photo?: string | null; size?: string }) =>
+  photo ? <img src={photo} alt="" className={`${size} rounded-full object-cover shrink-0`} /> : <span className={`${size} rounded-full bg-sage-200 flex items-center justify-center text-sm font-medium text-sage-800 shrink-0`}>{ini(s)}</span>
 
 function Team({ open }: { open: (s: Sub) => void }) {
+  const { staff, branches } = useApp()
   const [q, setQ] = useState(''), [b, setB] = useState('Alle')
-  const list = useMemo(() => STAFF.filter(s => (b === 'Alle' || s.branch === b) && `${s.first} ${s.last} ${s.role} ${s.skills.join(' ')}`.toLowerCase().includes(q.toLowerCase())), [q, b])
+  const list = useMemo(() => staff.filter(s => s.active && (b === 'Alle' || s.branch === b) && `${s.first} ${s.last} ${s.role} ${s.skills.join(' ')}`.toLowerCase().includes(q.toLowerCase())), [q, b, staff])
   return (
     <div className="pb-10"><Title>Team</Title>
-      <div className="px-5 space-y-3"><SearchBox value={q} onChange={setQ} placeholder="Name oder Skill, z. B. Pediküre" /><Chips items={['Alle', ...BRANCHES]} value={b} onChange={setB} />
+      <div className="px-5 space-y-3"><SearchBox value={q} onChange={setQ} placeholder="Name oder Skill, z. B. Pediküre" /><Chips items={['Alle', ...branches.map(x => x.name)]} value={b} onChange={setB} />
         <p className="text-xs text-mute pt-1">{list.length} Personen</p>
-        <List>{list.map(s => <Row key={s.id} icon={<Avatar s={s} size="w-9 h-9" />} title={`${s.first} ${s.last}`} sub={`${s.role} · ${s.branch}`} onClick={() => open({ k: 'profile', item: s })} />)}</List>
+        <List>{list.map(s => <Row key={s.id} icon={<Avatar s={s} photo={s.photo} size="w-9 h-9" />} title={`${s.first} ${s.last}`} sub={`${s.role} · ${s.branch}${s.skills.length ? ' · ' + s.skills.slice(0, 3).join(', ') : ''}`} onClick={() => open({ k: 'profile', item: s })} />)}</List>
       </div>
     </div>
   )
@@ -445,27 +477,28 @@ function Team({ open }: { open: (s: Sub) => void }) {
 function Profile({ s }: { s: Staff }) {
   return (
     <div className="px-5 pb-10 text-center">
-      <div className="mt-4 flex justify-center"><Avatar s={s} size="w-24 h-24 text-2xl" /></div>
+      <div className="mt-4 flex justify-center"><Avatar s={s} photo={s.photo} size="w-24 h-24 text-2xl" /></div>
       <h1 className="mt-4 text-[24px] font-semibold tracking-tight">{s.first} {s.last}</h1><p className="text-mute">{s.role} · Studio {s.branch}</p>
-      <div className="mt-6 text-left"><Label>Skills</Label><div className="flex flex-wrap gap-2">{s.skills.map(k => <span key={k} className="px-3 h-8 rounded-full bg-white text-[13px] flex items-center">{k}</span>)}</div>
-        <div className="mt-6"><Btn ghost><Send size={16} />Nachricht schreiben</Btn></div></div>
+      <div className="mt-6 text-left"><Label>Skills</Label>{s.skills.length ? <div className="flex flex-wrap gap-2">{s.skills.map(k => <span key={k} className="px-3 h-8 rounded-full bg-white text-[13px] flex items-center">{k}</span>)}</div> : <p className="text-[14px] text-mute">Noch keine Skills eingetragen.</p>}
+        <div className="mt-6"><a href={`mailto:${s.email}`} className="w-full h-12 rounded-2xl font-medium flex items-center justify-center gap-2 bg-white text-ink"><Send size={16} />E-Mail schreiben</a></div></div>
     </div>
   )
 }
 function MyProfile() {
-  const { me, skills, setSkills, photo, setPhoto, lang, setLang } = useApp()
+  const { me, skills, setSkills, photo, setPhotoFile, lang, setLang, skillCatalog } = useApp()
   const file = useRef<HTMLInputElement>(null)
+  const [busy, setBusy] = useState(false)
   const tog = (k: string) => setSkills(skills.includes(k) ? skills.filter(x => x !== k) : [...skills, k])
   return (
     <div className="px-5 pb-10">
       <div className="mt-3 flex flex-col items-center">
-        <button onClick={() => file.current?.click()} className="relative"><Avatar s={me} photo={photo} size="w-24 h-24 text-2xl" />
+        <button onClick={() => file.current?.click()} className={`relative ${busy ? 'opacity-50' : ''}`}><Avatar s={me} photo={photo} size="w-24 h-24 text-2xl" />
           <span className="absolute bottom-0 right-0 w-8 h-8 rounded-full bg-ink text-white flex items-center justify-center border-2 border-paper"><Camera size={14} /></span></button>
-        <input ref={file} type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) setPhoto(URL.createObjectURL(f)) }} />
+        <input ref={file} type="file" accept="image/*" className="hidden" onChange={async e => { const f = e.target.files?.[0]; if (f) { setBusy(true); await setPhotoFile(f); setBusy(false) } }} />
         <h1 className="mt-4 text-[24px] font-semibold tracking-tight">{me.first} {me.last}</h1><p className="text-mute">{me.role} · Studio {me.branch}</p>
       </div>
       <Label>Meine Skills</Label>
-      <div className="flex flex-wrap gap-2">{SKILL_CATALOG.map(k => <button key={k} onClick={() => tog(k)} className={`px-3 h-8 rounded-full text-[13px] ${skills.includes(k) ? 'bg-ink text-white' : 'bg-white'}`}>{k}</button>)}</div>
+      <div className="flex flex-wrap gap-2">{skillCatalog.map(k => <button key={k} onClick={() => tog(k)} className={`px-3 h-8 rounded-full text-[13px] ${skills.includes(k) ? 'bg-ink text-white' : 'bg-white'}`}>{k}</button>)}</div>
       <p className="mt-3 text-xs text-mute">Die Skill-Liste gibt das Büro vor. Kolleginnen finden dich darüber.</p>
       <Label>Sprache</Label>
       <div className="grid grid-cols-3 gap-2 p-1 rounded-2xl bg-white">{([['DE', 'Deutsch'], ['EN', 'English'], ['FR', 'Français']] as [Lang, string][]).map(([k, l]) => <button key={k} onClick={() => setLang(k)} className={`h-10 rounded-xl text-[14px] ${lang === k ? 'bg-ink text-white' : ''}`}>{l}</button>)}</div>
@@ -475,8 +508,16 @@ function MyProfile() {
 
 function Tickets() {
   const { tickets, addTicket, me } = useApp()
-  const [kind, setKind] = useState<'Meldung' | 'Idee'>('Meldung'), [text, setText] = useState(''), [ok, setOk] = useState(false)
-  const submit = () => { if (!text.trim()) return; addTicket({ kind, title: text, branch: me.branch, who: `${me.first} ${me.last[0]}.`, photo: kind === 'Meldung' }); setText(''); setOk(true); setTimeout(() => setOk(false), 2500) }
+  const [kind, setKind] = useState<'Meldung' | 'Idee'>('Meldung'), [text, setText] = useState(''), [ok, setOk] = useState(''), [photo, setPhoto] = useState<File | null>(null), [busy, setBusy] = useState(false)
+  const file = useRef<HTMLInputElement>(null)
+  const submit = async () => {
+    if (!text.trim() || busy) return
+    setBusy(true); const good = await addTicket({ kind, title: text.trim(), photo: photo ?? undefined }); setBusy(false)
+    if (good) { setText(''); setPhoto(null); setOk('Gesendet. Du siehst hier, was daraus wird.') } else setOk('Das hat nicht geklappt. Bitte versuche es noch einmal.')
+    setTimeout(() => setOk(''), 3000)
+  }
+  // Die Datenbank liefert nur, was diese Person sehen darf (eigene, Filiale oder alle)
+  const mine = tickets
   return (
     <div className="pb-10"><Title>Melden & Ideen</Title>
       <div className="px-5">
@@ -486,15 +527,16 @@ function Tickets() {
         <Card className="mt-3 p-4">
           <textarea value={text} onChange={e => setText(e.target.value)} rows={3} placeholder={kind === 'Meldung' ? 'Was ist kaputt oder fehlt?' : 'Was könnten wir besser machen?'} className="w-full resize-none outline-none text-[15px] placeholder:text-mute bg-transparent" />
           <div className="mt-2 flex items-center justify-between text-[13px] text-mute">
-            <span className="flex items-center gap-3"><span className="flex items-center gap-1"><Camera size={15} />Foto</span><span className="flex items-center gap-1"><MapPin size={15} />{me.branch}</span></span>
-            <button onClick={submit} className="h-9 px-4 rounded-full bg-ink text-white flex items-center gap-1.5"><Send size={13} />Senden</button>
+            <span className="flex items-center gap-3"><button onClick={() => file.current?.click()} className={`flex items-center gap-1 ${photo ? 'text-sage-800' : ''}`}><Camera size={15} />{photo ? 'Foto dabei' : 'Foto'}</button><span className="flex items-center gap-1"><MapPin size={15} />{me.branch}</span></span>
+            <button disabled={busy} onClick={submit} className="h-9 px-4 rounded-full bg-ink text-white flex items-center gap-1.5 disabled:opacity-60"><Send size={13} />Senden</button>
           </div>
+          <input ref={file} type="file" accept="image/*" capture="environment" className="hidden" onChange={e => setPhoto(e.target.files?.[0] ?? null)} />
         </Card>
-        <p className="mt-2 text-xs text-mute">{ok ? 'Gesendet. Du siehst hier, was daraus wird.' : kind === 'Meldung' ? 'Geht sofort per E-Mail an die Facility und wird im Büro zugewiesen.' : 'Landet beim Büro.'}</p>
+        <p className="mt-2 text-xs text-mute">{ok || (kind === 'Meldung' ? 'Landet im Büro und wird dort zugewiesen.' : 'Landet beim Büro.')}</p>
         <Label>Verlauf</Label>
-        <List>{tickets.map(x => (
+        <List>{mine.length === 0 && <Empty>Noch nichts gemeldet.</Empty>}{mine.map(x => (
           <div key={x.id} className="px-4 py-3">
-            <div className="flex items-center gap-2 text-xs text-mute"><span className="text-sage-800">{x.kind}</span>·<span>{x.branch}</span>·<span>{x.when}</span>{x.viaAI && <span className="flex items-center gap-0.5"><Sparkles size={11} />über Benni</span>}</div>
+            <div className="flex items-center gap-2 text-xs text-mute"><span className="text-sage-800">{x.kind}</span>·<span>{x.branch}</span>·<span>{x.when}</span>{x.viaAI && <span className="flex items-center gap-0.5"><Sparkles size={11} />über {ASSISTANT}</span>}</div>
             <p className="text-[15px] mt-1">{x.title}</p>
             <p className="text-xs mt-1"><Status s={x.status} />{x.assignee && <span className="text-mute"> · {x.assignee}</span>}</p>
           </div>
@@ -509,120 +551,41 @@ export const Status = ({ s }: { s: string }) => {
 }
 
 function Events() {
-  return <div className="pb-10"><Title sub="Termine, Schulungen und Abwesenheiten">Mein Kalender</Title><div className="px-5"><EventCalendar /></div></div>
+  return <div className="pb-10"><Title sub="Deine Termine und Schulungen">Mein Kalender</Title><div className="px-5"><EventCalendar /></div></div>
 }
 
-function InboxView({ open }: { open: (s: Sub) => void }) {
-  const { conn } = useApp()
-  if (!conn.mail) return <NotConnected title="Posteingang" tool="dein Postfach" what="deine E-Mails von bea@beautylounge.ch" open={open} />
-  return (
-    <div className="pb-10"><Title sub="bea@beautylounge.ch">Posteingang</Title>
-      <div className="px-5"><List>{INBOX.map(m => (
-        <button key={m.id} onClick={() => open({ k: 'mail', item: m })} className="w-full px-4 py-3.5 flex gap-3 text-left">
-          <span className={`mt-2 w-2 h-2 rounded-full shrink-0 ${m.unread ? 'bg-sage-600' : ''}`} />
-          <span className="flex-1 min-w-0"><span className="flex justify-between"><span className={`text-[15px] ${m.unread ? 'font-medium' : ''}`}>{m.from}</span><span className="text-xs text-mute">{m.time}</span></span>
-            <span className="block text-[14px] truncate">{m.subject}</span><span className="block text-[13px] text-mute truncate">{m.body}</span></span>
-        </button>
-      ))}</List></div>
-    </div>
-  )
-}
-function MailView({ m }: { m: Mail }) {
-  const [r, setR] = useState(false)
-  return (
-    <div className="px-5 pb-10"><p className="text-xs text-mute mt-3">{m.from} · {m.time}</p><h1 className="mt-2 text-[24px] font-semibold tracking-tight">{m.subject}</h1>
-      <p className="mt-4 text-[16px] leading-relaxed">{m.body}</p>
-      <div className="mt-8">{r ? <Card className="p-4"><textarea rows={4} placeholder="Antwort schreiben …" className="w-full resize-none outline-none bg-transparent text-[15px]" /><div className="flex justify-end"><button className="h-9 px-4 rounded-full bg-ink text-white text-[13px]">Senden</button></div></Card>
-        : <Btn ghost onClick={() => setR(true)}><Reply size={16} />Antworten</Btn>}</div>
-    </div>
-  )
-}
-
-function TimeOff({ open }: { open: (s: Sub) => void }) {
-  const { conn } = useApp()
-  const [sheet, setSheet] = useState(false), [sent, setSent] = useState(false), [clock, setClock] = useState<string | null>('07:58')
-  if (!conn.timebutler) return <NotConnected title="Zeit & Ferien" tool="Timebutler" what="deinen Resturlaub, deine Anträge und die Stempeluhr" open={open} />
-  return (
-    <div className="pb-10"><Title sub="verbunden mit Timebutler">Zeit & Ferien</Title>
-      <div className="px-5">
-        <Card className="p-4 flex items-center justify-between">
-          <span><span className="block text-xs text-mute">Heute</span><span className="block text-[17px] font-medium mt-0.5">{clock ? `Eingestempelt seit ${clock}` : 'Nicht eingestempelt'}</span></span>
-          <button onClick={() => setClock(clock ? null : new Date().toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' }))} className={`h-10 px-4 rounded-full text-[14px] ${clock ? 'bg-sage-100 text-sage-800' : 'bg-ink text-white'}`}>{clock ? 'Ausstempeln' : 'Einstempeln'}</button>
-        </Card>
-        <div className="mt-3 grid grid-cols-2 gap-3">
-          <Card className="p-4"><p className="text-xs text-mute">Ferien übrig</p><p className="text-[28px] font-semibold mt-1">9 <span className="text-[15px] font-normal text-mute">Tage</span></p></Card>
-          <Card className="p-4"><p className="text-xs text-mute">Überstunden</p><p className="text-[28px] font-semibold mt-1">+6,5 <span className="text-[15px] font-normal text-mute">Std.</span></p><p className="text-[11px] text-mute">Stand heute Morgen</p></Card>
-        </div>
-        <Label>Meine Anträge</Label>
-        <List>
-          {sent && <Row icon={<Plane size={17} />} title="02.–03. November" sub="2 Tage · gerade beantragt" right={<span className="text-xs text-[#C0634B]">offen</span>} />}
-          <Row icon={<Plane size={17} />} title="15.–16. Oktober" sub="2 Tage" right={<span className="text-xs text-[#C0634B]">offen</span>} />
-          <Row icon={<Plane size={17} />} title="23.–31. Dezember" sub="5 Tage" right={<span className="text-xs text-sage-800">bestätigt</span>} />
-        </List>
-        <div className="mt-6"><Btn onClick={() => setSheet(true)}>Ferien beantragen</Btn></div>
-        <p className="mt-3 text-xs text-mute">Alles läuft direkt in Timebutler: Antrag, Stempeluhr und Saldo. Einmal verbinden, danach bleibt die Anmeldung bestehen.</p>
-      </div>
-      {sheet && <Sheet onClose={() => setSheet(false)}>
-        <p className="font-medium text-[17px]">Ferien beantragen</p>
-        <div className="mt-4 grid grid-cols-2 gap-3">{[['Von', 'Mo 02.11.2026'], ['Bis', 'Di 03.11.2026']].map(([a, b]) => <div key={a}><p className="text-xs text-mute mb-1">{a}</p><div className="h-11 rounded-xl bg-white px-3 flex items-center text-[15px]">{b}</div></div>)}</div>
-        <div className="mt-3"><p className="text-xs text-mute mb-1">Art</p><div className="h-11 rounded-xl bg-white px-3 flex items-center text-[15px]">Ferien · 2 Tage</div></div>
-        <div className="mt-5"><Btn onClick={() => { setSent(true); setSheet(false) }}>An Timebutler senden</Btn></div>
-      </Sheet>}
-    </div>
-  )
-}
-
-const hm = (h: number) => `${String(Math.floor(h)).padStart(2, '0')}:${String(Math.round((h % 1) * 60)).padStart(2, '0')}`
-
-function NotConnected({ title, tool, what, open }: { title: string; tool: string; what: string; open: (s: Sub) => void }) {
+function NotConnected({ title, tool, what }: { title: string; tool: string; what: string }) {
   return (
     <div className="pb-10"><Title>{title}</Title>
       <div className="px-5"><Card className="p-6 text-center">
         <span className="mx-auto w-12 h-12 rounded-2xl bg-sage-50 text-sage-800 flex items-center justify-center"><Link2 size={22} /></span>
-        <p className="mt-4 text-[17px] font-medium">Verbinde {tool}</p>
-        <p className="mt-1 text-[14px] text-mute">Einmal anmelden, danach siehst du hier {what}.</p>
-        <div className="mt-5"><Btn onClick={() => open({ k: 'conn' })}>Jetzt verbinden</Btn></div>
+        <p className="mt-4 text-[17px] font-medium">{tool} kommt bald</p>
+        <p className="mt-1 text-[14px] text-mute">Sobald {tool} angebunden ist, siehst du hier {what}.</p>
       </Card></div>
     </div>
   )
 }
 
-const TOOLS: { k: string; name: string; logo: string; color: string; auto?: boolean; what: string }[] = [
-  { k: 'phorest', name: 'Phorest', logo: 'P', color: '#1F2937', auto: true, what: 'Deine Termine und Schichten' },
-  { k: 'timebutler', name: 'Timebutler', logo: 'T', color: '#0E7490', what: 'Ferien, Anträge, Stempeluhr' },
-  { k: 'mail', name: 'Postfach', logo: '@', color: '#77816F', what: 'bea@beautylounge.ch' },
-]
 function Connections() {
-  const { conn, connect, me } = useApp()
-  const [sheet, setSheet] = useState<string | null>(null), [busy, setBusy] = useState(false)
-  const tool = TOOLS.find(t => t.k === sheet)
-  const doConnect = () => { setBusy(true); setTimeout(() => { connect(sheet!, true); setBusy(false); setSheet(null) }, 900) }
+  const { me, myPhorest, branches } = useApp()
+  const rows = [
+    { k: 'phorest', name: 'Phorest', logo: 'P', color: '#1F2937', on: myPhorest.length > 0, what: myPhorest.length ? `Automatisch · ${myPhorest.map(m => branches.find(b => b.id === m.branch_id)?.name).join(', ')}` : `Keine Phorest-Spalte zu ${me.email} gefunden` },
+    { k: 'timebutler', name: 'Timebutler', logo: 'T', color: '#0E7490', on: false, what: 'Ferien, Anträge, Stempeluhr · folgt' },
+    { k: 'mail', name: 'Postfach', logo: '@', color: '#77816F', on: false, what: `${me.email} · folgt` },
+  ]
   return (
     <div className="pb-10"><Title>Verbindungen</Title>
       <div className="px-5">
-        <p className="text-[14px] text-mute -mt-2 mb-4">Deine Konten in anderen Tools. Einmal verbinden, danach bleibt die Anmeldung bestehen.</p>
-        <List>{TOOLS.map(t => (
+        <p className="text-[14px] text-mute -mt-2 mb-4">Deine Konten in anderen Tools.</p>
+        <List>{rows.map(t => (
           <div key={t.k} className="flex items-center gap-3 px-4 py-3.5">
             <span className="w-10 h-10 rounded-xl text-white flex items-center justify-center font-semibold" style={{ background: t.color }}>{t.logo}</span>
-            <span className="flex-1 min-w-0"><span className="block text-[15px] font-medium">{t.name}</span>
-              <span className="block text-xs text-mute truncate">{conn[t.k] ? (t.auto ? `Automatisch · ${me.first} (D/SR), Pratteln` : t.what) : t.what}</span></span>
-            {conn[t.k] ? <span className="flex items-center gap-1 text-[13px] text-sage-800"><Check size={15} />{t.auto ? 'Aktiv' : 'Verbunden'}</span>
-              : <button onClick={() => setSheet(t.k)} className="h-9 px-4 rounded-full bg-ink text-white text-[13px]">Verbinden</button>}
+            <span className="flex-1 min-w-0"><span className="block text-[15px] font-medium">{t.name}</span><span className="block text-xs text-mute truncate">{t.what}</span></span>
+            {t.on ? <span className="flex items-center gap-1 text-[13px] text-sage-800"><Check size={15} />Aktiv</span> : <span className="text-[13px] text-mute flex items-center gap-1"><Lock size={13} />{t.k === 'phorest' ? 'offen' : 'bald'}</span>}
           </div>
         ))}</List>
-        <p className="mt-3 text-xs text-mute">Phorest braucht keine eigene Anmeldung. TeamHub erkennt dich über deine Firmen-Mail und zeigt dir deine eigenen Termine. Weitere Tools kommen hier dazu.</p>
-        {(conn.timebutler || conn.mail) && <button onClick={() => { connect('timebutler', false); connect('mail', false) }} className="mt-5 text-[13px] text-mute underline underline-offset-2">Verbindungen trennen (Demo zurücksetzen)</button>}
+        <p className="mt-3 text-xs text-mute">Phorest braucht keine eigene Anmeldung. TeamHub erkennt dich über deine Firmen-Mail und zeigt dir deine eigenen Termine.</p>
       </div>
-      {tool && <Sheet onClose={() => setSheet(null)}>
-        <div className="flex items-center gap-3"><span className="w-10 h-10 rounded-xl text-white flex items-center justify-center font-semibold" style={{ background: tool.color }}>{tool.logo}</span><p className="font-medium text-[17px]">Mit {tool.name} verbinden</p></div>
-        <div className="mt-5 space-y-3">
-          <div><p className="text-xs text-mute mb-1">E-Mail</p><div className="h-11 rounded-xl bg-white px-3 flex items-center text-[15px]">{me.first.toLowerCase()}@beautylounge.ch</div></div>
-          <div><p className="text-xs text-mute mb-1">{tool.k === 'mail' ? 'Mail-Passwort' : 'Timebutler-Passwort'}</p><div className="h-11 rounded-xl bg-white px-3 flex items-center text-[15px] tracking-widest">••••••••</div></div>
-        </div>
-        <div className="mt-5"><Btn onClick={doConnect}>{busy ? 'Verbinde …' : 'Verbinden'}</Btn></div>
-        {tool.k === 'timebutler' && <button onClick={doConnect} className="mt-2 w-full h-12 rounded-2xl bg-white text-[15px]">Mit Microsoft anmelden</button>}
-        <p className="mt-3 text-xs text-mute flex items-center gap-1.5 justify-center"><Lock size={12} />{tool.k === 'mail' ? 'Zugang wird verschlüsselt gespeichert.' : 'Passwort wird nicht gespeichert, nur ein Zugangsschlüssel.'}</p>
-      </Sheet>}
     </div>
   )
 }

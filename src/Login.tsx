@@ -1,11 +1,14 @@
 import { useState } from 'react'
 import { supabase } from './lib/supabase'
-import { useApp, type Lang } from './store'
+import type { Lang } from './store'
+
+const T: Record<string, [string, string]> = { 'Anmelden': ['Sign in', 'Se connecter'], 'Anmeldecode senden': ['Send sign-in code', 'Envoyer le code'] }
 
 // Passwortlos: Code per E-Mail. Solange Supabase noch ohne eigenen Mailversand läuft,
 // enthält die Mail einen Anmeldelink statt eines Codes — der Link meldet ebenfalls an.
 export default function Login({ notice }: { notice?: string }) {
-  const { lang, setLang, t } = useApp()
+  const [lang, setLang] = useState<Lang>('DE')
+  const t = (s: string) => lang === 'DE' ? s : (T[s]?.[lang === 'EN' ? 0 : 1] ?? s)
   // E-Mail merken: auf dem Handy wechselt man zur Mail-App, die Seite lädt dabei oft neu.
   const saved = (() => { try { return localStorage.getItem('th-login-email') ?? '' } catch { return '' } })()
   const [step, setStep] = useState<'mail' | 'code'>('mail')
