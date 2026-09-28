@@ -86,7 +86,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
     case 'inbox': screen = <NotConnected title="Posteingang" tool="dein Postfach" what="deine E-Mails" />; break
     case 'time': screen = <NotConnected title="Zeit & Ferien" tool="Timebutler" what="deinen Resturlaub, deine Anträge und die Stempeluhr" />; break
     default:
-      screen = tab === 'home' ? <Today open={open} go={go} /> : tab === 'tasks' ? <Tasks /> : tab === 'ai' ? <AI open={open} />
+      screen = tab === 'home' ? <Today open={open} go={go} /> : tab === 'tasks' ? <Tasks open={open} /> : tab === 'ai' ? <AI open={open} />
         : tab === 'wiki' ? <Wiki open={open} /> : <MenuView open={open} onLogout={onLogout} />
   }
   const key = (sub ? sub.k + ('item' in sub ? String((sub.item as { id?: string }).id) : '') : tab) + stack.length
@@ -251,8 +251,8 @@ function NewsDetail({ n }: { n: News }) {
 }
 
 /* ---------- Aufgaben ---------- */
-function Tasks() {
-  const { me, done, toggle, t, tasks } = useApp()
+function Tasks({ open }: { open: (s: Sub) => void }) {
+  const { me, done, toggle, t, tasks, wiki } = useApp()
   const groups = [...new Set(tasks.map(x => x.group))]
   const [photoFor, setPhotoFor] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
@@ -276,6 +276,7 @@ function Tasks() {
                     {x.proof && <span className="flex items-center gap-0.5"><Camera size={12} />Foto</span>}
                   </p>
                 </div>
+                {x.articleId && wiki.find(w => w.id === x.articleId) && <button onClick={() => open({ k: 'wiki', item: wiki.find(w => w.id === x.articleId)! })} className="w-8 h-8 rounded-lg bg-sage-50 text-sage-800 flex items-center justify-center shrink-0" title="Anleitung im Wissen"><BookOpen size={15} /></button>}
               </div>
             )
           })}</List></div>)}

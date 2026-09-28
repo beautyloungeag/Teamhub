@@ -18,14 +18,14 @@ const DICT: Record<string, [string, string]> = {
 /* ---------- Typen ---------- */
 export type Staff = { id: string; first: string; last: string; branch: string; branch_id: string; role: string; skills: string[]; photo: string | null; app_role: string; active: boolean; email: string }
 export type News = { id: string; title: string; teaser: string; body: string; author: string; date: string; tag: string; mustRead: boolean; audience: string; audienceBranches: string[]; publishAt: string; wikiCategory: string | null }
-export type TaskItem = { id: string; title: string; time: string; group: string; prio: boolean; proof: boolean }
-export type Template = { id: string; name: string; repeat: 'daily' | 'weekly' | 'monthly'; weekday: number | null; monthday: number | null; branchIds: string[]; items: TaskItem[] }
+export type TaskItem = { id: string; title: string; time: string; group: string; prio: boolean; proof: boolean; articleId: string | null }
+export type Template = { id: string; name: string; repeat: 'daily' | 'weekly' | 'monthly'; weekday: number | null; monthday: number | null; branchIds: string[]; items: TaskItem[]; active: boolean; proposed: boolean; sample: boolean }
 export type Done = { by: string; at: string; photo: string | null }
 export type Ticket = { id: string; kind: 'Meldung' | 'Idee'; title: string; body: string; branch: string; branchId: string; status: 'Neu' | 'Zugewiesen' | 'In Arbeit' | 'Erledigt'; who: string; when: string; assignee: string | null; photo: string | null; viaAI: boolean }
 export type Ev = { id: string; title: string; kind: string; description: string; startsAt: string; endsAt: string | null; place: string; link: string | null; capacity: number | null; registerUntil: string | null; audienceBranches: string[]; audienceSkills: string[]; taken: number }
 export type WikiBlock = { t: 'h' | 'p' | 'ul' | 'ol' | 'quote' | 'img' | 'video' | 'file'; text?: string; items?: string[]; src?: string; url?: string; name?: string; level?: number }
 export type WikiArticle = { id: string; cat: string; title: string; minutes: number; updated: string; body: string[]; mediaKind: string; mediaUrl: string | null; published: boolean; fromNews?: boolean; intro: string; tags: string[]; accessLevel: 'alle' | 'filialleitung' | 'buero'; imported: boolean }
-export type Step = { id: string; title: string; minutes: number; articleId: string | null }
+export type Step = { id: string; title: string; minutes: number; articleId: string | null; proposed: boolean }
 export type Branch = { id: string; name: string; is_office: boolean }
 
 /* ---------- Datum (Europe/Zurich) ---------- */
@@ -58,7 +58,7 @@ type Ctx = {
   assign: (id: string, a: string) => Promise<void>; setStatus: (id: string, s: Ticket['status']) => Promise<void>
   events: Ev[]; joined: Set<string>; toggleEvent: (id: string) => Promise<string | null>
   registrations: { event_id: string; employee_id: string }[]
-  wiki: WikiArticle[]; reloadWiki: () => Promise<void>; steps: Step[]; obDone: Set<string>; toggleStep: (id: string) => Promise<void>
+  wiki: WikiArticle[]; reloadWiki: () => Promise<void>; steps: Step[]; allSteps: Step[]; obDone: Set<string>; toggleStep: (id: string) => Promise<void>
   skills: string[]; setSkills: (s: string[]) => void
   photo: string | null; setPhotoFile: (f: File) => Promise<void>
   myPhorest: { branch_id: string; staff_id: string }[]
@@ -87,7 +87,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [events, setEvents] = useState<Ev[]>([])
   const [registrations, setRegistrations] = useState<Ctx['registrations']>([])
-  const [steps, setSteps] = useState<Step[]>([])
+  const [allSteps, setAllSteps] = useState<Step[]>([])
+  const steps = useMemo(() => allSteps.filter(x => !x.proposed), [allSteps])
   const [obDone, setObDone] = useState<Set<string>>(new Set())
   const [myPhorest, setMyPhorest] = useState<Ctx['myPhorest']>([])
   const newsForWiki = useRef<any[]>([])
@@ -115,7 +116,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       sb.from('skills').select('name').order('sort'),
       sb.from('news').select('*').order('publish_at', { ascending: false }),
       sb.from('news_reads').select('news_id, employee_id, confirmed_at'),
-      sb.from('task_templates').select('*').eq('active', true).order('sort'),
+      sb.from('task_templates').select('*').or('active.eq.true,proposed.eq.true').order('sort'),
       sb.from('task_items').select('*').order('sort'),
       sb.from('task_completions').select('item_id, branch_id, done_by_name, done_at, photo_path, day').eq('day', today),
       sb.from('tickets').select('*').order('created_at', { ascending: false }),
@@ -148,7 +149,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const items = (ti.data ?? []) as any[]
     setTemplates((tt.data ?? []).map((x: any) => ({
       id: x.id, name: x.name, repeat: x.repeat, weekday: x.weekday, monthday: x.monthday, branchIds: x.branch_ids ?? [],
-      items: items.filter(i => i.template_id === x.id).map(i => ({ id: i.id, title: i.title, time: i.due_time ? String(i.due_time).slice(0, 5) : '', group: x.name, prio: i.prio, proof: i.proof_photo })),
+      items: items.filter(i => i.template_id === x.id).map(i => ({ id: i.id, title: i.title, time: i.due_time ? String(i.due_time).slice(0, 5) : '', group: x.name, prio: i.prio, proof: i.proof_photo, articleId: i.article_id ?? null })),
+      active: x.active, proposed: x.proposed, sample: x.is_sample,
     })))
     setCompletions(tc.data ?? [])
     const counts = new Map(((cnt.data ?? []) as any[]).map(c => [c.event_id, c.taken]))
@@ -166,7 +168,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     })))
     newsForWiki.current = nw.data ?? []
     void wk
-    setSteps((ob.data ?? []).map((s: any) => ({ id: s.id, title: s.title, minutes: s.minutes, articleId: s.article_id })))
+    setAllSteps((ob.data ?? []).map((s: any) => ({ id: s.id, title: s.title, minutes: s.minutes, articleId: s.article_id, proposed: !!s.proposed })))
     setObDone(new Set((obp.data ?? []).map((x: any) => x.step_id)))
     setMyPhorest((mp.data ?? []) as Ctx['myPhorest'])
     setLoading(false)
@@ -204,7 +206,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const myBranch = employee?.branch_id ?? ''
   // „Alle Studios“ meint die Studios, nicht das Büro: das Büro bekommt nur ausdrücklich zugewiesene Vorlagen
   const officeBranch = branches.find(b => b.id === myBranch)?.is_office ?? false
-  const tasks = useMemo(() => templates.filter(x => appliesOn(x, today, myBranch) && (!officeBranch || x.branchIds.includes(myBranch))).flatMap(x => x.items).sort((a, b) => (a.time || '99').localeCompare(b.time || '99')), [templates, today, myBranch, officeBranch])
+  const tasks = useMemo(() => templates.filter(x => x.active && appliesOn(x, today, myBranch) && (!officeBranch || x.branchIds.includes(myBranch))).flatMap(x => x.items).sort((a, b) => (a.time || '99').localeCompare(b.time || '99')), [templates, today, myBranch, officeBranch])
   const done = useMemo(() => new Map(completions.filter(c => c.branch_id === myBranch).map(c => [c.item_id, { by: c.done_by_name, at: fmtTime(c.done_at), photo: c.photo_path }])), [completions, myBranch])
   const myReads = newsReads.filter(r => r.employee_id === employee?.id)
   const read = useMemo(() => new Set(myReads.filter(r => r.confirmed_at).map(r => r.news_id)), [myReads])
@@ -258,7 +260,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (!error) return null
       return /full/.test(error.message) ? 'Leider ausgebucht.' : /deadline/.test(error.message) ? 'Die Anmeldefrist ist vorbei.' : 'Das hat nicht geklappt.'
     },
-    wiki, reloadWiki, steps, obDone,
+    wiki, reloadWiki, steps, allSteps, obDone,
     toggleStep: async (id) => {
       if (obDone.has(id)) await sb.from('onboarding_progress').delete().match({ step_id: id, employee_id: employee.id })
       else await sb.from('onboarding_progress').insert({ step_id: id, employee_id: employee.id })

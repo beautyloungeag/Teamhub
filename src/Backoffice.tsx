@@ -52,7 +52,7 @@ function useTaskProgress() {
   const { templates, completionsToday, branches } = useApp()
   const day = isoDay()
   return branches.filter(b => !b.is_office).map(b => {
-    const items = templates.filter(t => appliesOn(t, day, b.id)).flatMap(t => t.items)
+    const items = templates.filter(t => t.active && appliesOn(t, day, b.id)).flatMap(t => t.items)
     const done = completionsToday.filter(c => c.branch_id === b.id && items.some(i => i.id === c.item_id)).length
     return { branch: b.name, id: b.id, done, total: items.length }
   })
@@ -143,6 +143,8 @@ function TasksAdmin() {
   const [form, setForm] = useState(false)
   const [f, setF] = useState({ name: '', repeat: 'daily' as 'daily' | 'weekly' | 'monthly', weekday: 1, monthday: 1, branches: [] as string[], items: '' })
   const [err, setErr] = useState('')
+  const proposals = templates.filter(t => t.proposed)
+  const approve = async () => { if (confirm('Vorschläge freigeben? Die Beispielvorlagen aus dem Prototyp werden dabei abgeschaltet.')) { await supabase!.rpc('approve_wiki_proposals', { p_kind: 'tasks' }); await reload() } }
   const save = async () => {
     const lines = f.items.split('\n').map(l => l.trim()).filter(Boolean)
     if (!f.name.trim() || !lines.length) { setErr('Name und mindestens ein Punkt sind nötig.'); return }
@@ -167,9 +169,14 @@ function TasksAdmin() {
         <Err m={err} /><button onClick={save} className="w-full h-10 rounded-xl bg-ink text-white">Speichern</button>
       </div>
     </Box>}
+    {me.app_role === 'buero' && proposals.length > 0 && <Box className="p-5 mb-6 border-sage-400">
+      <div className="flex items-start justify-between gap-4"><div><p className="font-medium">Vorschlag aus dem Wiki · {proposals.length} Vorlagen, {proposals.reduce((a, t) => a + t.items.length, 0)} Punkte</p><p className="text-xs text-mute mt-1">Abgeleitet aus „Tagesabschluss Kasse“, „Reinigung in den Filialen“ und „Ämtlipläne & Wochen-Putzdienste“. Jeder Punkt verlinkt den Artikel. Gilt erst nach Freigabe.</p></div>
+        <button onClick={approve} className="h-10 px-4 rounded-xl bg-ink text-white text-[14px] shrink-0">Freigeben</button></div>
+      <div className="mt-4 grid grid-cols-2 gap-4">{proposals.map(t => <div key={t.id}><p className="text-[14px] font-medium">{t.name} <span className="text-xs text-mute font-normal">· {REP[t.repeat]}{t.repeat === 'weekly' && t.weekday ? `, ${WD[t.weekday]}` : ''}</span></p><ul className="mt-1 text-[13px] text-mute list-disc pl-4 space-y-0.5">{t.items.map(i => <li key={i.id}>{i.title}{i.prio && <span className="text-[#C0634B]"> · wichtig</span>}</li>)}</ul></div>)}</div>
+    </Box>}
     <div className="grid grid-cols-2 gap-4">
       <Box><p className="font-medium px-4 pt-4">Vorlagen</p><table className="w-full text-[14px]"><thead><tr><Th>Name</Th><Th>Punkte</Th><Th>Wiederholung</Th><Th>Gilt für</Th><Th> </Th></tr></thead>
-        <tbody className="divide-y divide-sage-50">{templates.map(t => <tr key={t.id}><td className="px-4 py-3">{t.name}</td><td className="px-4 text-mute">{t.items.length}</td><td className="px-4 text-mute">{REP[t.repeat]}{t.repeat === 'weekly' && t.weekday ? `, ${WD[t.weekday]}` : ''}{t.repeat === 'monthly' && t.monthday ? `, ${t.monthday}.` : ''}</td><td className="px-4 text-mute">{t.branchIds.length ? t.branchIds.map(id => branches.find(b => b.id === id)?.name).join(', ') : 'Alle Studios'}</td>
+        <tbody className="divide-y divide-sage-50">{templates.filter(t => t.active).map(t => <tr key={t.id}><td className="px-4 py-3">{t.name}{t.sample && <span className="ml-2 text-xs text-mute">Beispiel</span>}</td><td className="px-4 text-mute">{t.items.length}</td><td className="px-4 text-mute">{REP[t.repeat]}{t.repeat === 'weekly' && t.weekday ? `, ${WD[t.weekday]}` : ''}{t.repeat === 'monthly' && t.monthday ? `, ${t.monthday}.` : ''}</td><td className="px-4 text-mute">{t.branchIds.length ? t.branchIds.map(id => branches.find(b => b.id === id)?.name).join(', ') : 'Alle Studios'}</td>
           <td className="px-2">{me.app_role === 'buero' && <button title="Deaktivieren" onClick={async () => { if (confirm(`Vorlage „${t.name}“ deaktivieren? Alte Nachweise bleiben.`)) { await supabase!.from('task_templates').update({ active: false }).eq('id', t.id); await reload() } }} className="text-mute"><Trash2 size={14} /></button>}</td></tr>)}</tbody></table></Box>
       <Box className="p-4"><p className="font-medium mb-4">Heute je Studio</p><div className="space-y-3">{progress.map(b => <div key={b.id} className="grid grid-cols-[90px_1fr_40px] items-center gap-3 text-[14px]"><span>{b.branch}</span><Bar p={b.total ? b.done / b.total * 100 : 0} /><span className="text-right text-mute">{b.done}/{b.total}</span></div>)}</div>
         <p className="mt-5 text-xs text-mute flex items-center gap-1.5"><Camera size={13} />Nachweise mit Person, Uhrzeit und Foto bleiben gespeichert, jeder Tag beginnt neu.</p></Box>
@@ -290,7 +297,8 @@ function TeamAdmin() {
 type Edit = { id?: string; imported: boolean; category: string; title: string; intro: string; body: string; minutes: number; media_kind: string; media_url: string; published: boolean; access_level: string }
 const LEVEL = { alle: 'Alle', filialleitung: 'Filialleitung + Büro', buero: 'Nur Büro' } as Record<string, string>
 function WikiAdmin() {
-  const { wiki, steps, reloadWiki } = useApp()
+  const { wiki, steps, allSteps, reloadWiki, reload } = useApp()
+  const obProposal = allSteps.filter(x => x.proposed)
   const own = wiki.filter(a => !a.fromNews)
   const [q, setQ] = useState('')
   const [edit, setEdit] = useState<Edit | null>(null)
@@ -332,6 +340,11 @@ function WikiAdmin() {
         <label className="flex items-center gap-2"><input type="checkbox" checked={edit.published} onChange={e => setEdit({ ...edit, published: e.target.checked })} />Freigegeben</label>
         <Err m={err} /><div className="flex gap-2"><button onClick={save} className="flex-1 h-10 rounded-xl bg-ink text-white">Speichern</button><button onClick={() => setEdit(null)} className="h-10 px-3 rounded-xl border border-sage-200">Abbrechen</button></div>
       </div>
+    </Box>}
+    {obProposal.length > 0 && <Box className="p-5 mb-6 border-sage-400">
+      <div className="flex items-start justify-between gap-4"><div><p className="font-medium">Vorschlag: Onboarding für Neue · {obProposal.length} Schritte aus dem Wiki</p><p className="text-xs text-mute mt-1">Jeder Schritt öffnet den Artikel. Ersetzt nach Freigabe die {steps.length} Beispielschritte.</p></div>
+        <button onClick={async () => { if (confirm('Onboarding-Vorschlag freigeben?')) { await supabase!.rpc('approve_wiki_proposals', { p_kind: 'onboarding' }); await reload() } }} className="h-10 px-4 rounded-xl bg-ink text-white text-[14px] shrink-0">Freigeben</button></div>
+      <ol className="mt-3 text-[13px] text-mute list-decimal pl-5 columns-2 gap-6">{obProposal.map(x => <li key={x.id}>{x.title} · {x.minutes} Min.</li>)}</ol>
     </Box>}
     <div className="h-10 mb-4 rounded-xl border border-sage-200 px-3 flex items-center gap-2"><Search size={16} className="text-mute" /><input value={q} onChange={e => setQ(e.target.value)} placeholder="Titel, Kategorie oder Stichwort" className="flex-1 outline-none text-[14px]" /><span className="text-xs text-mute">{list.length} Artikel</span></div>
     <Box><table className="w-full text-[14px]"><thead><tr><Th>Artikel</Th><Th>Kategorie</Th><Th>Sichtbar für</Th><Th>Aktualisiert</Th><Th>Status</Th></tr></thead>
