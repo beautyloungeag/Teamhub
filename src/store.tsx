@@ -1,4 +1,6 @@
-import { createContext, useContext, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { useAuth, type Employee } from './lib/auth'
+import { supabase } from './lib/supabase'
 import { STAFF, type Staff } from './staff'
 import { TICKETS, EVENTS, type Ticket } from './data'
 
@@ -17,6 +19,7 @@ const DICT: Record<string, [string, string]> = {
 
 type Ctx = {
   me: Staff; setMe: (s: Staff) => void
+  employee: Employee | null
   lang: Lang; setLang: (l: Lang) => void; t: (s: string) => string
   read: Set<number>; confirm: (id: number) => void
   done: Map<number, string>; toggle: (id: number) => void
@@ -32,8 +35,17 @@ export const useApp = () => useContext(C)!
 const now = () => new Date().toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' })
 
 export function AppProvider({ children }: { children: ReactNode }) {
+  const { employee } = useAuth()
   const [me, setMe] = useState<Staff>(STAFF.find(s => s.first === 'Bea') ?? STAFF[0])
-  const [lang, setLang] = useState<Lang>('DE')
+  const [lang, setLangState] = useState<Lang>('DE')
+  // Angemeldete Mitarbeiterin ersetzt die Beispielperson; Team-Listen bleiben bis BLTH-15 Beispieldaten.
+  useEffect(() => {
+    if (!employee) return
+    setMe({ id: 0, first: employee.first_name, last: employee.last_name, branch: employee.branch_name, role: employee.job_title, skills: employee.skills })
+    setLangState(employee.lang)
+    if (employee.skills.length) setSkills(employee.skills)
+  }, [employee])
+  const setLang = (l: Lang) => { setLangState(l); if (employee) supabase?.rpc('update_my_profile', { p_lang: l }) }
   const [read, setRead] = useState(new Set([2, 3, 4]))
   const [done, setDone] = useState(new Map([[1, '07:44'], [2, '07:52'], [3, '07:58']]))
   const [tickets, setTickets] = useState(TICKETS)
@@ -44,7 +56,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const t = (s: string) => lang === 'DE' ? s : (DICT[s]?.[lang === 'EN' ? 0 : 1] ?? s)
   return (
     <C.Provider value={{
-      me, setMe, lang, setLang, t,
+      me, setMe, employee, lang, setLang, t,
       read, confirm: id => setRead(r => new Set(r).add(id)),
       done, toggle: id => setDone(d => { const n = new Map(d); n.has(id) ? n.delete(id) : n.set(id, now()); return n }),
       tickets,

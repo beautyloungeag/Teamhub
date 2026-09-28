@@ -5,6 +5,7 @@ import {
   Search, Lightbulb, AlertTriangle, CalendarDays, Inbox, Send, Newspaper, Plane, Play, Flag, Video,
   ArrowUpRight, Reply, LogOut, GraduationCap, Link2, Lock,
 } from 'lucide-react'
+import { useAuth } from './lib/auth'
 import { useApp, type Lang } from './store'
 import { Terminbuch, EventCalendar, PRATTELN_TODAY } from './Calendar'
 import { STAFF, type Staff } from './staff'
@@ -17,8 +18,8 @@ type Sub = null | { k: 'news-list' } | { k: 'news'; item: News } | { k: 'wiki'; 
 const ini = (s: Staff) => (s.first[0] + (s.last[0] ?? '')).toUpperCase()
 
 export default function Mobile() {
-  const [in_, setIn] = useState(false)
-  return in_ ? <Shell onLogout={() => setIn(false)} /> : <Login onLogin={() => setIn(true)} />
+  const { signOut } = useAuth()
+  return <Shell onLogout={signOut} />
 }
 
 /* ---------- Primitives ---------- */
@@ -52,34 +53,6 @@ const SearchBox = ({ value, onChange, placeholder }: { value: string; onChange: 
   <div className="h-11 rounded-2xl bg-white px-3.5 flex items-center gap-2"><Search size={18} className="text-mute" />
     <input value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} className="flex-1 bg-transparent outline-none text-[15px] placeholder:text-mute" /></div>
 )
-
-/* ---------- Login ---------- */
-function Login({ onLogin }: { onLogin: () => void }) {
-  const { lang, setLang, t } = useApp()
-  const [step, setStep] = useState<'mail' | 'code'>('mail')
-  return (
-    <div className="flex-1 flex flex-col px-7 pt-14 pb-10">
-      <div className="flex justify-end gap-1 text-xs">
-        {(['DE', 'EN', 'FR'] as Lang[]).map(l => <button key={l} onClick={() => setLang(l)} className={`px-2.5 py-1 rounded-full ${lang === l ? 'bg-ink text-white' : 'text-mute'}`}>{l}</button>)}
-      </div>
-      <div className="mt-20">
-        <div className="w-14 h-14 rounded-2xl bg-sage-400 flex items-center justify-center text-white text-xl font-semibold">bl</div>
-        <h1 className="mt-6 text-[34px] leading-tight font-semibold tracking-tight">TeamHub</h1>
-        <p className="mt-1 text-mute">Beautylounge · intern</p>
-      </div>
-      <div className="mt-auto space-y-4">
-        {step === 'mail' ? <>
-          <div><p className="text-sm text-mute mb-2">E-Mail</p><div className="h-12 rounded-2xl bg-white px-4 flex items-center text-[15px]">bea@beautylounge.ch</div></div>
-          <Btn onClick={() => setStep('code')}>{t('Anmeldecode senden')}</Btn>
-          <p className="text-xs text-mute text-center">Kein Passwort. Du bekommst einen Link und einen Code per E-Mail.</p>
-        </> : <>
-          <div><p className="text-sm text-mute mb-2">Code</p><div className="grid grid-cols-6 gap-2">{'482913'.split('').map((d, i) => <div key={i} className="h-12 rounded-xl bg-white flex items-center justify-center text-lg font-medium">{d}</div>)}</div></div>
-          <Btn onClick={onLogin}>{t('Anmelden')}</Btn>
-        </>}
-      </div>
-    </div>
-  )
-}
 
 /* ---------- Shell ---------- */
 function Shell({ onLogout }: { onLogout: () => void }) {
