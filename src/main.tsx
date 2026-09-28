@@ -9,6 +9,8 @@ createRoot(document.getElementById('root')!).render(
   </StrictMode>,
 )
 
-if ('serviceWorker' in navigator && import.meta.env.PROD) {
+// Service Worker immer registrieren: installierbar + Push (auch lokal testbar)
+if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js'))
 }
+import './lib/push'

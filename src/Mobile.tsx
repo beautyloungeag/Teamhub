@@ -3,11 +3,12 @@ import { motion } from 'motion/react'
 import {
   Home, ListChecks, BookOpen, LayoutGrid, Sparkles, ChevronLeft, ChevronRight, Check, Camera, MapPin, Users,
   Search, Lightbulb, AlertTriangle, CalendarDays, Inbox, Send, Newspaper, Plane, Play, Flag, Video,
-  ArrowUpRight, LogOut, GraduationCap, Link2, Lock, FileText,
+  ArrowUpRight, LogOut, GraduationCap, Link2, Lock, FileText, Bell, Smartphone, Share, PlusSquare, MoreVertical,
 } from 'lucide-react'
 import { useAuth } from './lib/auth'
 import { supabase } from './lib/supabase'
 import { phorest, type MyDay, type TeamToday } from './lib/phorest'
+import { pushState, enablePush, disablePush, testPush, reportDevice, isStandalone, isIOS, isAndroid, canPromptInstall, promptInstall, type PushState } from './lib/push'
 import { useApp, isoDay, type Lang, type News, type WikiArticle, type WikiBlock, type Staff } from './store'
 import { Terminbuch, EventCalendar } from './Calendar'
 
@@ -16,7 +17,7 @@ export const ASSISTANT = 'Benni'
 
 type Tab = 'home' | 'tasks' | 'ai' | 'wiki' | 'menu'
 type Sub = null | { k: 'news-list' } | { k: 'news'; item: News } | { k: 'wiki'; item: WikiArticle } | { k: 'onboarding' } | { k: 'team' } | { k: 'profile'; item: Staff }
-  | { k: 'me' } | { k: 'conn' } | { k: 'book' } | { k: 'tickets' } | { k: 'events' } | { k: 'inbox' } | { k: 'time' }
+  | { k: 'me' } | { k: 'conn' } | { k: 'book' } | { k: 'tickets' } | { k: 'events' } | { k: 'inbox' } | { k: 'time' } | { k: 'install' }
 
 const ini = (s: { first: string; last: string }) => ((s.first[0] ?? '') + (s.last[0] ?? '')).toUpperCase()
 
@@ -69,6 +70,19 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   const go = (x: Tab) => { setStack([]); setTab(x) }
   const scroller = useRef<HTMLDivElement>(null)
   const mustOpen = news.filter(n => n.mustRead && !read.has(n.id)).length
+  // Tipp auf eine Mitteilung: ?open=news:<id> | events | tickets
+  const openUrl = (u: string) => {
+    const o = new URL(u, location.origin).searchParams.get('open') ?? ''
+    if (o.startsWith('news:')) { const n = news.find(x => x.id === o.slice(5)); if (n) open({ k: 'news', item: n }) }
+    else if (o === 'events') open({ k: 'events' }); else if (o === 'tickets') open({ k: 'tickets' })
+  }
+  useEffect(() => {
+    reportDevice()
+    if (location.search.includes('open=') && !loading) { openUrl(location.href); history.replaceState(null, '', '/') }
+    const onMsg = (e: MessageEvent) => { if (e.data?.type === 'open') openUrl(e.data.url) }
+    navigator.serviceWorker?.addEventListener('message', onMsg)
+    return () => navigator.serviceWorker?.removeEventListener('message', onMsg)
+  }, [loading]) // eslint-disable-line react-hooks/exhaustive-deps
 
   let screen: ReactNode
   switch (sub?.k) {
@@ -85,6 +99,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
     case 'book': screen = <div className="px-5 pb-4 h-[calc(100dvh-150px)] md:h-[640px]"><h1 className="text-[26px] font-semibold tracking-tight mb-3">Kundentermine</h1><Terminbuch compact /></div>; break
     case 'inbox': screen = <NotConnected title="Posteingang" tool="dein Postfach" what="deine E-Mails" />; break
     case 'time': screen = <NotConnected title="Zeit & Ferien" tool="Timebutler" what="deinen Resturlaub, deine Anträge und die Stempeluhr" />; break
+    case 'install': screen = <Install />; break
     default:
       screen = tab === 'home' ? <Today open={open} go={go} /> : tab === 'tasks' ? <Tasks open={open} /> : tab === 'ai' ? <AI open={open} />
         : tab === 'wiki' ? <Wiki open={open} /> : <MenuView open={open} onLogout={onLogout} />
@@ -161,6 +176,7 @@ function Today({ open, go }: { open: (s: Sub) => void; go: (t: Tab) => void }) {
         </div>
       </div>
 
+      <ReadyCard open={open} />
       {must.map(n => (
         <Card key={n.id} onClick={() => open({ k: 'news', item: n })} className="mt-3 p-4 flex gap-3 items-center !bg-[#F7ECE7]">
           <Flag size={18} className="text-[#C0634B] shrink-0" />
@@ -444,6 +460,7 @@ function Onboarding({ open }: { open: (s: Sub) => void }) {
   return (
     <div className="px-5 pb-10"><h1 className="mt-3 text-[26px] font-semibold tracking-tight">Onboarding</h1>
       <p className="mt-1 text-[14px] text-mute">Alles für deine ersten Tage. Deine Respo sieht, wie weit du bist.</p>
+      <Card onClick={() => open({ k: 'install' })} className="mt-4 p-4 flex items-center gap-3"><span className="w-10 h-10 rounded-xl bg-ink text-white flex items-center justify-center"><Smartphone size={19} /></span><span className="flex-1"><span className="block text-[15px] font-medium">Zuerst: TeamHub aufs Handy</span><span className="block text-xs text-mute">Auf den Home-Bildschirm legen und Mitteilungen einschalten</span></span><ChevronRight size={18} className="text-sage-400" /></Card>
       <div className="mt-4 h-1.5 rounded-full bg-sage-100 overflow-hidden"><div className="h-full bg-sage-600 transition-all" style={{ width: (steps.length ? steps.filter(s => obDone.has(s.id)).length / steps.length * 100 : 0) + '%' }} /></div>
       <div className="mt-5 space-y-2">
         {steps.map((s, i) => { const art = wiki.find(w => w.id === s.articleId)
@@ -539,6 +556,8 @@ function MyProfile() {
       <Label>Meine Skills</Label>
       <div className="flex flex-wrap gap-2">{skillCatalog.map(k => <button key={k} onClick={() => tog(k)} className={`px-3 h-8 rounded-full text-[13px] ${skills.includes(k) ? 'bg-ink text-white' : 'bg-white'}`}>{k}</button>)}</div>
       <p className="mt-3 text-xs text-mute">Die Skill-Liste gibt das Büro vor. Kolleginnen finden dich darüber.</p>
+      <Label>Mitteilungen</Label>
+      <PushToggle />
       <Label>Sprache</Label>
       <div className="grid grid-cols-3 gap-2 p-1 rounded-2xl bg-white">{([['DE', 'Deutsch'], ['EN', 'English'], ['FR', 'Français']] as [Lang, string][]).map(([k, l]) => <button key={k} onClick={() => setLang(k)} className={`h-10 rounded-xl text-[14px] ${lang === k ? 'bg-ink text-white' : ''}`}>{l}</button>)}</div>
     </div>
@@ -624,6 +643,80 @@ function Connections() {
           </div>
         ))}</List>
         <p className="mt-3 text-xs text-mute">Phorest braucht keine eigene Anmeldung. TeamHub erkennt dich über deine Firmen-Mail und zeigt dir deine eigenen Termine.</p>
+      </div>
+    </div>
+  )
+}
+
+/* ---------- Startklar: Homescreen + Mitteilungen (BLTH-27) ---------- */
+function usePush() {
+  const [st, setSt] = useState<PushState | null>(null)
+  const refresh = () => pushState().then(setSt)
+  useEffect(() => { refresh() }, [])
+  return [st, refresh] as const
+}
+function ReadyCard({ open }: { open: (s: Sub) => void }) {
+  const [st] = usePush()
+  const [hide, setHide] = useState(() => { try { return localStorage.getItem('th-ready-hide') === '1' } catch { return false } })
+  if (hide || st === null || (isStandalone() && (st === 'on' || st === 'unsupported'))) return null
+  const text = !isStandalone() ? 'Leg TeamHub auf deinen Home-Bildschirm, dann öffnet es wie eine App.' : 'Schalte Mitteilungen ein, dann verpasst du keine Pflicht-News und Schulung.'
+  return (
+    <div className="mt-3 rounded-[20px] bg-white p-4 flex gap-3 items-start">
+      <span className="w-9 h-9 rounded-xl bg-sage-50 text-sage-800 flex items-center justify-center shrink-0"><Bell size={17} /></span>
+      <button onClick={() => open({ k: 'install' })} className="flex-1 text-left"><span className="block text-[15px] font-medium">TeamHub startklar machen</span><span className="block text-[13px] text-mute mt-0.5">{text}</span></button>
+      <button onClick={() => { setHide(true); try { localStorage.setItem('th-ready-hide', '1') } catch { /* privat */ } }} className="text-xs text-mute">Später</button>
+    </div>
+  )
+}
+function PushToggle() {
+  const { me } = useApp()
+  const [st, refresh] = usePush()
+  const [busy, setBusy] = useState(false), [msg, setMsg] = useState('')
+  const info: Record<PushState, string> = {
+    on: 'Eingeschaltet. Du bekommst Pflicht-News, neue Schulungen und den Stand deiner Meldungen.',
+    off: 'Aus. Schalte sie ein, dann meldet sich TeamHub bei wichtigen News.',
+    denied: 'Blockiert. Erlaube Mitteilungen für TeamHub in den Einstellungen deines Handys oder Browsers.',
+    unsupported: 'Dieser Browser kann keine Mitteilungen. Alles Wichtige siehst du trotzdem auf „Heute“.',
+    'needs-install': 'Auf dem iPhone gehen Mitteilungen erst, wenn TeamHub auf dem Home-Bildschirm liegt.',
+  }
+  if (!st) return <Card className="p-4 text-[14px] text-mute">…</Card>
+  return (
+    <Card className="p-4">
+      <p className="text-[14px]">{info[st]}</p>
+      <div className="mt-3 flex gap-2">
+        {st === 'off' && <button disabled={busy} onClick={async () => { setBusy(true); const r = await enablePush(me.id); setBusy(false); refresh(); if (r === 'denied') setMsg('Du hast Mitteilungen abgelehnt.') }} className="h-10 px-4 rounded-full bg-ink text-white text-[14px] disabled:opacity-60">Einschalten</button>}
+        {st === 'on' && <><button disabled={busy} onClick={async () => { setBusy(true); const ok = await testPush(); setBusy(false); setMsg(ok ? 'Probe-Mitteilung ist unterwegs.' : 'Konnte keine Probe senden.') }} className="h-10 px-4 rounded-full bg-white border border-sage-200 text-[14px]">Probe senden</button>
+          <button onClick={async () => { await disablePush(); refresh() }} className="h-10 px-4 rounded-full text-[14px] text-mute">Ausschalten</button></>}
+      </div>
+      {msg && <p className="mt-2 text-[13px] text-mute">{msg}</p>}
+    </Card>
+  )
+}
+function Install() {
+  const [st, refresh] = usePush()
+  const standalone = isStandalone(), ios = isIOS(), android = isAndroid()
+  const Step = ({ n, icon, children }: { n: number; icon: ReactNode; children: ReactNode }) => (
+    <div className="flex gap-3 items-start px-4 py-3.5"><span className="w-7 h-7 rounded-full bg-sage-50 text-sage-800 text-[13px] font-medium flex items-center justify-center shrink-0">{n}</span><span className="flex-1 text-[15px]">{children}</span><span className="text-sage-800">{icon}</span></div>
+  )
+  return (
+    <div className="pb-10"><Title sub="In zwei Minuten erledigt">TeamHub aufs Handy</Title>
+      <div className="px-5 space-y-3">
+        <Card className="p-4 flex items-center gap-3"><span className={`w-8 h-8 rounded-full flex items-center justify-center ${standalone ? 'bg-sage-600 text-white' : 'bg-sage-50 text-sage-800'}`}>{standalone ? <Check size={15} /> : 1}</span><span className="flex-1 text-[15px]">{standalone ? 'Liegt auf dem Home-Bildschirm' : 'Auf den Home-Bildschirm legen'}</span></Card>
+        {!standalone && <List>
+          {ios ? <>
+            <Step n={1} icon={<Share size={18} />}>In Safari unten auf <strong>Teilen</strong> tippen</Step>
+            <Step n={2} icon={<PlusSquare size={18} />}><strong>Zum Home-Bildschirm</strong> wählen, dann <strong>Hinzufügen</strong></Step>
+            <Step n={3} icon={<Smartphone size={18} />}>TeamHub über das neue Symbol öffnen und hier Mitteilungen einschalten</Step>
+          </> : android ? <>
+            {canPromptInstall() && <div className="p-4"><Btn onClick={async () => { await promptInstall(); refresh() }}>App installieren</Btn></div>}
+            <Step n={1} icon={<MoreVertical size={18} />}>In Chrome oben rechts auf das <strong>Menü</strong> tippen</Step>
+            <Step n={2} icon={<PlusSquare size={18} />}><strong>App installieren</strong> bzw. <strong>Zum Startbildschirm hinzufügen</strong></Step>
+            <Step n={3} icon={<Smartphone size={18} />}>TeamHub über das neue Symbol öffnen</Step>
+          </> : <Step n={1} icon={<Smartphone size={18} />}>Öffne diese Seite auf deinem Handy: iPhone mit Safari, Android mit Chrome.</Step>}
+        </List>}
+        <Card className="p-4 flex items-center gap-3"><span className={`w-8 h-8 rounded-full flex items-center justify-center ${st === 'on' ? 'bg-sage-600 text-white' : 'bg-sage-50 text-sage-800'}`}>{st === 'on' ? <Check size={15} /> : 2}</span><span className="flex-1 text-[15px]">Mitteilungen einschalten</span></Card>
+        <PushToggle />
+        <p className="text-xs text-mute px-1">Ohne Mitteilungen geht nichts verloren: Pflicht-News und Aufgaben stehen immer auf „Heute“. Deine Respo sieht im Backoffice, wer startklar ist.</p>
       </div>
     </div>
   )

@@ -4,6 +4,7 @@ import { Terminbuch } from './Calendar'
 import { useApp, isoDay, appliesOn, fmtDate, fmtTime, zurichHour, type Ticket } from './store'
 import { supabase } from './lib/supabase'
 import { Status, ASSISTANT } from './Mobile'
+import { notifyNow } from './lib/push'
 
 type View = 'overview' | 'book' | 'news' | 'tasks' | 'tickets' | 'events' | 'team' | 'wiki'
 const NAV: [View, string, typeof Users][] = [['overview', 'Übersicht', LayoutDashboard], ['book', 'Kundentermine', CalendarClock], ['news', 'News', Newspaper], ['tasks', 'Aufgaben', ListChecks], ['tickets', 'Meldungen & Ideen', Lightbulb], ['events', 'Schulungen & Events', CalendarDays], ['team', 'Team & Skills', Users], ['wiki', 'Wissen', BookOpen]]
@@ -80,8 +81,26 @@ function Overview({ go }: { go: (v: View) => void }) {
     <div className="grid grid-cols-2 gap-4 mt-4">
       <Box className="p-5"><p className="font-medium mb-4">Tagesaufgaben je Studio</p><div className="space-y-3">{progress.map(b => <div key={b.id} className="grid grid-cols-[90px_1fr_40px] items-center gap-3 text-[14px]"><span>{b.branch}</span><Bar p={b.total ? b.done / b.total * 100 : 0} /><span className="text-right text-mute">{b.done}/{b.total}</span></div>)}</div></Box>
       <Box className="p-5"><p className="font-medium mb-3">Neueste Meldungen</p><div className="divide-y divide-sage-50">{tickets.length === 0 && <p className="text-[14px] text-mute">Noch keine.</p>}{tickets.slice(0, 5).map(t => <div key={t.id} className="py-2.5 flex justify-between gap-3 text-[14px]"><span className="truncate">{t.title}{t.viaAI && <Sparkles size={12} className="inline ml-1.5 text-sage-600" />}</span><span className="text-xs shrink-0"><Status s={t.status} /></span></div>)}</div></Box>
+      <Readiness />
     </div>
   </>)
+}
+
+/* Startbereitschaft je Studio (BLTH-27): App installiert, Mitteilungen an */
+function Readiness() {
+  const { staff, branches, me } = useApp()
+  const [open, setOpen] = useState<string | null>(null)
+  const rows = branches.filter(b => !b.is_office && (me.app_role === 'buero' || b.id === me.branch_id)).map(b => {
+    const p = staff.filter(s => s.active && s.branch_id === b.id)
+    return { b, p, inst: p.filter(s => s.appInstalled).length, push: p.filter(s => s.pushEnabled).length }
+  })
+  return <Box className="p-5 col-span-2"><p className="font-medium mb-1">Startbereitschaft</p><p className="text-xs text-mute mb-4">App auf dem Home-Bildschirm · Mitteilungen eingeschaltet</p>
+    <div className="space-y-2">{rows.map(r => <div key={r.b.id}>
+      <button onClick={() => setOpen(open === r.b.id ? null : r.b.id)} className="w-full grid grid-cols-[90px_1fr_1fr_24px] items-center gap-3 text-[14px] text-left"><span>{r.b.name}</span>
+        <span className="flex items-center gap-2"><Bar p={r.p.length ? r.inst / r.p.length * 100 : 0} /><span className="text-xs text-mute w-10">{r.inst}/{r.p.length}</span></span>
+        <span className="flex items-center gap-2"><Bar p={r.p.length ? r.push / r.p.length * 100 : 0} /><span className="text-xs text-mute w-10">{r.push}/{r.p.length}</span></span><span className="text-mute text-xs">{open === r.b.id ? '–' : '+'}</span></button>
+      {open === r.b.id && <div className="mt-2 mb-3 ml-[102px] grid grid-cols-2 gap-x-6 gap-y-1 text-[13px]">{r.p.map(s => <span key={s.id} className="flex justify-between"><span>{s.first} {s.last}</span><span className="text-mute">{s.appInstalled ? 'App' : '–'} · {s.pushEnabled ? 'Push' : '–'}</span></span>)}</div>}
+    </div>)}</div></Box>
 }
 
 /* ---------- News ---------- */
@@ -102,7 +121,7 @@ function NewsAdmin() {
     })
     setBusy(false)
     if (error) { setErr('Veröffentlichen hat nicht geklappt.'); return }
-    setCompose(false); setF({ title: '', teaser: '', body: '', tag: 'Studio', must: false, branches: [], when: '', wiki: '' }); await reload()
+    setCompose(false); setF({ title: '', teaser: '', body: '', tag: 'Studio', must: false, branches: [], when: '', wiki: '' }); await reload(); notifyNow()
   }
   const people = n ? audience(n.audienceBranches) : []
   return (<>
@@ -221,7 +240,7 @@ function EventsAdmin() {
       audience_branches: f.branches, audience_skills: f.skills,
     })
     if (error) { setErr('Speichern hat nicht geklappt.'); return }
-    setForm(false); setErr(''); await reload()
+    setForm(false); setErr(''); await reload(); notifyNow()
   }
   const tog = (k: 'branches' | 'skills', v: string) => setF({ ...f, [k]: f[k].includes(v) ? f[k].filter(x => x !== v) : [...f[k], v] })
   return (<>

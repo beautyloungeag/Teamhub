@@ -16,7 +16,7 @@ const DICT: Record<string, [string, string]> = {
 }
 
 /* ---------- Typen ---------- */
-export type Staff = { id: string; first: string; last: string; branch: string; branch_id: string; role: string; skills: string[]; photo: string | null; app_role: string; active: boolean; email: string }
+export type Staff = { id: string; first: string; last: string; branch: string; branch_id: string; role: string; skills: string[]; photo: string | null; app_role: string; active: boolean; email: string; appInstalled?: boolean; pushEnabled?: boolean }
 export type News = { id: string; title: string; teaser: string; body: string; author: string; date: string; tag: string; mustRead: boolean; audience: string; audienceBranches: string[]; publishAt: string; wikiCategory: string | null }
 export type TaskItem = { id: string; title: string; time: string; group: string; prio: boolean; proof: boolean; articleId: string | null }
 export type Template = { id: string; name: string; repeat: 'daily' | 'weekly' | 'monthly'; weekday: number | null; monthday: number | null; branchIds: string[]; items: TaskItem[]; active: boolean; proposed: boolean; sample: boolean }
@@ -69,7 +69,7 @@ export const useApp = () => useContext(C)!
 
 const toStaff = (e: any, branches: Branch[], photos: Map<string, string>): Staff => ({
   id: e.id, first: e.first_name, last: e.last_name, branch: branches.find(b => b.id === e.branch_id)?.name ?? e.branch_id, branch_id: e.branch_id,
-  role: e.job_title, skills: e.skills ?? [], photo: e.photo_path ? photos.get(e.photo_path) ?? null : null, app_role: e.app_role, active: e.active, email: e.email,
+  role: e.job_title, skills: e.skills ?? [], photo: e.photo_path ? photos.get(e.photo_path) ?? null : null, app_role: e.app_role, active: e.active, email: e.email, appInstalled: !!e.app_installed_at, pushEnabled: !!e.push_enabled,
 })
 
 export function AppProvider({ children }: { children: ReactNode }) {
@@ -112,7 +112,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const today = isoDay()
     const [br, em, sk, nw, rd, tt, ti, tc, tk, ev, cnt, rg, wk, ob, obp, mp] = await Promise.all([
       sb.from('branches').select('id, name, is_office').order('sort'),
-      sb.from('employees').select('id, email, first_name, last_name, job_title, app_role, branch_id, skills, photo_path, active').order('first_name'),
+      sb.from('employees').select('id, email, first_name, last_name, job_title, app_role, branch_id, skills, photo_path, active, app_installed_at, push_enabled').order('first_name'),
       sb.from('skills').select('name').order('sort'),
       sb.from('news').select('*').order('publish_at', { ascending: false }),
       sb.from('news_reads').select('news_id, employee_id, confirmed_at'),
