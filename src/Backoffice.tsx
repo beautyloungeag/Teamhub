@@ -287,42 +287,56 @@ function TeamAdmin() {
 }
 
 /* ---------- Wissen ---------- */
+type Edit = { id?: string; imported: boolean; category: string; title: string; intro: string; body: string; minutes: number; media_kind: string; media_url: string; published: boolean; access_level: string }
+const LEVEL = { alle: 'Alle', filialleitung: 'Filialleitung + Büro', buero: 'Nur Büro' } as Record<string, string>
 function WikiAdmin() {
-  const { wiki, steps, reload } = useApp()
+  const { wiki, steps, reloadWiki } = useApp()
   const own = wiki.filter(a => !a.fromNews)
-  const [edit, setEdit] = useState<null | { id?: string; category: string; title: string; body: string; minutes: number; media_kind: string; media_url: string; published: boolean }>(null)
+  const [q, setQ] = useState('')
+  const [edit, setEdit] = useState<Edit | null>(null)
   const [err, setErr] = useState('')
   const file = useRef<HTMLInputElement>(null)
+  const openEdit = async (id: string) => {
+    const { data } = await supabase!.from('wiki_articles').select('*').eq('id', id).single()
+    if (data) setEdit({ id: data.id, imported: !!data.blocks, category: data.category, title: data.title, intro: data.intro ?? '', body: data.body ?? '', minutes: data.minutes, media_kind: data.media_kind, media_url: data.media_url ?? '', published: data.published, access_level: data.access_level })
+  }
   const save = async () => {
     if (!edit || !edit.title.trim() || !edit.category.trim()) { setErr('Titel und Kategorie sind nötig.'); return }
-    const row = { category: edit.category.trim(), title: edit.title.trim(), body: edit.body.trim(), minutes: edit.minutes, media_kind: edit.media_kind, media_url: edit.media_url || null, published: edit.published, updated_at: new Date().toISOString() }
+    const meta = { category: edit.category.trim(), title: edit.title.trim(), intro: edit.intro.trim(), minutes: edit.minutes, published: edit.published, access_level: edit.access_level, updated_at: new Date().toISOString() }
+    // Importierte Artikel behalten ihren Aufbau (Bilder, Listen, Dateien); hier nur Rahmendaten
+    const row = edit.imported ? meta : { ...meta, body: edit.body.trim(), media_kind: edit.media_kind, media_url: edit.media_url || null }
     const { error } = edit.id ? await supabase!.from('wiki_articles').update(row).eq('id', edit.id) : await supabase!.from('wiki_articles').insert({ ...row, sort: own.length })
     if (error) { setErr('Speichern hat nicht geklappt.'); return }
-    setEdit(null); setErr(''); await reload()
+    setEdit(null); setErr(''); await reloadWiki()
   }
   const upload = async (f: File) => {
-    const path = `wiki/${Date.now()}-${f.name.replace(/[^\w.-]/g, '_')}`
+    const path = `wiki/${edit?.access_level ?? 'alle'}/${Date.now()}-${f.name.replace(/[^\w.-]/g, '_')}`
     const { error } = await supabase!.storage.from('media').upload(path, f, { contentType: f.type })
     if (!error && edit) setEdit({ ...edit, media_url: path, media_kind: f.type.startsWith('video') ? 'video' : 'photo' })
   }
+  const list = own.filter(a => [a.title, a.cat, ...a.tags].join(' ').toLowerCase().includes(q.toLowerCase()))
   return (<>
-    <H action={<New onClick={() => setEdit({ category: '', title: '', body: '', minutes: 3, media_kind: 'none', media_url: '', published: true })}>Neuer Artikel</New>}>Wissen</H>
+    <H action={<New onClick={() => setEdit({ imported: false, category: '', title: '', intro: '', body: '', minutes: 3, media_kind: 'none', media_url: '', published: true, access_level: 'alle' })}>Neuer Artikel</New>}>Wissen</H>
     {edit && <Box className="p-5 mb-6 grid grid-cols-[1fr_260px] gap-6">
       <div className="space-y-3"><input value={edit.title} onChange={e => setEdit({ ...edit, title: e.target.value })} placeholder="Titel" className="w-full text-[18px] font-medium outline-none" />
-        <textarea value={edit.body} onChange={e => setEdit({ ...edit, body: e.target.value })} rows={10} placeholder="Text. Absätze mit einer Leerzeile trennen, Schritte als 1., 2., 3." className="w-full resize-none outline-none text-[14px]" /></div>
+        <input value={edit.intro} onChange={e => setEdit({ ...edit, intro: e.target.value })} placeholder="Kurzfassung (optional)" className="w-full text-[14px] text-mute outline-none" />
+        {edit.imported ? <p className="text-[13px] text-mute">Aus dem bisherigen Wiki übernommen, mit Bildern, Listen und Dateien. Hier lassen sich Titel, Kategorie, Sichtbarkeit und Freigabe ändern; den Inhalt bearbeiten wir beim nächsten Import oder direkt mit Aleksa AI.</p>
+          : <textarea value={edit.body} onChange={e => setEdit({ ...edit, body: e.target.value })} rows={10} placeholder="Text. Absätze mit einer Leerzeile trennen, Schritte als 1., 2., 3." className="w-full resize-none outline-none text-[14px]" />}</div>
       <div className="space-y-3 text-[14px]">
         <Field label="Kategorie"><input value={edit.category} onChange={e => setEdit({ ...edit, category: e.target.value })} list="wiki-cats" placeholder="z. B. Hygiene" className={inp} /><datalist id="wiki-cats">{[...new Set(own.map(a => a.cat))].map(c => <option key={c} value={c} />)}</datalist></Field>
+        <Field label="Sichtbar für"><select value={edit.access_level} onChange={e => setEdit({ ...edit, access_level: e.target.value })} className={inp}>{Object.entries(LEVEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></Field>
         <Field label="Lesezeit (Min.)"><input type="number" min={1} value={edit.minutes} onChange={e => setEdit({ ...edit, minutes: Number(e.target.value) })} className={inp} /></Field>
-        <Field label="Medien"><select value={edit.media_kind} onChange={e => setEdit({ ...edit, media_kind: e.target.value })} className={inp}><option value="none">Keine</option><option value="photo">Foto</option><option value="video">Internes Video</option><option value="youtube">YouTube</option></select></Field>
-        {edit.media_kind === 'youtube' && <Field label="YouTube-Link"><input value={edit.media_url} onChange={e => setEdit({ ...edit, media_url: e.target.value })} placeholder="https://youtu.be/…" className={inp} /></Field>}
-        {(edit.media_kind === 'photo' || edit.media_kind === 'video') && <><button onClick={() => file.current?.click()} className="w-full h-10 rounded-xl border border-sage-200">{edit.media_url ? 'Datei ersetzen' : 'Datei hochladen'}</button><input ref={file} type="file" accept="image/*,video/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) upload(f) }} />{edit.media_url && <p className="text-[11px] text-mute truncate">{edit.media_url}</p>}</>}
-        <label className="flex items-center gap-2"><input type="checkbox" checked={edit.published} onChange={e => setEdit({ ...edit, published: e.target.checked })} />Freigegeben (für alle sichtbar)</label>
+        {!edit.imported && <><Field label="Medien"><select value={edit.media_kind} onChange={e => setEdit({ ...edit, media_kind: e.target.value })} className={inp}><option value="none">Keine</option><option value="photo">Foto</option><option value="video">Internes Video</option><option value="youtube">YouTube</option></select></Field>
+          {edit.media_kind === 'youtube' && <Field label="YouTube-Link"><input value={edit.media_url} onChange={e => setEdit({ ...edit, media_url: e.target.value })} placeholder="https://youtu.be/…" className={inp} /></Field>}
+          {(edit.media_kind === 'photo' || edit.media_kind === 'video') && <><button onClick={() => file.current?.click()} className="w-full h-10 rounded-xl border border-sage-200">{edit.media_url ? 'Datei ersetzen' : 'Datei hochladen'}</button><input ref={file} type="file" accept="image/*,video/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) upload(f) }} />{edit.media_url && <p className="text-[11px] text-mute truncate">{edit.media_url}</p>}</>}</>}
+        <label className="flex items-center gap-2"><input type="checkbox" checked={edit.published} onChange={e => setEdit({ ...edit, published: e.target.checked })} />Freigegeben</label>
         <Err m={err} /><div className="flex gap-2"><button onClick={save} className="flex-1 h-10 rounded-xl bg-ink text-white">Speichern</button><button onClick={() => setEdit(null)} className="h-10 px-3 rounded-xl border border-sage-200">Abbrechen</button></div>
       </div>
     </Box>}
-    <Box><table className="w-full text-[14px]"><thead><tr><Th>Artikel</Th><Th>Kategorie</Th><Th>Medien</Th><Th>Aktualisiert</Th><Th>Status</Th></tr></thead>
-      <tbody className="divide-y divide-sage-50">{own.map(a => <tr key={a.id} onClick={() => setEdit({ id: a.id, category: a.cat, title: a.title, body: a.body.join('\n\n'), minutes: a.minutes, media_kind: a.mediaKind, media_url: a.mediaUrl ?? '', published: a.published })} className="cursor-pointer hover:bg-sage-50"><td className="px-4 py-3">{a.title}</td><td className="px-4 text-mute">{a.cat}</td><td className="px-4 text-mute">{{ none: '–', photo: 'Foto', video: 'Video', youtube: 'YouTube' }[a.mediaKind] ?? '–'}</td><td className="px-4 text-mute">{a.updated}</td><td className="px-4 text-mute">{a.published ? 'freigegeben' : 'Entwurf'}</td></tr>)}</tbody></table></Box>
-    <p className="mt-3 text-xs text-mute">{ASSISTANT} beantwortet Fragen nur aus freigegebenen Artikeln. News mit Wissens-Kategorie erscheinen zusätzlich im Wissen. Onboarding: {steps.length} Schritte.</p>
+    <div className="h-10 mb-4 rounded-xl border border-sage-200 px-3 flex items-center gap-2"><Search size={16} className="text-mute" /><input value={q} onChange={e => setQ(e.target.value)} placeholder="Titel, Kategorie oder Stichwort" className="flex-1 outline-none text-[14px]" /><span className="text-xs text-mute">{list.length} Artikel</span></div>
+    <Box><table className="w-full text-[14px]"><thead><tr><Th>Artikel</Th><Th>Kategorie</Th><Th>Sichtbar für</Th><Th>Aktualisiert</Th><Th>Status</Th></tr></thead>
+      <tbody className="divide-y divide-sage-50">{list.map(a => <tr key={a.id} onClick={() => openEdit(a.id)} className="cursor-pointer hover:bg-sage-50"><td className="px-4 py-3">{a.title}</td><td className="px-4 text-mute">{a.cat}</td><td className="px-4 text-mute">{LEVEL[a.accessLevel]}</td><td className="px-4 text-mute">{a.updated}</td><td className="px-4 text-mute">{a.published ? 'freigegeben' : 'Entwurf'}</td></tr>)}</tbody></table></Box>
+    <p className="mt-3 text-xs text-mute">{ASSISTANT} beantwortet Fragen nur aus freigegebenen Artikeln, die die fragende Person sehen darf. News mit Wissens-Kategorie erscheinen zusätzlich im Wissen. Onboarding: {steps.length} Schritte.</p>
   </>)
 }
 

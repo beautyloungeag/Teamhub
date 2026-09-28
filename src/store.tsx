@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useAuth, type Employee } from './lib/auth'
 import { supabase } from './lib/supabase'
 
@@ -23,7 +23,8 @@ export type Template = { id: string; name: string; repeat: 'daily' | 'weekly' | 
 export type Done = { by: string; at: string; photo: string | null }
 export type Ticket = { id: string; kind: 'Meldung' | 'Idee'; title: string; body: string; branch: string; branchId: string; status: 'Neu' | 'Zugewiesen' | 'In Arbeit' | 'Erledigt'; who: string; when: string; assignee: string | null; photo: string | null; viaAI: boolean }
 export type Ev = { id: string; title: string; kind: string; description: string; startsAt: string; endsAt: string | null; place: string; link: string | null; capacity: number | null; registerUntil: string | null; audienceBranches: string[]; audienceSkills: string[]; taken: number }
-export type WikiArticle = { id: string; cat: string; title: string; minutes: number; updated: string; body: string[]; mediaKind: string; mediaUrl: string | null; published: boolean; fromNews?: boolean }
+export type WikiBlock = { t: 'h' | 'p' | 'ul' | 'ol' | 'quote' | 'img' | 'video' | 'file'; text?: string; items?: string[]; src?: string; url?: string; name?: string; level?: number }
+export type WikiArticle = { id: string; cat: string; title: string; minutes: number; updated: string; body: string[]; mediaKind: string; mediaUrl: string | null; published: boolean; fromNews?: boolean; intro: string; tags: string[]; accessLevel: 'alle' | 'filialleitung' | 'buero'; imported: boolean }
 export type Step = { id: string; title: string; minutes: number; articleId: string | null }
 export type Branch = { id: string; name: string; is_office: boolean }
 
@@ -57,7 +58,7 @@ type Ctx = {
   assign: (id: string, a: string) => Promise<void>; setStatus: (id: string, s: Ticket['status']) => Promise<void>
   events: Ev[]; joined: Set<string>; toggleEvent: (id: string) => Promise<string | null>
   registrations: { event_id: string; employee_id: string }[]
-  wiki: WikiArticle[]; steps: Step[]; obDone: Set<string>; toggleStep: (id: string) => Promise<void>
+  wiki: WikiArticle[]; reloadWiki: () => Promise<void>; steps: Step[]; obDone: Set<string>; toggleStep: (id: string) => Promise<void>
   skills: string[]; setSkills: (s: string[]) => void
   photo: string | null; setPhotoFile: (f: File) => Promise<void>
   myPhorest: { branch_id: string; staff_id: string }[]
@@ -86,10 +87,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [events, setEvents] = useState<Ev[]>([])
   const [registrations, setRegistrations] = useState<Ctx['registrations']>([])
-  const [wiki, setWiki] = useState<WikiArticle[]>([])
   const [steps, setSteps] = useState<Step[]>([])
   const [obDone, setObDone] = useState<Set<string>>(new Set())
   const [myPhorest, setMyPhorest] = useState<Ctx['myPhorest']>([])
+  const newsForWiki = useRef<any[]>([])
+  const [wikiRows, setWikiRows] = useState<any[]>([])
+  // Wissen: nur Liste laden (ohne Inhalte), einmal beim Start und nach Änderungen im Backoffice
+  const reloadWiki = useCallback(async () => {
+    if (!supabase || !employee) return
+    const { data } = await supabase.from('wiki_articles').select('id, category, title, minutes, updated_at, media_kind, media_url, published, access_level, tags, intro, source_id').order('category').order('sort').order('title')
+    setWikiRows(data ?? [])
+  }, [employee])
 
   const signedUrl = useCallback(async (bucket: string, path: string) => {
     if (!supabase) return null
@@ -114,7 +122,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       sb.from('events').select('*').order('starts_at'),
       sb.rpc('event_counts'),
       sb.from('event_registrations').select('event_id, employee_id'),
-      sb.from('wiki_articles').select('*').order('sort'),
+      Promise.resolve({ data: null }),
       sb.from('onboarding_steps').select('*').order('sort'),
       sb.from('onboarding_progress').select('step_id').eq('employee_id', employee.id),
       sb.from('employee_phorest').select('branch_id, staff_id').eq('employee_id', employee.id),
@@ -156,16 +164,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       id: x.id, kind: x.kind, title: x.title, body: x.body, branch: bname(x.branch_id), branchId: x.branch_id, status: x.status, who: x.created_by_name,
       when: relWhen(x.created_at), assignee: x.assignee, photo: x.photo_path ? tkPhotos.get(x.photo_path) ?? null : null, viaAI: x.via_ai,
     })))
-    const arts: WikiArticle[] = (wk.data ?? []).map((a: any) => ({
-      id: a.id, cat: a.category, title: a.title, minutes: a.minutes, updated: fmtDate(a.updated_at, { day: '2-digit', month: '2-digit', year: 'numeric' }),
-      body: String(a.body ?? '').split(/\n\n+/).filter(Boolean), mediaKind: a.media_kind, mediaUrl: a.media_url, published: a.published,
-    }))
-    // News mit Wissens-Kategorie erscheinen auch im Wissen (BLTH-16 News-zu-Wiki)
-    for (const n of nw.data ?? []) if (n.wiki_category && new Date(n.publish_at) <= new Date()) arts.push({
-      id: 'news-' + n.id, cat: n.wiki_category, title: n.title, minutes: Math.max(1, Math.round(String(n.body).split(/\s+/).length / 180)),
-      updated: fmtDate(n.publish_at, { day: '2-digit', month: '2-digit', year: 'numeric' }), body: String(n.body).split(/\n\n+/), mediaKind: 'none', mediaUrl: null, published: true, fromNews: true,
-    })
-    setWiki(arts)
+    newsForWiki.current = nw.data ?? []
+    void wk
     setSteps((ob.data ?? []).map((s: any) => ({ id: s.id, title: s.title, minutes: s.minutes, articleId: s.article_id })))
     setObDone(new Set((obp.data ?? []).map((x: any) => x.step_id)))
     setMyPhorest((mp.data ?? []) as Ctx['myPhorest'])
@@ -175,18 +175,31 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!employee) return
     setLangState(employee.lang)
-    reload()
+    reload(); reloadWiki()
     // Zurück in die App (Homescreen) → frische Daten, damit der „Reset“ um Mitternacht greift
     const onVis = () => { if (document.visibilityState === 'visible') reload() }
     document.addEventListener('visibilitychange', onVis)
     return () => document.removeEventListener('visibilitychange', onVis)
-  }, [employee, reload])
+  }, [employee, reload, reloadWiki])
 
   const meStaff = useMemo<Staff>(() => staff.find(s => s.id === employee?.id) ?? {
     id: employee?.id ?? '', first: employee?.first_name ?? '', last: employee?.last_name ?? '', branch: employee?.branch_name ?? '', branch_id: employee?.branch_id ?? '',
     role: employee?.job_title ?? '', skills: employee?.skills ?? [], photo: null, app_role: employee?.app_role ?? 'mitarbeiterin', active: true, email: employee?.email ?? '',
   }, [staff, employee])
 
+  const wiki = useMemo<WikiArticle[]>(() => {
+    const arts: WikiArticle[] = wikiRows.map((a: any) => ({
+      id: a.id, cat: a.category, title: a.title, minutes: a.minutes, updated: fmtDate(a.updated_at, { day: '2-digit', month: '2-digit', year: 'numeric' }),
+      body: [], mediaKind: a.media_kind, mediaUrl: a.media_url, published: a.published, intro: a.intro ?? '', tags: a.tags ?? [], accessLevel: a.access_level, imported: !!a.source_id,
+    }))
+    // News mit Wissens-Kategorie erscheinen auch im Wissen (BLTH-16 News-zu-Wiki)
+    for (const n of newsForWiki.current) if (n.wiki_category && new Date(n.publish_at) <= new Date()) arts.push({
+      id: 'news-' + n.id, cat: n.wiki_category, title: n.title, minutes: Math.max(1, Math.round(String(n.body).split(/\s+/).length / 180)),
+      updated: fmtDate(n.publish_at, { day: '2-digit', month: '2-digit', year: 'numeric' }), body: String(n.body).split(/\n\n+/), mediaKind: 'none', mediaUrl: null, published: true, fromNews: true,
+      intro: n.teaser ?? '', tags: [], accessLevel: 'alle', imported: false,
+    })
+    return arts
+  }, [wikiRows, news]) // eslint-disable-line react-hooks/exhaustive-deps
   const today = isoDay()
   const myBranch = employee?.branch_id ?? ''
   // „Alle Studios“ meint die Studios, nicht das Büro: das Büro bekommt nur ausdrücklich zugewiesene Vorlagen
@@ -245,7 +258,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (!error) return null
       return /full/.test(error.message) ? 'Leider ausgebucht.' : /deadline/.test(error.message) ? 'Die Anmeldefrist ist vorbei.' : 'Das hat nicht geklappt.'
     },
-    wiki, steps, obDone,
+    wiki, reloadWiki, steps, obDone,
     toggleStep: async (id) => {
       if (obDone.has(id)) await sb.from('onboarding_progress').delete().match({ step_id: id, employee_id: employee.id })
       else await sb.from('onboarding_progress').insert({ step_id: id, employee_id: employee.id })

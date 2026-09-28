@@ -14,4 +14,5 @@ Personenbezogene Daten (Mitarbeiterliste, Phorest-Termine) gehören in Supabase,
 - `supabase/functions/phorest` — Phorest nur lesend: `my_day`, `branch_day`, `team_today`, `sync_staff` (Zuordnung per Firmen-Mail). Secrets `PHOREST_AUTH`, `PHOREST_BUSINESS_ID`
 - `supabase/functions/assistant` — KI-Reiter: antwortet aus freigegebenem Wissen und dem eigenen Tag, schlägt Meldungen vor. Mit Secret `OPENAI_API_KEY` als Sprachmodell, ohne ihn nur aus dem Wissen
 - `supabase/functions/admin-employee` — Büro legt Personen an / deaktiviert (ohne Einladungsmail)
+- `scripts/import_wiki.py` — übernimmt das bisherige Wiki (Statamic, `beautyloungeag/wiki.beautylounge.ch`, per SSH klonen) mit Bildern (verkleinert, WebP), YouTube und PDFs. Zugriffsstufen: Level 1 → alle, Level 2 → Filialleitung + Büro, Level 3/Superuser/ohne → Büro. Erneut ausführbar (`--no-media` nur Texte, `--dry` Probelauf)
 - Deploy: `npx supabase functions deploy <name> --no-verify-jwt --project-ref vdekbelklbctqwucibzn`

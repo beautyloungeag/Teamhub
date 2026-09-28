@@ -18,13 +18,23 @@ type Answer = { text: string; sources: { id: string; title: string }[]; ticket?:
 
 const words = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').split(/[^a-z0-9äöü]+/).filter((w) => w.length > 2)
 const STOP = new Set(['wie', 'was', 'wer', 'die', 'der', 'das', 'und', 'ist', 'ich', 'mit', 'fur', 'fuer', 'bei', 'wird', 'eine', 'einen', 'lange', 'kann', 'habe', 'noch', 'soll', 'darf', 'muss'])
-function rank(q: string, arts: Article[]) {
-  const qw = words(q).filter((w) => w.length >= 4 && !STOP.has(w))
-  return arts.map((a) => {
-    const t = words(a.title), b = words(a.body)
-    const score = qw.reduce((s, w) => s + (t.some((x) => x.startsWith(w.slice(0, 5))) ? 3 : 0) + b.filter((x) => x.startsWith(w.slice(0, 5))).length, 0)
+// Seltene Wörter zählen viel, Allerweltswörter („mache“, „muss“) kaum (IDF über alle
+// Artikel). Titel/Stichwörter zählen vierfach, im Text höchstens drei Treffer je Wort.
+// Zusammengesetzte Wörter („Kassenabschluss“) treffen auch ihre Teile („Abschluss Kasse“).
+function hit(w: string, x: string) { return x.startsWith(w.slice(0, Math.max(5, w.length - 3))) || (w.length >= 8 && x.length >= 5 && w.includes(x)) }
+function rank(q: string, arts: (Article & { tags?: string[] })[]) {
+  const qw = [...new Set(words(q).filter((w) => w.length >= 4 && !STOP.has(w)))]
+  const docs = arts.map((a) => ({ a, t: words(a.title + ' ' + (a.tags ?? []).join(' ')), b: words(a.body) }))
+  const N = docs.length || 1
+  const idf = new Map(qw.map((w) => [w, Math.log(1 + N / (1 + docs.filter((d) => d.t.some((x) => hit(w, x)) || d.b.some((x) => hit(w, x))).length))]))
+  return docs.map(({ a, t, b }) => {
+    let score = 0
+    for (const w of qw) {
+      const tf = Math.min(3, b.filter((x) => hit(w, x)).length), inTitle = t.some((x) => hit(w, x))
+      score += (idf.get(w) ?? 0) * ((inTitle ? 4 : 0) + tf)
+    }
     return { a, score }
-  }).filter((x) => x.score >= 2).sort((x, y) => y.score - x.score)
+  }).filter((x) => x.score >= 3).sort((x, y) => y.score - x.score)
 }
 const isBroken = (q: string) => /kaputt|defekt|funktioniert nicht|geht nicht|ausgefallen|fällt aus|tropft|leck/i.test(q)
 const isShift = (q: string) => /dienst|schicht|arbeitet|arbeite ich|wer ist|im studio|termine|mein tag|heute bei mir|steht heute|was steht|habe ich heute/i.test(q)
@@ -41,7 +51,7 @@ Deno.serve(async (req) => {
   if (!q.trim()) return json({ ok: false, error: 'empty' }, 400)
 
   // Nur freigegebene Artikel, die diese Person per RLS sehen darf.
-  const { data: arts } = await db.from('wiki_articles').select('id, category, title, body').eq('published', true)
+  const { data: arts } = await db.from('wiki_articles').select('id, category, title, body, tags').eq('published', true)
   const ranked = rank(q, (arts ?? []) as Article[])
 
   // Eigener Tag aus Phorest, nur wenn danach gefragt wird (spart Zeit und Daten).

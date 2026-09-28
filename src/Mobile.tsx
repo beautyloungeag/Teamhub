@@ -3,12 +3,12 @@ import { motion } from 'motion/react'
 import {
   Home, ListChecks, BookOpen, LayoutGrid, Sparkles, ChevronLeft, ChevronRight, Check, Camera, MapPin, Users,
   Search, Lightbulb, AlertTriangle, CalendarDays, Inbox, Send, Newspaper, Plane, Play, Flag, Video,
-  ArrowUpRight, LogOut, GraduationCap, Link2, Lock,
+  ArrowUpRight, LogOut, GraduationCap, Link2, Lock, FileText,
 } from 'lucide-react'
 import { useAuth } from './lib/auth'
 import { supabase } from './lib/supabase'
 import { phorest, type MyDay, type TeamToday } from './lib/phorest'
-import { useApp, isoDay, type Lang, type News, type WikiArticle, type Staff } from './store'
+import { useApp, isoDay, type Lang, type News, type WikiArticle, type WikiBlock, type Staff } from './store'
 import { Terminbuch, EventCalendar } from './Calendar'
 
 // Name des KI-Reiters (im Vertrag „Marc Beau“, im abgestimmten Prototyp „Benni“)
@@ -364,7 +364,7 @@ function Wiki({ open }: { open: (s: Sub) => void }) {
   const { t, wiki, steps, obDone } = useApp()
   const [q, setQ] = useState('')
   const cats = [...new Set(wiki.map(a => a.cat))]
-  const hits = wiki.filter(a => (a.title + a.cat + a.body.join(' ')).toLowerCase().includes(q.toLowerCase()))
+  const hits = wiki.filter(a => [a.title, a.cat, a.intro, ...a.tags, ...a.body].join(' ').toLowerCase().includes(q.toLowerCase()))
   return (
     <div className="pb-10"><Title>{t('Wissen')}</Title>
       <div className="px-5">
@@ -382,21 +382,59 @@ function Wiki({ open }: { open: (s: Sub) => void }) {
     </div>
   )
 }
-const ytId = (u: string) => u.match(/(?:youtu\.be\/|v=|embed\/)([\w-]{11})/)?.[1]
+const ytId = (u: string) => u.match(/(?:youtu\.be\/|v=|embed\/|shorts\/)([\w-]{11})/)?.[1]
+// **fett**, *kursiv*, [Text](Link) aus dem Import als echte Auszeichnung
+function Rich({ text }: { text: string }) {
+  const parts = text.split(/(\*\*[^*]+\*\*|\*[^*\n]+\*|\[[^\]]+\]\([^)]+\)|\n)/g).filter(Boolean)
+  return <>{parts.map((p, i) => {
+    if (p === '\n') return <br key={i} />
+    if (p.startsWith('**') && p.endsWith('**')) return <strong key={i}>{p.slice(2, -2)}</strong>
+    const l = p.match(/^\[([^\]]+)\]\(([^)]+)\)$/); if (l) return <a key={i} href={l[2]} target="_blank" rel="noreferrer" className="text-sage-800 underline underline-offset-2">{l[1]}</a>
+    if (p.startsWith('*') && p.endsWith('*') && p.length > 2) return <em key={i}>{p.slice(1, -1)}</em>
+    return <span key={i}>{p}</span>
+  })}</>
+}
 function WikiDetail({ a }: { a: WikiArticle }) {
-  const { signedUrl } = useApp()
-  const [src, setSrc] = useState<string | null>(null)
-  useEffect(() => { if (a.mediaUrl && (a.mediaKind === 'photo' || a.mediaKind === 'video') && !/^https?:/.test(a.mediaUrl)) signedUrl('media', a.mediaUrl).then(setSrc); else setSrc(a.mediaUrl) }, [a, signedUrl])
+  const [full, setFull] = useState<{ body: string; blocks: WikiBlock[] | null } | null>(a.fromNews ? { body: a.body.join('\n\n'), blocks: null } : null)
+  const [urls, setUrls] = useState<Record<string, string>>({})
+  useEffect(() => {
+    if (a.fromNews || !supabase) return
+    supabase.from('wiki_articles').select('body, blocks').eq('id', a.id).maybeSingle().then(async ({ data }) => {
+      setFull({ body: data?.body ?? '', blocks: (data?.blocks as WikiBlock[] | null) ?? null })
+      const paths = [...new Set(((data?.blocks ?? []) as WikiBlock[]).filter(b => (b.t === 'img' || b.t === 'file') && b.src).map(b => b.src!))]
+      if (a.mediaUrl && !/^https?:/.test(a.mediaUrl)) paths.push(a.mediaUrl)
+      if (paths.length) {
+        const { data: signed } = await supabase!.storage.from('media').createSignedUrls(paths, 3600)
+        setUrls(Object.fromEntries((signed ?? []).filter(x => x.signedUrl && x.path).map(x => [x.path!, x.signedUrl as string])))
+      }
+    })
+  }, [a])
   const yt = a.mediaKind === 'youtube' && a.mediaUrl ? ytId(a.mediaUrl) : null
+  const own = a.mediaUrl ? (urls[a.mediaUrl] ?? (/^https?:/.test(a.mediaUrl) ? a.mediaUrl : null)) : null
   return (
     <article className="px-5 pb-10">
-      <p className="text-xs text-mute mt-3">{a.cat} · {a.minutes} Min. · aktualisiert {a.updated}</p>
+      <p className="text-xs text-mute mt-3">{a.cat} · {a.minutes} Min. · aktualisiert {a.updated}{a.accessLevel !== 'alle' && <span className="ml-1.5 inline-flex items-center gap-0.5"><Lock size={11} />{a.accessLevel === 'buero' ? 'Büro' : 'Filialleitung'}</span>}</p>
       <h1 className="mt-2 text-[26px] font-semibold tracking-tight leading-tight">{a.title}</h1>
+      {a.intro && <p className="mt-2 text-[15px] text-mute leading-snug">{a.intro}</p>}
       {yt ? <iframe className="mt-5 w-full aspect-video rounded-[20px]" src={`https://www.youtube-nocookie.com/embed/${yt}`} title={a.title} allow="encrypted-media; picture-in-picture" allowFullScreen />
-        : a.mediaKind === 'video' && src ? <video className="mt-5 w-full rounded-[20px] bg-ink" src={src} controls playsInline />
-        : a.mediaKind === 'photo' && src ? <img className="mt-5 w-full rounded-[20px]" src={src} alt="" />
-        : a.mediaKind === 'video' ? <div className="mt-5 aspect-video rounded-[20px] bg-ink flex items-center justify-center"><span className="w-14 h-14 rounded-full bg-white/15 flex items-center justify-center text-white"><Play size={24} fill="currentColor" /></span></div> : null}
-      <div className="mt-5 space-y-3 text-[16px] leading-relaxed">{a.body.map((p, i) => <p key={i}>{p}</p>)}</div>
+        : a.mediaKind === 'video' && own ? <video className="mt-5 w-full rounded-[20px] bg-ink" src={own} controls playsInline />
+        : a.mediaKind === 'photo' && own ? <img className="mt-5 w-full rounded-[20px]" src={own} alt="" /> : null}
+      {!full && <p className="mt-6 text-mute">Lädt …</p>}
+      {full?.blocks ? <div className="mt-5 space-y-3 text-[16px] leading-relaxed">{full.blocks.map((b, i) => {
+        switch (b.t) {
+          case 'h': return <h2 key={i} className={`${b.level && b.level >= 3 ? 'text-[17px]' : 'text-[20px]'} font-semibold tracking-tight pt-3`}>{b.text}</h2>
+          case 'p': return <p key={i}><Rich text={b.text ?? ''} /></p>
+          case 'quote': return <p key={i} className="border-l-[3px] border-sage-400 pl-3 text-sage-800"><Rich text={b.text ?? ''} /></p>
+          case 'ul': case 'ol': { const L = b.t === 'ul' ? 'ul' : 'ol'
+            return <L key={i} className={`${b.t === 'ul' ? 'list-disc' : 'list-decimal'} pl-5 space-y-1.5`}>{b.items?.map((x, j) => <li key={j}><Rich text={x} /></li>)}</L> }
+          case 'img': return urls[b.src!] ? <img key={i} src={urls[b.src!]} alt="" loading="lazy" className="w-full rounded-[16px] bg-sage-100" /> : <div key={i} className="w-full aspect-[4/3] rounded-[16px] bg-sage-100" />
+          case 'video': { const id = b.url ? ytId(b.url) : null
+            return id ? <iframe key={i} className="w-full aspect-video rounded-[16px]" src={`https://www.youtube-nocookie.com/embed/${id}`} title="Video" allow="encrypted-media; picture-in-picture" allowFullScreen loading="lazy" />
+              : <a key={i} href={b.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-sage-800 underline"><Play size={16} />Video öffnen</a> }
+          case 'file': return <a key={i} href={urls[b.src!] ?? '#'} target="_blank" rel="noreferrer" className="flex items-center gap-3 rounded-2xl bg-white px-4 py-3 text-[15px]"><span className="w-9 h-9 rounded-xl bg-sage-50 flex items-center justify-center text-sage-800 shrink-0"><FileText size={17} /></span><span className="flex-1 min-w-0 truncate">{b.name ?? 'Datei'}</span><ArrowUpRight size={16} className="text-sage-400" /></a>
+          default: return null
+        }
+      })}</div> : full && <div className="mt-5 space-y-3 text-[16px] leading-relaxed">{full.body.split(/\n\n+/).filter(Boolean).map((p, i) => <p key={i}>{p}</p>)}</div>}
     </article>
   )
 }
