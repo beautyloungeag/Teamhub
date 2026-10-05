@@ -1,13 +1,13 @@
-import { useMemo, useRef, useState, type ReactNode } from 'react'
-import { LayoutDashboard, Newspaper, ListChecks, Lightbulb, CalendarDays, Users, BookOpen, Sparkles, Plus, Check, Camera, Search, CalendarClock, Send, X, Trash2 } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { LayoutDashboard, Store, ArrowUp, ArrowDown, Newspaper, ListChecks, Lightbulb, CalendarDays, Users, BookOpen, Sparkles, Plus, Check, Camera, Search, CalendarClock, Send, X, Trash2 } from 'lucide-react'
 import { Terminbuch } from './Calendar'
 import { useApp, isoDay, appliesOn, fmtDate, fmtTime, zurichHour, type Ticket } from './store'
 import { supabase } from './lib/supabase'
 import { Status, ASSISTANT } from './Mobile'
 import { notifyNow } from './lib/push'
 
-type View = 'overview' | 'book' | 'news' | 'tasks' | 'tickets' | 'events' | 'team' | 'wiki'
-const NAV: [View, string, typeof Users][] = [['overview', 'Übersicht', LayoutDashboard], ['book', 'Kundentermine', CalendarClock], ['news', 'News', Newspaper], ['tasks', 'Aufgaben', ListChecks], ['tickets', 'Meldungen & Ideen', Lightbulb], ['events', 'Schulungen & Events', CalendarDays], ['team', 'Team & Skills', Users], ['wiki', 'Wissen', BookOpen]]
+type View = 'overview' | 'book' | 'news' | 'tasks' | 'tickets' | 'events' | 'team' | 'studios' | 'wiki'
+const NAV: [View, string, typeof Users][] = [['overview', 'Übersicht', LayoutDashboard], ['book', 'Kundentermine', CalendarClock], ['news', 'News', Newspaper], ['tasks', 'Aufgaben', ListChecks], ['tickets', 'Meldungen & Ideen', Lightbulb], ['events', 'Schulungen & Events', CalendarDays], ['team', 'Team & Skills', Users], ['studios', 'Studios', Store], ['wiki', 'Wissen', BookOpen]]
 
 export default function Backoffice() {
   const { me } = useApp()
@@ -27,7 +27,7 @@ export default function Backoffice() {
       <main className={`flex-1 no-scrollbar p-8 ${v === 'book' ? 'flex flex-col overflow-hidden' : 'overflow-y-auto'}`}>
         {v === 'book' && <><H>Kundentermine</H><div className="flex-1 min-h-0"><Terminbuch /></div></>}
         {v === 'overview' && <Overview go={setV} />}{v === 'news' && <NewsAdmin />}{v === 'tasks' && <TasksAdmin />}
-        {v === 'tickets' && <TicketsAdmin />}{v === 'events' && <EventsAdmin />}{v === 'team' && <TeamAdmin />}{v === 'wiki' && <WikiAdmin />}
+        {v === 'tickets' && <TicketsAdmin />}{v === 'events' && <EventsAdmin />}{v === 'team' && <TeamAdmin />}{v === 'studios' && <StudiosAdmin />}{v === 'wiki' && <WikiAdmin />}
       </main>
       {ai && <AdminChat onClose={() => setAi(false)} />}
     </div>
@@ -309,6 +309,64 @@ function TeamAdmin() {
         <div className="mt-3 flex flex-wrap gap-1.5">{skillCatalog.map(k => <span key={k} className="px-2.5 h-7 rounded-full bg-sage-50 text-[12px] flex items-center gap-1">{k}<button onClick={async () => { await supabase!.from('skills').delete().eq('name', k); await reload() }} className="text-mute"><X size={11} /></button></span>)}</div>
         <div className="mt-3 flex gap-2"><input value={skill} onChange={e => setSkill(e.target.value)} placeholder="Neuer Skill" className={inp} /><button onClick={async () => { if (skill.trim()) { await supabase!.from('skills').insert({ name: skill.trim(), sort: skillCatalog.length }); setSkill(''); await reload() } }} className="h-10 px-3 rounded-xl bg-ink text-white"><Plus size={15} /></button></div></Box>
     </div>
+  </>)
+}
+
+/* ---------- Studios (nur Büro; RLS branches_write) ---------- */
+type StudioRow = { id: string; name: string; is_office: boolean; sort: number; phorest_branch_id: string | null }
+const slug = (n: string) => n.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+function StudiosAdmin() {
+  const { staff, reload } = useApp()
+  const [rows, setRows] = useState<StudioRow[] | null>(null), [err, setErr] = useState(''), [form, setForm] = useState(false)
+  const [f, setF] = useState({ name: '', phorest_branch_id: '' }), [edit, setEdit] = useState<StudioRow | null>(null)
+  const load = async () => { const { data } = await supabase!.from('branches').select('id, name, is_office, sort, phorest_branch_id').order('sort'); setRows((data ?? []) as StudioRow[]) }
+  useEffect(() => { load() }, [])
+  const count = (id: string) => staff.filter(s => s.active && s.branch_id === id).length
+  const done = async (error: { message: string } | null, msg: string) => { if (error) { setErr(msg); return false } setErr(''); await load(); await reload(); return true }
+  const add = async () => {
+    const name = f.name.trim(), id = slug(name)
+    if (!name || !id) { setErr('Bitte einen Namen eingeben.'); return }
+    if (rows?.some(r => r.id === id || r.name.toLowerCase() === name.toLowerCase())) { setErr('Dieses Studio gibt es schon.'); return }
+    const sort = Math.max(0, ...(rows ?? []).filter(r => !r.is_office).map(r => r.sort)) + 1
+    const { error } = await supabase!.from('branches').insert({ id, name, sort, phorest_branch_id: f.phorest_branch_id.trim() || null })
+    // Büro bleibt unten
+    if (!error) for (const o of (rows ?? []).filter(r => r.is_office && r.sort <= sort)) await supabase!.from('branches').update({ sort: sort + 1 }).eq('id', o.id)
+    if (await done(error, 'Anlegen hat nicht geklappt.')) { setF({ name: '', phorest_branch_id: '' }); setForm(false) }
+  }
+  const save = async () => {
+    if (!edit || !edit.name.trim()) return
+    const { error } = await supabase!.from('branches').update({ name: edit.name.trim(), phorest_branch_id: edit.phorest_branch_id?.trim() || null }).eq('id', edit.id)
+    if (await done(error, 'Speichern hat nicht geklappt. Gibt es den Namen schon?')) setEdit(null)
+  }
+  const move = async (i: number, d: -1 | 1) => {
+    if (!rows) return
+    const a = rows[i], b = rows[i + d]; if (!a || !b) return
+    await supabase!.from('branches').update({ sort: b.sort }).eq('id', a.id)
+    const { error } = await supabase!.from('branches').update({ sort: a.sort }).eq('id', b.id)
+    await done(error, 'Reihenfolge konnte nicht gespeichert werden.')
+  }
+  const remove = async (r: StudioRow) => {
+    if (count(r.id) > 0 || staff.some(s => s.branch_id === r.id)) { setErr(`${r.name} hat noch Personen. Bitte zuerst umziehen oder deaktivieren.`); return }
+    if (!confirm(`${r.name} löschen?`)) return
+    const { error } = await supabase!.from('branches').delete().eq('id', r.id)
+    await done(error, `${r.name} wird noch verwendet (Aufgaben, Meldungen oder Phorest) und kann nicht gelöscht werden.`)
+  }
+  return (<>
+    <H action={<New onClick={() => setForm(!form)}>Studio anlegen</New>}>Studios</H>
+    {form && <Box className="p-5 mb-6"><div className="grid grid-cols-2 gap-3">
+      <Field label="Name"><input value={f.name} onChange={e => setF({ ...f, name: e.target.value })} placeholder="z. B. Liestal" className={inp} /></Field>
+      <Field label="Phorest-Filial-ID (optional)"><input value={f.phorest_branch_id} onChange={e => setF({ ...f, phorest_branch_id: e.target.value })} className={inp} /></Field>
+    </div><div className="mt-4 flex items-center gap-3"><button onClick={add} className="h-10 px-5 rounded-xl bg-ink text-white">Anlegen</button><p className="text-xs text-mute">Ohne Phorest-ID zeigt das Studio keine Termine und Schichten.</p></div></Box>}
+    <Err m={err} />
+    <Box className="mt-2"><table className="w-full text-[14px]"><thead><tr><Th>Studio</Th><Th>Personen</Th><Th>Phorest</Th><Th> </Th></tr></thead>
+      <tbody className="divide-y divide-sage-50">{(rows ?? []).map((r, i) => edit?.id === r.id
+        ? <tr key={r.id}><td className="px-4 py-2"><input value={edit.name} onChange={e => setEdit({ ...edit, name: e.target.value })} className={inp} /></td><td className="px-4 text-mute">{count(r.id)}</td>
+            <td className="px-4"><input value={edit.phorest_branch_id ?? ''} onChange={e => setEdit({ ...edit, phorest_branch_id: e.target.value })} className={inp} /></td>
+            <td className="px-4 whitespace-nowrap"><button onClick={save} className="h-9 px-4 rounded-xl bg-ink text-white text-[13px]">Speichern</button><button onClick={() => setEdit(null)} className="ml-3 text-xs text-mute underline">abbrechen</button></td></tr>
+        : <tr key={r.id}><td className="px-4 py-2.5">{r.name}{r.is_office && <span className="ml-2 text-xs text-mute">Büro</span>}</td><td className="px-4 text-mute">{count(r.id)}</td>
+            <td className="px-4 text-mute text-[13px]">{r.is_office ? '–' : r.phorest_branch_id ? 'verbunden' : 'nicht verbunden'}</td>
+            <td className="px-4 whitespace-nowrap text-right"><button aria-label="nach oben" disabled={i === 0} onClick={() => move(i, -1)} className="p-1 text-mute disabled:opacity-30"><ArrowUp size={15} /></button><button aria-label="nach unten" disabled={i === (rows?.length ?? 0) - 1} onClick={() => move(i, 1)} className="p-1 text-mute disabled:opacity-30"><ArrowDown size={15} /></button>
+              <button onClick={() => setEdit(r)} className="ml-3 text-xs text-mute underline">bearbeiten</button>{!r.is_office && <button onClick={() => remove(r)} className="ml-3 text-xs text-mute underline">löschen</button>}</td></tr>)}</tbody></table></Box>
   </>)
 }
 

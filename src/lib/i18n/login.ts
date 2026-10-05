@@ -1,0 +1,22 @@
+// Schlüssel = deutscher Text, Werte [Englisch, Französisch].
+export default {
+  'Anmelden': ['Sign in', 'Se connecter'],
+  'Anmeldecode senden': ['Send sign-in code', 'Envoyer le code'],
+  'intern': ['internal', 'interne'],
+  'E-Mail': ['Email', 'E-mail'],
+  'vorname@beautylounge.ch': ['firstname@beautylounge.ch', 'prenom@beautylounge.ch'],
+  'Kein Passwort. Du bekommst eine E-Mail zum Anmelden.': ['No password. You will get an email to sign in.', "Pas de mot de passe. Tu reçois un e-mail pour te connecter."],
+  'Ich habe schon einen Code': ['I already have a code', "J'ai déjà un code"],
+  'Wir haben dir eine E-Mail an {email} geschickt. Tippe auf den Link darin oder gib den Code ein.': ['We sent an email to {email}. Tap the link in it or enter the code.', "Nous t'avons envoyé un e-mail à {email}. Appuie sur le lien ou saisis le code."],
+  'Code': ['Code', 'Code'],
+  'Andere E-Mail verwenden': ['Use a different email', 'Utiliser une autre adresse e-mail'],
+  'Bitte gib deine E-Mail-Adresse ein.': ['Please enter your email address.', 'Merci de saisir ton adresse e-mail.'],
+  'Die Verbindung zum Server ist nicht eingerichtet.': ['The connection to the server is not set up.', "La connexion au serveur n'est pas configurée."],
+  'Diese E-Mail ist für TeamHub nicht freigeschaltet. Bitte melde dich im Büro.': ['This email is not enabled for TeamHub. Please contact the office.', "Cette adresse n'est pas activée pour TeamHub. Merci de contacter le bureau."],
+  'Zu viele Versuche. Bitte warte kurz und versuche es dann erneut.': ['Too many attempts. Please wait a moment and try again.', 'Trop de tentatives. Attends un instant puis réessaie.'],
+  'Das hat nicht geklappt. Bitte versuche es gleich noch einmal.': ["That didn't work. Please try again in a moment.", "Cela n'a pas fonctionné. Merci de réessayer dans un instant."],
+  'Bitte gib den Code aus der E-Mail ein.': ['Please enter the code from the email.', "Merci de saisir le code reçu par e-mail."],
+  'Der Code stimmt nicht oder ist abgelaufen.': ['The code is wrong or has expired.', 'Le code est incorrect ou a expiré.'],
+  'Bitte gib zuerst deine E-Mail-Adresse ein.': ['Please enter your email address first.', "Merci de saisir d'abord ton adresse e-mail."],
+  'Dein Zugang ist nicht mehr aktiv. Bitte melde dich im Büro.': ['Your access is no longer active. Please contact the office.', "Ton accès n'est plus actif. Merci de contacter le bureau."],
+} as Record<string, [string, string]>

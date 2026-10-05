@@ -2,6 +2,12 @@
 
 Interne Mitarbeiter-App (PWA + Desktop-Backoffice) der Beautylounge AG. Kundin: Renée Baumann. PM-Projekt: `projekt.aleksa.ai`, Key **BLTH** (`d4ee5d5c-4553-436c-bba7-137a03a2b704`). ⚠️ Das Repo `beautyloungeag/Teamhub` ist **öffentlich** — nie Personendaten committen.
 
+### Nachtrag 2026-10-05
+
+- **Studios im Backoffice** (Reiter „Studios“, nur Büro): anlegen, umbenennen, Reihenfolge, Phorest-Filial-ID, löschen nur ohne Personen/Verweise. Büro bleibt unten. Rechte über die bestehende RLS `branches_write`.
+- **Oberfläche DE/EN/FR** (BLTH-26, Teil Oberfläche): `src/lib/i18n/` — Schlüssel = deutscher Text, Werte `[EN, FR]`, Dateien je Bereich (`common`, `mobile`, `calendar`, `login`). `t()` aus `useApp()`, ausserhalb von Komponenten `tr()`. Gleiches Wort, andere Bedeutung: `'Anmelden|event'`. Platzhalter `{n}`. Prüfen: `node scripts/check_i18n.mjs`. Sprache vor dem Login = zuletzt gewählt bzw. Gerätesprache, danach Profil (`employees.lang`). Übersetzt: Mitarbeiterinnen-App, Login, Kalender, Push-Rahmentexte (Function `notify` bündelt je Sprache). **Bewusst Deutsch:** Backoffice (Büro/Filialleitung) und alle Inhalte aus der Datenbank (News, Wissen, Aufgaben, Skills) — die Inhaltsübersetzung ist der zweite Teil von BLTH-26.
+- **Hosting vorbereitet:** `netlify.toml` (SPA-Weiterleitung, `sw.js` ohne Cache). Nicht deployt: Der Netlify-Connector dieser Maschine ist an ein fremdes Konto angemeldet. Beim Einrichten: Env `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_VAPID_PUBLIC_KEY`; in Supabase Auth die neue Adresse als Site-/Redirect-URL eintragen.
+
 ### Nachtrag 2026-09-29
 
 - **Push-Mitteilungen (BLTH-27, Commit 160c889):** Function `notify` (News bei `publish_at`, neue Events an Zielgruppe, Meldungs-Status an Meldende; `notified_at` wird vor dem Senden gesetzt). Cron `teamhub-notify` alle 2 Min mit Header `x-notify-secret`; Backoffice ruft `notifyNow` direkt nach Veröffentlichen. Secrets `VAPID_PUBLIC_KEY/PRIVATE_KEY/SUBJECT`, `NOTIFY_SECRET`; `VITE_VAPID_PUBLIC_KEY` in `.env`. Tabelle `push_subscriptions`, `employees.app_installed_at/push_enabled/last_seen_at` (RPC `report_device`). App: Installationsanleitung im Onboarding + Screen `install`, Push-Schalter mit Probe im Profil, Startbereitschaft je Studio im Backoffice. Serverseitig verifiziert; **echtes Gerät erst mit https-Hosting** (iOS nur als Home-Bildschirm-App).
@@ -37,7 +43,7 @@ Interne Mitarbeiter-App (PWA + Desktop-Backoffice) der Beautylounge AG. Kundin: 
 3. **Hosting:** Netlify auf Beautylounge-Konto + Cyon-DNS `teamhub.beautylounge.ch`.
 4. **Renée bestätigen:** Wiki-Stand (letzter Commit 29.09.2025), Stufen-Zuordnung (L1 alle / L2 FL+Büro / L3 Büro), Muster-Darstellung (BLTH-8/18), Vorschläge freigeben, Glossar, Name KI „Benni“ vs. Vertrag „Marc Beau“, neue Wünsche (Phorest-Performancetool, Umfragen).
 5. **OpenAI-Key** (Beautylounge) für frei formulierende KI; bis dahin Wissensmodus.
-6. Nicht gebaut: Timebutler (BLTH-22), Postfach (BLTH-24), Facility-Mail (BLTH-20), Studios im Backoffice anlegen, DE/EN/FR-Übersetzung.
+6. Nicht gebaut: Timebutler (BLTH-22), Postfach (BLTH-24), Facility-Mail (BLTH-20), Übersetzung der Inhalte (BLTH-26 Teil 2).
 7. Termine: Vertrag sah Demo 28.09./Pilot 29.09. vor — neue Termine mit Renée schriftlich (§ 2.3).
 
 ## Testen ohne echte Konten

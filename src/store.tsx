@@ -2,18 +2,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { useAuth, type Employee } from './lib/auth'
 import { supabase } from './lib/supabase'
 
-export type Lang = 'DE' | 'EN' | 'FR'
-const DICT: Record<string, [string, string]> = {
-  'Heute': ['Today', "Aujourd'hui"], 'Aufgaben': ['Tasks', 'Tâches'], 'KI': ['AI', 'IA'], 'Wissen': ['Knowledge', 'Savoir'], 'Menü': ['Menu', 'Menu'],
-  'News': ['News', 'Actualités'], 'Team': ['Team', 'Équipe'], 'Kalender': ['Calendar', 'Calendrier'], 'Melden & Ideen': ['Report & ideas', 'Signaler & idées'],
-  'Posteingang': ['Inbox', 'Boîte de réception'], 'Zeit & Ferien': ['Time & holidays', 'Temps & congés'], 'Mein Profil': ['My profile', 'Mon profil'],
-  'Hallo': ['Hello', 'Bonjour'], 'Deine Schicht heute': ['Your shift today', "Ton service aujourd'hui"], 'Termine': ['Appointments', 'Rendez-vous'],
-  'Bitte lesen und bestätigen': ['Please read and confirm', 'Merci de lire et confirmer'], 'Tagesaufgaben': ['Daily tasks', 'Tâches du jour'],
-  'Mein Tag · aus Phorest': ['My day · from Phorest', 'Ma journée · de Phorest'], 'erledigt': ['done', 'fait'], 'Zurück': ['Back', 'Retour'],
-  'Gelesen und verstanden': ['Read and understood', 'Lu et compris'], 'Anmelden': ['Sign in', 'Se connecter'], 'Anmeldecode senden': ['Send sign-in code', 'Envoyer le code'],
-  'Diese Woche': ['This week', 'Cette semaine'], 'Heute im Studio': ['In the studio today', "Au studio aujourd'hui"], 'Alle': ['All', 'Tous'], 'Abmelden': ['Sign out', 'Se déconnecter'],
-  'Onboarding': ['Onboarding', 'Intégration'], 'Suchen': ['Search', 'Rechercher'],
-}
+import { tr, setCurrentLang, savedLang, locale, type Lang } from './lib/i18n'
+export type { Lang }
 
 /* ---------- Typen ---------- */
 export type Staff = { id: string; first: string; last: string; branch: string; branch_id: string; role: string; skills: string[]; photo: string | null; app_role: string; active: boolean; email: string; appInstalled?: boolean; pushEnabled?: boolean }
@@ -31,13 +21,13 @@ export type Branch = { id: string; name: string; is_office: boolean }
 /* ---------- Datum (Europe/Zurich) ---------- */
 export const TZ = 'Europe/Zurich'
 export const isoDay = (d = new Date()) => new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(d)
-export const fmtDate = (s: string, o: Intl.DateTimeFormatOptions = { weekday: 'short', day: '2-digit', month: '2-digit' }) => new Intl.DateTimeFormat('de-CH', { timeZone: TZ, ...o }).format(new Date(s))
+export const fmtDate = (s: string, o: Intl.DateTimeFormatOptions = { weekday: 'short', day: '2-digit', month: '2-digit' }) => new Intl.DateTimeFormat(locale(), { timeZone: TZ, ...o }).format(new Date(s))
 // Stunde als Zahl in Zürcher Zeit (formatToParts, weil de-CH „16 Uhr“ formatiert)
 export const zurichHour = (d = new Date()) => { const p = new Intl.DateTimeFormat('en-GB', { timeZone: TZ, hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(d); const g = (t: string) => Number(p.find(x => x.type === t)?.value ?? 0); return g('hour') % 24 + g('minute') / 60 }
-export const fmtTime = (s: string) => new Intl.DateTimeFormat('de-CH', { timeZone: TZ, hour: '2-digit', minute: '2-digit' }).format(new Date(s))
+export const fmtTime = (s: string) => new Intl.DateTimeFormat(locale(), { timeZone: TZ, hour: '2-digit', minute: '2-digit' }).format(new Date(s))
 const relWhen = (s: string) => {
   const d = isoDay(new Date(s)), today = isoDay(), y = isoDay(new Date(Date.now() - 864e5))
-  return d === today ? `Heute, ${fmtTime(s)}` : d === y ? 'Gestern' : fmtDate(s, { day: '2-digit', month: '2-digit' })
+  return d === today ? `${tr('Heute')}, ${fmtTime(s)}` : d === y ? tr('Gestern') : fmtDate(s, { day: '2-digit', month: '2-digit' })
 }
 const isoDow = (day: string) => ((new Date(day + 'T12:00:00Z').getUTCDay() + 6) % 7) + 1
 // Gilt die Vorlage heute für diese Filiale?
@@ -47,7 +37,7 @@ export const appliesOn = (t: Template, day: string, branch: string) =>
 
 type Ctx = {
   me: Staff; employee: Employee
-  lang: Lang; setLang: (l: Lang) => void; t: (s: string) => string
+  lang: Lang; setLang: (l: Lang) => void; t: (s: string, vars?: Record<string, string | number>) => string
   loading: boolean; reload: () => Promise<void>
   branches: Branch[]; staff: Staff[]; skillCatalog: string[]
   news: News[]; read: Set<string>; opened: Set<string>; openNews: (id: string) => void; confirm: (id: string) => Promise<void>
@@ -74,8 +64,9 @@ const toStaff = (e: any, branches: Branch[], photos: Map<string, string>): Staff
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const { employee } = useAuth()
-  const [lang, setLangState] = useState<Lang>('DE')
-  const t = (s: string) => lang === 'DE' ? s : (DICT[s]?.[lang === 'EN' ? 0 : 1] ?? s)
+  const [lang, setLangState] = useState<Lang>(savedLang)
+  setCurrentLang(lang) // Datumsformate und tr() außerhalb von Komponenten folgen der gewählten Sprache
+  const t = (s: string, vars?: Record<string, string | number>) => tr(s, vars, lang)
   const [loading, setLoading] = useState(true)
   const [branches, setBranches] = useState<Branch[]>([])
   const [staff, setStaff] = useState<Staff[]>([])
@@ -176,7 +167,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!employee) return
-    setLangState(employee.lang)
+    // Profil gewinnt; nur wenn dort noch der Standard steht, übernimmt es die beim Anmelden gewählte Sprache
+    const chosen = savedLang()
+    if (employee.lang === 'DE' && chosen !== 'DE') { setLangState(chosen); supabase?.rpc('update_my_profile', { p_lang: chosen }) }
+    else setLangState(employee.lang)
     reload(); reloadWiki()
     // Zurück in die App (Homescreen) → frische Daten, damit der „Reset“ um Mitternacht greift
     const onVis = () => { if (document.visibilityState === 'visible') reload() }

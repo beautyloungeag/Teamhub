@@ -1,0 +1,27 @@
+# Hosting (BLTH-4/34). Supabase-Werte als Umgebungsvariablen in Netlify setzen:
+# VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, VITE_VAPID_PUBLIC_KEY (öffentliche Werte, siehe .env.example)
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+# Service Worker nie aus dem Cache: sonst bleiben Push und App-Updates hängen
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache"
+    Service-Worker-Allowed = "/"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+
+# Einzelseiten-App: alle Pfade auf index.html (Links wie /?open=news:… aus Mitteilungen)
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
