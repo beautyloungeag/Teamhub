@@ -2,14 +2,14 @@ import { useState } from 'react'
 import { supabase } from './lib/supabase'
 import { tr, savedLang, setCurrentLang, type Lang } from './lib/i18n'
 
-// Passwortlos: Code per E-Mail. Solange Supabase noch ohne eigenen Mailversand läuft,
-// enthält die Mail einen Anmeldelink statt eines Codes — der Link meldet ebenfalls an.
+// Passwortlos: 6-stelliger Code per E-Mail (Versand über Resend, Vorlage supabase/templates/anmeldecode.html).
+// Bewusst kein Link: Mailscanner öffnen Links vorab und verbrauchen sie.
 export default function Login({ notice }: { notice?: string }) {
   // Sprache vor der Anmeldung: zuletzt gewählt oder Gerätesprache; nach der Anmeldung gilt das Profil
   const [lang, setLangState] = useState<Lang>(savedLang)
   const setLang = (l: Lang) => { setCurrentLang(l); setLangState(l) }
   const t = (s: string) => tr(s, undefined, lang)
-  const [sentA, sentB] = t('Wir haben dir eine E-Mail an {email} geschickt. Tippe auf den Link darin oder gib den Code ein.').split('{email}')
+  const [sentA, sentB] = t('Wir haben dir einen Code an {email} geschickt. Gib ihn hier ein.').split('{email}')
   // E-Mail merken: auf dem Handy wechselt man zur Mail-App, die Seite lädt dabei oft neu.
   const saved = (() => { try { return localStorage.getItem('th-login-email') ?? '' } catch { return '' } })()
   const [step, setStep] = useState<'mail' | 'code'>('mail')
@@ -61,7 +61,7 @@ export default function Login({ notice }: { notice?: string }) {
             <input type="email" inputMode="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()}
               placeholder={t('vorname@beautylounge.ch')} className="w-full h-12 rounded-2xl bg-white px-4 text-[15px] outline-none placeholder:text-mute" /></label>
           <button disabled={busy} onClick={send} className="w-full h-12 rounded-2xl font-medium bg-ink text-white disabled:opacity-60">{busy ? '…' : t('Anmeldecode senden')}</button>
-          <p className="text-xs text-mute text-center">{t('Kein Passwort. Du bekommst eine E-Mail zum Anmelden.')}</p>
+          <p className="text-xs text-mute text-center">{t('Kein Passwort. Du bekommst einen Code per E-Mail.')}</p>
           <button onClick={() => { const e = email.trim().toLowerCase(); if (!e) { setErr('Bitte gib zuerst deine E-Mail-Adresse ein.'); return } setEmail(e); setErr(''); setStep('code') }} className="w-full text-sm text-mute">{t('Ich habe schon einen Code')}</button>
         </> : <>
           <p className="text-[15px]">{sentA}<span className="font-medium">{email}</span>{sentB}</p>
