@@ -3,7 +3,7 @@ import { motion } from 'motion/react'
 import {
   Home, ListChecks, BookOpen, LayoutGrid, Sparkles, ChevronLeft, ChevronRight, Check, Camera, MapPin, Users,
   Search, Lightbulb, AlertTriangle, CalendarDays, Inbox, Send, Newspaper, Plane, Play, Flag, Video,
-  ArrowUpRight, LogOut, GraduationCap, Link2, Lock, FileText, Bell, Smartphone, Share, PlusSquare, MoreVertical,
+  ArrowUpRight, LogOut, GraduationCap, Link2, Lock, FileText, Bell, Smartphone, Share, PlusSquare, MoreVertical, ExternalLink,
 } from 'lucide-react'
 import { useAuth } from './lib/auth'
 import { supabase } from './lib/supabase'
@@ -98,8 +98,8 @@ function Shell({ onLogout }: { onLogout: () => void }) {
     case 'events': screen = <Events />; break
     case 'conn': screen = <Connections />; break
     case 'book': screen = <div className="px-5 pb-4 h-[calc(100dvh-150px)] md:h-[640px]"><h1 className="text-[26px] font-semibold tracking-tight mb-3">{t('Kundentermine')}</h1><Terminbuch compact /></div>; break
-    case 'inbox': screen = <NotConnected title={t('Posteingang')} tool={t('dein Postfach')} what={t('deine E-Mails')} />; break
-    case 'time': screen = <NotConnected title={t('Zeit & Ferien')} tool="Timebutler" what={t('deinen Resturlaub, deine Anträge und die Stempeluhr')} />; break
+    case 'inbox': screen = <ExternalTool kind="mail" />; break
+    case 'time': screen = <ExternalTool kind="timebutler" />; break
     case 'install': screen = <Install />; break
     default:
       screen = tab === 'home' ? <Today open={open} go={go} /> : tab === 'tasks' ? <Tasks open={open} /> : tab === 'ai' ? <AI open={open} />
@@ -484,7 +484,7 @@ function MenuView({ open, onLogout }: { open: (s: Sub) => void; onLogout: () => 
   const tiles: [string, string, typeof Users, Sub][] = [
     ['News', unread ? t('{n} ungelesen', { n: unread }) : t('alles gelesen'), Newspaper, { k: 'news-list' }], ['Kalender', t('{n} Termine · {m} angemeldet', { n: upcoming, m: joined.size }), CalendarDays, { k: 'events' }],
     ['Team', t('{n} Personen', { n: staff.filter(s => s.active).length }), Users, { k: 'team' }], ['Melden & Ideen', t('{n} offen', { n: tickets.filter(x => x.status !== 'Erledigt').length }), Lightbulb, { k: 'tickets' }],
-    ['Posteingang', t('folgt'), Inbox, { k: 'inbox' }], ['Zeit & Ferien', t('Timebutler folgt'), Plane, { k: 'time' }],
+    ['Posteingang', t('Webmail'), Inbox, { k: 'inbox' }], ['Zeit & Ferien', 'Timebutler', Plane, { k: 'time' }],
   ]
   return (
     <div className="pb-10"><Title>{t('Menü')}</Title>
@@ -617,15 +617,34 @@ function Events() {
   return <div className="pb-10"><Title sub={t('Deine Termine und Schulungen')}>{t('Mein Kalender')}</Title><div className="px-5"><EventCalendar /></div></div>
 }
 
-function NotConnected({ title, tool, what }: { title: string; tool: string; what: string }) {
-  const { t } = useApp()
+
+/* ---------- Zeit & Ferien (Timebutler) und Postfach: Link statt Einbettung ----------
+   Timebutler, Cyon-Webmail und Phorest verbieten Einbettung (X-Frame-Options/frame-ancestors),
+   deshalb direkter Zugang zur App bzw. zum Browser mit eigener Anmeldung (BLTH-22, Stand 10/2026). */
+const TOOL_LINKS = {
+  timebutlerWeb: 'https://app.timebutler.com/login/',
+  timebutlerIOS: 'https://apps.apple.com/ch/app/timebutler/id6763064084',
+  timebutlerAndroid: 'https://play.google.com/store/apps/details?id=com.timebutler.mobile',
+  webmail: 'https://webmail.cyon.ch',
+}
+function ExternalTool({ kind }: { kind: 'timebutler' | 'mail' }) {
+  const { me, t } = useApp()
+  const tb = kind === 'timebutler'
+  const app = isIOS() ? TOOL_LINKS.timebutlerIOS : isAndroid() ? TOOL_LINKS.timebutlerAndroid : null
   return (
-    <div className="pb-10"><Title>{title}</Title>
-      <div className="px-5"><Card className="p-6 text-center">
-        <span className="mx-auto w-12 h-12 rounded-2xl bg-sage-50 text-sage-800 flex items-center justify-center"><Link2 size={22} /></span>
-        <p className="mt-4 text-[17px] font-medium">{t('{tool} kommt bald', { tool })}</p>
-        <p className="mt-1 text-[14px] text-mute">{t('Sobald {tool} angebunden ist, siehst du hier {what}.', { tool, what })}</p>
-      </Card></div>
+    <div className="pb-10"><Title>{tb ? t('Zeit & Ferien') : t('Posteingang')}</Title>
+      <div className="px-5 space-y-3">
+        <Card className="p-5">
+          <span className="w-11 h-11 rounded-xl text-white flex items-center justify-center font-semibold" style={{ background: tb ? '#0E7490' : '#77816F' }}>{tb ? 'T' : '@'}</span>
+          <p className="mt-3 text-[17px] font-medium">{tb ? t('Ferien, Anträge und Stempeluhr laufen in Timebutler') : t('Deine Firmen-Mails liest du im Webmail')}</p>
+          <p className="mt-1 text-[14px] text-mute">{tb ? t('Melde dich dort mit deinem Timebutler-Zugang an. TeamHub speichert dafür kein Passwort.') : t('Melde dich mit {email} und deinem Postfach-Passwort an. TeamHub speichert dafür kein Passwort.', { email: me.email })}</p>
+          <div className="mt-4 space-y-2">
+            {tb && app && <a href={app} target="_blank" rel="noreferrer" className="h-12 rounded-2xl bg-ink text-white flex items-center justify-center gap-2 text-[15px] font-medium">{t('Timebutler-App öffnen oder installieren')}</a>}
+            <a href={tb ? TOOL_LINKS.timebutlerWeb : TOOL_LINKS.webmail} target="_blank" rel="noreferrer" className={`h-12 rounded-2xl flex items-center justify-center gap-2 text-[15px] font-medium ${tb && app ? 'bg-white border border-sage-200' : 'bg-ink text-white'}`}>{t('Im Browser öffnen')}<ExternalLink size={16} /></a>
+          </div>
+        </Card>
+        <p className="px-1 text-xs text-mute">{tb ? t('Wo steht was: Kundentermine und Schichten kommen aus Phorest, Schulungen und Events aus TeamHub, Ferien und Arbeitszeit aus Timebutler.') : t('Der Posteingang direkt im TeamHub folgt in einem späteren Schritt.')}</p>
+      </div>
     </div>
   )
 }
@@ -634,8 +653,8 @@ function Connections() {
   const { me, myPhorest, branches, t } = useApp()
   const rows = [
     { k: 'phorest', name: 'Phorest', logo: 'P', color: '#1F2937', on: myPhorest.length > 0, what: myPhorest.length ? t('Automatisch · {list}', { list: myPhorest.map(m => branches.find(b => b.id === m.branch_id)?.name).join(', ') }) : t('Keine Phorest-Spalte zu {email} gefunden', { email: me.email }) },
-    { k: 'timebutler', name: 'Timebutler', logo: 'T', color: '#0E7490', on: false, what: t('Ferien, Anträge, Stempeluhr · folgt') },
-    { k: 'mail', name: t('Postfach'), logo: '@', color: '#77816F', on: false, what: `${me.email} · ${t('folgt')}` },
+    { k: 'timebutler', name: 'Timebutler', logo: 'T', color: '#0E7490', on: false, link: true, what: t('Ferien, Anträge, Stempeluhr · eigene Anmeldung') },
+    { k: 'mail', name: t('Postfach'), logo: '@', color: '#77816F', on: false, link: true, what: `${me.email} · ${t('Webmail, eigene Anmeldung')}` },
   ]
   return (
     <div className="pb-10"><Title>{t('Verbindungen')}</Title>
@@ -645,7 +664,7 @@ function Connections() {
           <div key={c.k} className="flex items-center gap-3 px-4 py-3.5">
             <span className="w-10 h-10 rounded-xl text-white flex items-center justify-center font-semibold" style={{ background: c.color }}>{c.logo}</span>
             <span className="flex-1 min-w-0"><span className="block text-[15px] font-medium">{c.name}</span><span className="block text-xs text-mute truncate">{c.what}</span></span>
-            {c.on ? <span className="flex items-center gap-1 text-[13px] text-sage-800"><Check size={15} />{t('Aktiv')}</span> : <span className="text-[13px] text-mute flex items-center gap-1"><Lock size={13} />{c.k === 'phorest' ? t('offen') : t('bald')}</span>}
+            {c.on ? <span className="flex items-center gap-1 text-[13px] text-sage-800"><Check size={15} />{t('Aktiv')}</span> : 'link' in c ? <a href={c.k === 'mail' ? TOOL_LINKS.webmail : TOOL_LINKS.timebutlerWeb} target="_blank" rel="noreferrer" className="text-[13px] text-sage-800 flex items-center gap-1">{t('Öffnen')}<ExternalLink size={13} /></a> : <span className="text-[13px] text-mute flex items-center gap-1"><Lock size={13} />{c.k === 'phorest' ? t('offen') : t('bald')}</span>}
           </div>
         ))}</List>
         <p className="mt-3 text-xs text-mute">{t('Phorest braucht keine eigene Anmeldung. TeamHub erkennt dich über deine Firmen-Mail und zeigt dir deine eigenen Termine.')}</p>

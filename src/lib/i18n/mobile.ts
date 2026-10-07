@@ -1,5 +1,17 @@
 // Schlüssel = deutscher Text, Werte [Englisch, Französisch].
 export default {
+  'Webmail': ['Webmail', 'Webmail'],
+  'Ferien, Anträge und Stempeluhr laufen in Timebutler': ['Holidays, requests and the time clock are in Timebutler', 'Congés, demandes et pointeuse sont dans Timebutler'],
+  'Deine Firmen-Mails liest du im Webmail': ['You read your work emails in webmail', 'Tu lis tes e-mails professionnels dans le webmail'],
+  'Melde dich dort mit deinem Timebutler-Zugang an. TeamHub speichert dafür kein Passwort.': ['Sign in there with your Timebutler account. TeamHub does not store a password for it.', 'Connecte-toi avec ton accès Timebutler. TeamHub ne stocke aucun mot de passe pour cela.'],
+  'Melde dich mit {email} und deinem Postfach-Passwort an. TeamHub speichert dafür kein Passwort.': ['Sign in with {email} and your mailbox password. TeamHub does not store a password for it.', 'Connecte-toi avec {email} et le mot de passe de ta boîte mail. TeamHub ne stocke aucun mot de passe pour cela.'],
+  'Timebutler-App öffnen oder installieren': ['Open or install the Timebutler app', "Ouvrir ou installer l'app Timebutler"],
+  'Im Browser öffnen': ['Open in browser', 'Ouvrir dans le navigateur'],
+  'Wo steht was: Kundentermine und Schichten kommen aus Phorest, Schulungen und Events aus TeamHub, Ferien und Arbeitszeit aus Timebutler.': ['Where to find what: client appointments and shifts come from Phorest, trainings and events from TeamHub, holidays and working time from Timebutler.', 'Où trouver quoi : rendez-vous clientes et services viennent de Phorest, formations et événements de TeamHub, congés et temps de travail de Timebutler.'],
+  'Der Posteingang direkt im TeamHub folgt in einem späteren Schritt.': ['The inbox inside TeamHub will follow in a later step.', 'La boîte de réception dans TeamHub suivra dans une prochaine étape.'],
+  'Ferien, Anträge, Stempeluhr · eigene Anmeldung': ['Holidays, requests, time clock · separate sign-in', 'Congés, demandes, pointeuse · connexion séparée'],
+  'Webmail, eigene Anmeldung': ['webmail, separate sign-in', 'webmail, connexion séparée'],
+  'Öffnen': ['Open', 'Ouvrir'],
   // Allgemein
   'Lädt …': ['Loading …', 'Chargement …'],
   'Kundentermine': ['Client appointments', 'Rendez-vous clientes'],
