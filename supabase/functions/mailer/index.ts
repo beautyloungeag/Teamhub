@@ -71,6 +71,31 @@ Deno.serve(async (req) => {
     const m = facilityMail({ id: 'vorschau', title: 'Wachsgerät in Kabine 3 defekt', body: 'Das Gerät wird nicht mehr warm. Bitte vor Freitag prüfen.', created_by_name: me?.first_name ?? 'Mitarbeiterin', created_at: new Date().toISOString(), branch_id: 'basel-1' }, 'Basel 1', 'facility@beispiel.ch', null, appUrl)
     return json({ ok: true, subject: m.subject, html: m.html })
   }
+  // Testversand nur an die angemeldete Büro-Person selbst (unabhängig vom Schalter, braucht aber den Schlüssel):
+  //   test_facility: ihre jüngste eigene Meldung als Facility-Mail (mit echtem Foto-Link)
+  //   test_invite:   Einladung zu einem Event (event_id)
+  //   test_error:    Versand an eine ungültige Adresse, prüft die Fehlerprotokollierung
+  if (['test_facility', 'test_invite', 'test_error'].includes(body.action)) {
+    if (!me?.email) return json({ ok: false, error: 'forbidden' }, 403)
+    if (!key) return json({ ok: false, error: 'no_key' })
+    let m: Mail | null = null
+    if (body.action === 'test_facility' || body.action === 'test_error') {
+      const { data: t } = await admin.from('tickets').select('id, title, body, branch_id, created_by_name, created_at, photo_path').eq('created_by', me.id).order('created_at', { ascending: false }).limit(1).maybeSingle()
+      if (!t) return json({ ok: false, error: 'no_own_ticket' })
+      const { data: b } = await admin.from('branches').select('name').eq('id', t.branch_id).maybeSingle()
+      let photo: string | null = null
+      if (t.photo_path) { const { data } = await admin.storage.from('ticket-photos').createSignedUrl(t.photo_path, 60 * 60 * 24 * 30); photo = data?.signedUrl ?? null }
+      m = facilityMail(t, b?.name ?? t.branch_id, body.action === 'test_error' ? 'ungueltig@@adresse' : me.email, photo, appUrl)
+    } else {
+      const { data: e } = await admin.from('events').select('*').eq('id', body.event_id ?? '').maybeSingle()
+      if (!e) return json({ ok: false, error: 'no_event' })
+      m = eventMail('einladung', e, { email: me.email, lang: me.lang }, appUrl)
+    }
+    m = { ...m, kind: 'test', subject: `[Test] ${m.subject}` }
+    const r = await sendResend(key, from, m)
+    await admin.from('mail_log').insert({ kind: 'test', ref: m.ref, recipient: m.to, subject: m.subject, status: r.ok ? 'gesendet' : 'fehler', error: r.error ?? null, provider_id: r.id ?? null })
+    return json({ ok: r.ok, error: r.error ?? null, to: m.to })
+  }
   if (!key || !enabled) return json({ ok: true, skipped: !key ? 'no_key' : 'disabled', sent: 0 })
 
   const out: Mail[] = []
