@@ -2,6 +2,13 @@
 
 Interne Mitarbeiter-App (PWA + Desktop-Backoffice) der Beautylounge AG. Kundin: Renée Baumann. PM-Projekt: `projekt.aleksa.ai`, Key **BLTH** (`d4ee5d5c-4553-436c-bba7-137a03a2b704`). ⚠️ Das Repo `beautyloungeag/Teamhub` ist **öffentlich** — nie Personendaten committen.
 
+### Nachtrag 2026-10-07
+
+- **Mailversand** (BLTH-20/23/34): Function `mailer` (Resend) + Cron `teamhub-mailer` alle 5 Min (gleicher `x-notify-secret` wie notify). Facility-Meldungen (Art „Meldung“) an `branches.facility_email` oder `app_settings.facility_email`, Einladungen zu neuen Events an die Zielgruppe, Erinnerung `event_reminder_days` vorher an Angemeldete, je Sprache. **Doppelt gesperrt:** Secret `RESEND_API_KEY` fehlt noch UND `app_settings.mail_enabled` = false; Schalter im Backoffice unter Studios (nur mit Schlüssel aktiv). Beim Einschalten wird nichts Altes nachgeschickt (Meldungen > 24 h, Events > 48 h gelten als übersprungen). Protokoll `mail_log`, im Backoffice sichtbar. Migration `0008_mailversand.sql`. Optional `MAIL_FROM`, `APP_URL` als Secrets.
+- **Code-Mail-Vorlage** `supabase/templates/anmeldecode.html`: Supabase lehnt eigene Vorlagen im Gratis-Tarif ohne eigenes SMTP ab → zusammen mit Resend-SMTP setzen (`PATCH /config/auth` `mailer_templates_magic_link_content`, Betreff „Dein TeamHub-Code: {{ .Token }}“).
+- **Zeit & Ferien / Posteingang:** direkte Zugänge zu Timebutler (App/Browser) und Cyon-Webmail. Einbetten verbieten alle drei Dienste (Header geprüft), Details im PM-Doc „Anmeldung, Einbettung und Schnittstellen“.
+- **PM-Docs neu:** Betrieb/Konten (§ 5.1), Wiki-Format (Vorschlag), Inhalte/Lücken/Terminfolgen (§ 2.3), Anmeldung/Einbettung. Renée und Matteo sehen die Projekt-Docs.
+
 ### Nachtrag 2026-10-05
 
 - **Studios im Backoffice** (Reiter „Studios“, nur Büro): anlegen, umbenennen, Reihenfolge, Phorest-Filial-ID, löschen nur ohne Personen/Verweise. Büro bleibt unten. Rechte über die bestehende RLS `branches_write`.
@@ -32,7 +39,7 @@ Interne Mitarbeiter-App (PWA + Desktop-Backoffice) der Beautylounge AG. Kundin: 
 ## Architektur
 
 - Vite + React + TS + Tailwind, `src/store.tsx` = Datenschicht (lädt alles je Rolle per RLS, Wissen nur als Liste; Artikelinhalt beim Öffnen).
-- Migrationen `supabase/migrations/0001–0007` (Login/Rollen, Module, Beispielinhalte `is_sample`, Phorest-Mapping, Wiki-Import, Wiki-Vorschläge, Mitteilungen).
+- Migrationen `supabase/migrations/0001–0008` (Login/Rollen, Module, Beispielinhalte `is_sample`, Phorest-Mapping, Wiki-Import, Wiki-Vorschläge, Mitteilungen, Mailversand).
 - Functions (alle `--no-verify-jwt`, prüfen selbst per `current_employee`): `phorest` (my_day, branch_day, team_today, sync_staff), `assistant` (KI-Reiter), `admin-employee` (Person anlegen/deaktivieren), `notify` (Push, Cron + Secret oder angemeldet; `action:test` = Probe an sich selbst).
 - Wiki-Import: `scripts/import_wiki.py <wiki-klon>` — wiederholbar, `--no-media` / `--dry`. Medien in `media/wiki/<alle|filialleitung|buero>/…`, Storage-Policy je Stufe.
 
@@ -43,7 +50,7 @@ Interne Mitarbeiter-App (PWA + Desktop-Backoffice) der Beautylounge AG. Kundin: 
 3. **Hosting:** Netlify auf Beautylounge-Konto + Cyon-DNS `teamhub.beautylounge.ch`.
 4. **Renée bestätigen:** Wiki-Stand (letzter Commit 29.09.2025), Stufen-Zuordnung (L1 alle / L2 FL+Büro / L3 Büro), Muster-Darstellung (BLTH-8/18), Vorschläge freigeben, Glossar, Name KI „Benni“ vs. Vertrag „Marc Beau“, neue Wünsche (Phorest-Performancetool, Umfragen).
 5. **OpenAI-Key** (Beautylounge) für frei formulierende KI; bis dahin Wissensmodus.
-6. Nicht gebaut: Timebutler (BLTH-22), Postfach (BLTH-24), Facility-Mail (BLTH-20), Übersetzung der Inhalte (BLTH-26 Teil 2).
+6. Nicht gebaut: persönlicher Posteingang in TeamHub (BLTH-24, braucht Entscheidung: IMAP nur mit gespeichertem Postfach-Passwort), Übersetzung der Inhalte (BLTH-26 Teil 2). Facility-/Event-Mails gebaut, aber gesperrt bis Resend.
 7. Termine: Vertrag sah Demo 28.09./Pilot 29.09. vor — neue Termine mit Renée schriftlich (§ 2.3).
 
 ## Testen ohne echte Konten
