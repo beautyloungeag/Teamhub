@@ -313,13 +313,13 @@ function TeamAdmin() {
 }
 
 /* ---------- Studios (nur Büro; RLS branches_write) ---------- */
-type StudioRow = { id: string; name: string; is_office: boolean; sort: number; phorest_branch_id: string | null }
+type StudioRow = { id: string; name: string; is_office: boolean; sort: number; phorest_branch_id: string | null; facility_email: string | null }
 const slug = (n: string) => n.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 function StudiosAdmin() {
   const { staff, reload } = useApp()
   const [rows, setRows] = useState<StudioRow[] | null>(null), [err, setErr] = useState(''), [form, setForm] = useState(false)
   const [f, setF] = useState({ name: '', phorest_branch_id: '' }), [edit, setEdit] = useState<StudioRow | null>(null)
-  const load = async () => { const { data } = await supabase!.from('branches').select('id, name, is_office, sort, phorest_branch_id').order('sort'); setRows((data ?? []) as StudioRow[]) }
+  const load = async () => { const { data } = await supabase!.from('branches').select('id, name, is_office, sort, phorest_branch_id, facility_email').order('sort'); setRows((data ?? []) as StudioRow[]) }
   useEffect(() => { load() }, [])
   const count = (id: string) => staff.filter(s => s.active && s.branch_id === id).length
   const done = async (error: { message: string } | null, msg: string) => { if (error) { setErr(msg); return false } setErr(''); await load(); await reload(); return true }
@@ -335,7 +335,7 @@ function StudiosAdmin() {
   }
   const save = async () => {
     if (!edit || !edit.name.trim()) return
-    const { error } = await supabase!.from('branches').update({ name: edit.name.trim(), phorest_branch_id: edit.phorest_branch_id?.trim() || null }).eq('id', edit.id)
+    const { error } = await supabase!.from('branches').update({ name: edit.name.trim(), phorest_branch_id: edit.phorest_branch_id?.trim() || null, facility_email: edit.facility_email?.trim() || null }).eq('id', edit.id)
     if (await done(error, 'Speichern hat nicht geklappt. Gibt es den Namen schon?')) setEdit(null)
   }
   const move = async (i: number, d: -1 | 1) => {
@@ -358,16 +358,61 @@ function StudiosAdmin() {
       <Field label="Phorest-Filial-ID (optional)"><input value={f.phorest_branch_id} onChange={e => setF({ ...f, phorest_branch_id: e.target.value })} className={inp} /></Field>
     </div><div className="mt-4 flex items-center gap-3"><button onClick={add} className="h-10 px-5 rounded-xl bg-ink text-white">Anlegen</button><p className="text-xs text-mute">Ohne Phorest-ID zeigt das Studio keine Termine und Schichten.</p></div></Box>}
     <Err m={err} />
-    <Box className="mt-2"><table className="w-full text-[14px]"><thead><tr><Th>Studio</Th><Th>Personen</Th><Th>Phorest</Th><Th> </Th></tr></thead>
+    <Box className="mt-2"><table className="w-full text-[14px]"><thead><tr><Th>Studio</Th><Th>Personen</Th><Th>Phorest</Th><Th>Facility-Mail</Th><Th> </Th></tr></thead>
       <tbody className="divide-y divide-sage-50">{(rows ?? []).map((r, i) => edit?.id === r.id
         ? <tr key={r.id}><td className="px-4 py-2"><input value={edit.name} onChange={e => setEdit({ ...edit, name: e.target.value })} className={inp} /></td><td className="px-4 text-mute">{count(r.id)}</td>
             <td className="px-4"><input value={edit.phorest_branch_id ?? ''} onChange={e => setEdit({ ...edit, phorest_branch_id: e.target.value })} className={inp} /></td>
+            <td className="px-4"><input value={edit.facility_email ?? ''} onChange={e => setEdit({ ...edit, facility_email: e.target.value })} placeholder="zentrale Adresse" className={inp} /></td>
             <td className="px-4 whitespace-nowrap"><button onClick={save} className="h-9 px-4 rounded-xl bg-ink text-white text-[13px]">Speichern</button><button onClick={() => setEdit(null)} className="ml-3 text-xs text-mute underline">abbrechen</button></td></tr>
         : <tr key={r.id}><td className="px-4 py-2.5">{r.name}{r.is_office && <span className="ml-2 text-xs text-mute">Büro</span>}</td><td className="px-4 text-mute">{count(r.id)}</td>
             <td className="px-4 text-mute text-[13px]">{r.is_office ? '–' : r.phorest_branch_id ? 'verbunden' : 'nicht verbunden'}</td>
+            <td className="px-4 text-mute text-[13px]">{r.facility_email || 'zentrale Adresse'}</td>
             <td className="px-4 whitespace-nowrap text-right"><button aria-label="nach oben" disabled={i === 0} onClick={() => move(i, -1)} className="p-1 text-mute disabled:opacity-30"><ArrowUp size={15} /></button><button aria-label="nach unten" disabled={i === (rows?.length ?? 0) - 1} onClick={() => move(i, 1)} className="p-1 text-mute disabled:opacity-30"><ArrowDown size={15} /></button>
               <button onClick={() => setEdit(r)} className="ml-3 text-xs text-mute underline">bearbeiten</button>{!r.is_office && <button onClick={() => remove(r)} className="ml-3 text-xs text-mute underline">löschen</button>}</td></tr>)}</tbody></table></Box>
+    <MailSettings />
   </>)
+}
+
+/* ---------- E-Mail-Versand (Facility, Einladungen, Erinnerungen) ---------- */
+type MailLog = { at: string; kind: string; recipient: string; subject: string; status: string; error: string | null }
+function MailSettings() {
+  const [st, setSt] = useState<{ keySet: boolean; enabled: boolean; from: string; log: MailLog[] } | null>(null)
+  const [central, setCentral] = useState(''), [days, setDays] = useState(2), [msg, setMsg] = useState(''), [preview, setPreview] = useState<string | null>(null)
+  const load = async () => {
+    const { data } = await supabase!.functions.invoke('mailer', { body: { action: 'status' } })
+    if (data?.ok) setSt(data)
+    const { data: rows } = await supabase!.from('app_settings').select('key, value')
+    for (const r of rows ?? []) { if (r.key === 'facility_email') setCentral(String(r.value ?? '')); if (r.key === 'event_reminder_days') setDays(Number(r.value) || 2) }
+  }
+  useEffect(() => { load() }, [])
+  const put = (key: string, value: unknown) => supabase!.from('app_settings').upsert({ key, value, updated_at: new Date().toISOString() })
+  const toggle = async () => {
+    if (!st) return
+    if (!st.enabled && !confirm('E-Mail-Versand einschalten? Ab dann gehen echte Mails an Facility und Mitarbeiterinnen (Einladungen, Erinnerungen).')) return
+    await put('mail_enabled', !st.enabled); await load()
+  }
+  const save = async () => { await put('facility_email', central.trim()); await put('event_reminder_days', Math.max(1, Math.min(14, days))); setMsg('Gespeichert.'); setTimeout(() => setMsg(''), 2000) }
+  const showPreview = async () => { const { data } = await supabase!.functions.invoke('mailer', { body: { action: 'preview' } }); setPreview(data?.html ?? null) }
+  if (!st) return null
+  return (
+    <Box className="mt-8 p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div><p className="font-medium">E-Mail-Versand</p>
+          <p className="text-xs text-mute mt-1">Facility-Meldungen an das Studio, Einladungen zu Schulungen und Erinnerungen an Angemeldete. Absender {st.from}.</p>
+          <p className="text-[13px] mt-2">{!st.keySet ? 'Noch kein Resend-Schlüssel hinterlegt: es geht nichts raus.' : st.enabled ? 'Eingeschaltet.' : 'Ausgeschaltet: es geht nichts raus.'}</p></div>
+        <button disabled={!st.keySet} onClick={toggle} className={`h-10 px-4 rounded-xl text-[14px] shrink-0 disabled:opacity-40 ${st.enabled ? 'bg-sage-100 text-sage-800' : 'bg-ink text-white'}`}>{st.enabled ? 'Ausschalten' : 'Einschalten'}</button>
+      </div>
+      <div className="mt-4 grid grid-cols-[1fr_180px_auto] gap-3 items-end">
+        <Field label="Zentrale Facility-Adresse (für Studios ohne eigene)"><input value={central} onChange={e => setCentral(e.target.value)} placeholder="facility@beautylounge.ch" className={inp} /></Field>
+        <Field label="Erinnerung vor Schulung (Tage)"><input type="number" min={1} max={14} value={days} onChange={e => setDays(Number(e.target.value))} className={inp} /></Field>
+        <div className="flex items-center gap-3"><button onClick={save} className="h-10 px-4 rounded-xl bg-ink text-white text-[14px]">Speichern</button><button onClick={showPreview} className="text-xs text-mute underline">Vorschau</button></div>
+      </div>
+      {msg && <p className="mt-2 text-[13px] text-sage-800">{msg}</p>}
+      {preview && <div className="mt-4 rounded-xl border border-sage-100 overflow-hidden"><div className="flex justify-between px-3 py-2 text-xs text-mute bg-sage-50"><span>Vorschau einer Facility-Meldung (wird nicht versendet)</span><button onClick={() => setPreview(null)}><X size={13} /></button></div><iframe title="Vorschau" srcDoc={preview} className="w-full h-[420px] bg-white" /></div>}
+      {st.log.length > 0 && <table className="mt-5 w-full text-[13px]"><thead><tr><Th>Zeit</Th><Th>Art</Th><Th>An</Th><Th>Betreff</Th><Th>Status</Th></tr></thead>
+        <tbody className="divide-y divide-sage-50">{st.log.map((l, i) => <tr key={i}><td className="px-4 py-2 text-mute">{fmtDate(l.at, { day: '2-digit', month: '2-digit' })} {fmtTime(l.at)}</td><td className="px-4">{l.kind}</td><td className="px-4 text-mute">{l.recipient}</td><td className="px-4">{l.subject}</td><td className={`px-4 ${l.status === 'fehler' ? 'text-[#B5483B]' : 'text-mute'}`} title={l.error ?? ''}>{l.status}</td></tr>)}</tbody></table>}
+    </Box>
+  )
 }
 
 /* ---------- Wissen ---------- */
