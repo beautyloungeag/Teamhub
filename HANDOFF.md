@@ -2,6 +2,13 @@
 
 Interne Mitarbeiter-App (PWA + Desktop-Backoffice) der Beautylounge AG. Kundin: Renée Baumann. PM-Projekt: `projekt.aleksa.ai`, Key **BLTH** (`d4ee5d5c-4553-436c-bba7-137a03a2b704`). ⚠️ Das Repo `beautyloungeag/Teamhub` ist **öffentlich** — nie Personendaten committen.
 
+### Nachtrag 2026-10-09
+
+- **Netlify verbunden (Matteo, 08.10.):** Projekt `beautyloungeteamhub`, Site-ID `832aed21-21a5-4615-a0c4-e21411bffe11`, erster Deploy von `main` auf `beautyloungeteamhub.netlify.app`, Zugriff noch „Private“ (401). Aleksa hat `teamhub.beautylounge.ch` in Netlify eingetragen, Status „Pending External DNS verification“.
+- **DNS (am 09.10. geprüft):** `teamhub` hat bei Cyon noch A `149.126.4.74` + AAAA `2a01:ab20:0:4::74` (Shared Hosting, 404, selbst signiertes Zertifikat). Matteo soll beide löschen und CNAME `teamhub` → `beautyloungeteamhub.netlify.app` anlegen. Resend-Einträge (`resend._domainkey.teamhub`, `send.teamhub` MX/SPF) bleiben, sie sind davon nicht betroffen. Mail an Matteo als Entwurf bei Aleksa.
+- **Noch offen fürs Hosting:** Netlify-Env `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_VAPID_PUBLIC_KEY`; „Private“ erst zum Start lösen; danach Supabase Auth Site-/Redirect-URL auf `https://teamhub.beautylounge.ch` und Login-Code an info@aleksa.ai testen.
+- **Railway „Trial Plan Alert“ (08.10., von Matteo weitergeleitet):** Projekt „Teamhub Beautylounge“ seit 09.09. (Workspace „beautyloungeag's Projects“), darin `benni-agent`, `benni-quality`, `Teamhub`. Anhang nicht maschinell lesbar, Plan mit Projekt-Token nicht abfragbar. Empfehlung an Beautylounge: Hobby-Plan, sonst stoppt Benni.
+
 ### Nachtrag 2026-10-07
 
 - **Mailversand** (BLTH-20/23/34): Function `mailer` (Resend) + Cron `teamhub-mailer` alle 5 Min (gleicher `x-notify-secret` wie notify). Facility-Meldungen (Art „Meldung“) an `branches.facility_email` oder `app_settings.facility_email`, Einladungen zu neuen Events an die Zielgruppe, Erinnerung `event_reminder_days` vorher an Angemeldete, je Sprache. **Doppelt gesperrt:** Secret `RESEND_API_KEY` fehlt noch UND `app_settings.mail_enabled` = false; Schalter im Backoffice unter Studios (nur mit Schlüssel aktiv). Beim Einschalten wird nichts Altes nachgeschickt (Meldungen > 24 h, Events > 48 h gelten als übersprungen). Protokoll `mail_log`, im Backoffice sichtbar. Migration `0008_mailversand.sql`. Optional `MAIL_FROM`, `APP_URL` als Secrets.
