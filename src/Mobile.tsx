@@ -14,6 +14,7 @@ import { Terminbuch, EventCalendar } from './Calendar'
 import { tr, locale } from './lib/i18n'
 import { Logo, BMark } from './Logo'
 import { Comments, Media } from './TicketParts'
+import { QuizRunner } from './QuizRunner'
 
 // Name des KI-Reiters (im Vertrag „Marc Beau“, im abgestimmten Prototyp „Benni“)
 export const ASSISTANT = 'Benni'
@@ -265,7 +266,8 @@ function NewsList({ open }: { open: (s: Sub) => void }) {
   )
 }
 function NewsDetail({ n }: { n: News }) {
-  const { read, confirm, openNews, t } = useApp()
+  const { read, confirm, openNews, quizzes, t } = useApp()
+  const quiz = quizzes.find(q => q.newsId === n.id)
   const [busy, setBusy] = useState(false)
   // „Gelesen & verstanden“ geht erst, nachdem die News geöffnet wurde — das Öffnen wird hier gespeichert.
   useEffect(() => { openNews(n.id) }, [n.id]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -276,10 +278,9 @@ function NewsDetail({ n }: { n: News }) {
       <p className="mt-2 text-[13px] text-mute">{t('von {name}', { name: n.author })}</p>
       <div className="mt-5 space-y-4 text-[16px] leading-relaxed">{n.body.split('\n\n').map((p, i) => <p key={i}>{p}</p>)}</div>
       {n.wikiCategory && <p className="mt-4 text-[13px] text-sage-800 flex items-center gap-1"><BookOpen size={14} />{t('Auch im Wissen unter {cat} abgelegt', { cat: n.wikiCategory })}</p>}
-      {n.mustRead && <div className="mt-8">
-        {read.has(n.id) ? <div className="h-12 rounded-2xl bg-sage-100 text-sage-800 flex items-center justify-center gap-2 font-medium"><Check size={18} />{t('Gelesen und bestätigt')}</div>
-          : <Btn disabled={busy} onClick={async () => { setBusy(true); await confirm(n.id); setBusy(false) }}>{t('Gelesen und verstanden')}</Btn>}
-      </div>}
+      {n.mustRead && read.has(n.id) && <div className="mt-8 h-12 rounded-[10px] bg-sage-100 text-olive-800 flex items-center justify-center gap-2 font-medium"><Check size={18} />{t('Gelesen und bestätigt')}</div>}
+      {n.mustRead && !read.has(n.id) && !quiz && <div className="mt-8"><Btn disabled={busy} onClick={async () => { setBusy(true); await confirm(n.id); setBusy(false) }}>{t('Gelesen und verstanden')}</Btn></div>}
+      {quiz && <QuizRunner quiz={quiz} />}
     </article>
   )
 }
@@ -430,7 +431,8 @@ function Rich({ text }: { text: string }) {
   })}</>
 }
 function WikiDetail({ a }: { a: WikiArticle }) {
-  const { t } = useApp()
+  const { quizzes, t } = useApp()
+  const quiz = quizzes.find(q => a.fromNews ? q.newsId === a.id.slice(5) : q.articleId === a.id)
   const [full, setFull] = useState<{ body: string; blocks: WikiBlock[] | null } | null>(a.fromNews ? { body: a.body.join('\n\n'), blocks: null } : null)
   const [urls, setUrls] = useState<Record<string, string>>({})
   useEffect(() => {
@@ -471,6 +473,7 @@ function WikiDetail({ a }: { a: WikiArticle }) {
           default: return null
         }
       })}</div> : full && <div className="mt-5 space-y-3 text-[16px] leading-relaxed">{full.body.split(/\n\n+/).filter(Boolean).map((p, i) => <p key={i}>{p}</p>)}</div>}
+      {quiz && full && <QuizRunner quiz={quiz} />}
     </article>
   )
 }

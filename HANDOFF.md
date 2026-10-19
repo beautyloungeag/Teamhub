@@ -2,6 +2,15 @@
 
 Interne Mitarbeiter-App (PWA + Desktop-Backoffice) der Beautylounge AG. Kundin: Renée Baumann. PM-Projekt: `projekt.aleksa.ai`, Key **BLTH** (`d4ee5d5c-4553-436c-bba7-137a03a2b704`). ⚠️ Das Repo `beautyloungeag/Teamhub` ist **öffentlich** — nie Personendaten committen.
 
+### Nachtrag 2026-10-19 spät — Quiz (E-Learning)
+
+- **Migration `0010_quiz.sql`** (eingespielt): `quizzes` (je News ODER Wissensartikel, `pass_pct` Standard 80), `quiz_questions` (single/multi/text, Lösungen nur fürs Büro lesbar), `quiz_attempts` (Nachweis je Person). RPCs `quiz_for_me()` (Fragen ohne Lösung), `submit_quiz()` (wertet serverseitig aus; bestanden + News → `news_reads.confirmed_at`), `confirm_news()` verlangt bei News mit Quiz ein bestandenes Quiz (`quiz_first`), `open_news()` prüft jetzt `news_for_me()`.
+- **App:** `src/QuizRunner.tsx` unter News und Artikeln — Fragen, Auswerten, Ergebnis je Frage richtig/falsch (Lösung wird nicht verraten), nochmal versuchen. Eine Pflicht-News mit Quiz bleibt auf „Heute“, bis das Quiz bestanden ist.
+- **Backoffice „Lernen“** (Büro bearbeitet, Filialleitung sieht ihr Studio): Liste mit „x von y bestanden“, Editor (Eine/Mehrere richtig, Antworten markieren), Nachweis je Person mit Datum oder bestem Ergebnis.
+- Beispiel-Quiz (3 Fragen) zur Beispiel-Pflicht-News „Neue Hygienerichtlinie“, verschwindet mit dem Beispiel-Schalter.
+- **Freitext-Fragen mit KI-Bewertung fehlen noch** (Spalte `rubric` ist da, `submit_quiz` zählt `text` noch nicht): sobald der OpenAI-Schlüssel da ist.
+- Getestet 19.10.: Lösungen per REST nicht lesbar, Bestätigen ohne Quiz abgelehnt, 67 % nicht bestanden, 100 % bestanden und bestätigt, Editor speichert. Testversuche gelöscht.
+
 ### Nachtrag 2026-10-19 abends — Ausbau nach Update-Meeting 25.09.
 
 - **Migration `0009_ausbau_oktober.sql`** (eingespielt): `app_flags()` + `app_settings.demo_data`, `job_groups(title)` (Filialleitung, Kosmetikerinnen, Lernende, Büro aus `job_title`), News-Spalten `audience_groups/_skills/_people` + `news_for_me()` in der RLS, Ideen fürs ganze Team sichtbar (Meldungen weiter nur Meldende + Leitung), Filialleitung darf Meldungen ihres Studios bearbeiten, `tickets.media_kind` (Foto/Video), Tabellen `ticket_comments`, `ticket_votes` (nur Ideen), `standby_days` (Pikett), `event_registrations.coming` + RPC `decline_event`, `event_counts` zählt nur Zusagen.

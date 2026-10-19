@@ -1,22 +1,22 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { LayoutDashboard, LifeBuoy, Phone, Smartphone, Store, ArrowUp, ArrowDown, Newspaper, ListChecks, Lightbulb, CalendarDays, Users, BookOpen, Plus, Check, Search, CalendarClock, Send, X, Trash2 } from 'lucide-react'
+import { LayoutDashboard, LifeBuoy, Phone, GraduationCap, Smartphone, Store, ArrowUp, ArrowDown, Newspaper, ListChecks, Lightbulb, CalendarDays, Users, BookOpen, Plus, Check, Search, CalendarClock, Send, X, Trash2 } from 'lucide-react'
 import { Terminbuch } from './Calendar'
-import { useApp, isoDay, appliesOn, fmtDate, fmtTime, zurichHour, inNewsAudience, GROUPS, type Ticket, type News } from './store'
+import { useApp, isoDay, appliesOn, fmtDate, fmtTime, zurichHour, inNewsAudience, GROUPS, type Ticket, type News, type Quiz } from './store'
 import { supabase } from './lib/supabase'
 import { Status, ASSISTANT } from './Mobile'
 import { notifyNow } from './lib/push'
 import { Logo, BMark } from './Logo'
 import { Comments, Media } from './TicketParts'
 
-type View = 'overview' | 'book' | 'news' | 'tasks' | 'tickets' | 'events' | 'standby' | 'team' | 'studios' | 'wiki'
-const NAV: [View, string, typeof Users][] = [['overview', 'Übersicht', LayoutDashboard], ['book', 'Kundentermine', CalendarClock], ['news', 'News', Newspaper], ['tasks', 'Aufgaben', ListChecks], ['tickets', 'Meldungen & Ideen', Lightbulb], ['events', 'Schulungen & Events', CalendarDays], ['standby', 'Aushilfe', LifeBuoy], ['team', 'Team & Skills', Users], ['studios', 'Studios', Store], ['wiki', 'Wissen', BookOpen]]
+type View = 'overview' | 'book' | 'news' | 'tasks' | 'tickets' | 'events' | 'standby' | 'learn' | 'team' | 'studios' | 'wiki'
+const NAV: [View, string, typeof Users][] = [['overview', 'Übersicht', LayoutDashboard], ['book', 'Kundentermine', CalendarClock], ['news', 'News', Newspaper], ['tasks', 'Aufgaben', ListChecks], ['tickets', 'Meldungen & Ideen', Lightbulb], ['events', 'Schulungen & Events', CalendarDays], ['standby', 'Aushilfe', LifeBuoy], ['learn', 'Lernen', GraduationCap], ['team', 'Team & Skills', Users], ['studios', 'Studios', Store], ['wiki', 'Wissen', BookOpen]]
 
 export default function Backoffice({ onSwitch }: { onSwitch?: () => void }) {
   const { me } = useApp()
   const [v, setV] = useState<View>('overview')
   const [ai, setAi] = useState(false)
   // Filialleitung verwaltet nur ihre Filiale; Inhalte (News, Wissen, Vorlagen, Team) pflegt das Büro.
-  const nav = me.app_role === 'buero' ? NAV : NAV.filter(([k]) => ['overview', 'book', 'tasks', 'tickets', 'events', 'standby'].includes(k))
+  const nav = me.app_role === 'buero' ? NAV : NAV.filter(([k]) => ['overview', 'book', 'tasks', 'tickets', 'events', 'standby', 'learn'].includes(k))
   return (
     <div className="flex h-full bg-white overflow-hidden">
       <aside className="w-60 shrink-0 bg-olive-800 p-4 flex flex-col">
@@ -30,7 +30,7 @@ export default function Backoffice({ onSwitch }: { onSwitch?: () => void }) {
       <main className={`flex-1 no-scrollbar p-8 ${v === 'book' ? 'flex flex-col overflow-hidden' : 'overflow-y-auto'}`}>
         {v === 'book' && <><H>Kundentermine</H><div className="flex-1 min-h-0"><Terminbuch /></div></>}
         {v === 'overview' && <Overview go={setV} />}{v === 'news' && <NewsAdmin />}{v === 'tasks' && <TasksAdmin />}
-        {v === 'tickets' && <TicketsAdmin />}{v === 'standby' && <StandbyAdmin />}{v === 'events' && <EventsAdmin />}{v === 'team' && <TeamAdmin />}{v === 'studios' && <StudiosAdmin />}{v === 'wiki' && <WikiAdmin />}
+        {v === 'tickets' && <TicketsAdmin />}{v === 'standby' && <StandbyAdmin />}{v === 'learn' && <LearnAdmin />}{v === 'events' && <EventsAdmin />}{v === 'team' && <TeamAdmin />}{v === 'studios' && <StudiosAdmin />}{v === 'wiki' && <WikiAdmin />}
       </main>
       {ai && <AdminChat onClose={() => setAi(false)} />}
     </div>
@@ -350,6 +350,113 @@ function StandbyAdmin() {
         </div>)}
       </div>
       <Side><Sec>Eingetragene Tage · nächste 60</Sec><div>{ranking.map(({ s, n }) => <div key={s.id} className="py-2 border-b border-line flex justify-between text-[13px]"><span>{s.first} {s.last} <span className="text-mute">· {s.branch}</span></span><span className={n ? 'tabular-nums' : 'text-mute'}>{n}</span></div>)}</div></Side>
+    </div>
+  </>)
+}
+
+/* ---------- Lernen: Quiz zu News oder Wissensartikel, Nachweis je Person ---------- */
+type QEdit = { kind: 'single' | 'multi'; prompt: string; options: string[]; correct: number[] }
+type QuizEdit = { id?: string; target: 'news' | 'article'; newsId: string; articleId: string; title: string; passPct: number; qs: QEdit[] }
+const emptyQ = (): QEdit => ({ kind: 'single', prompt: '', options: ['', ''], correct: [] })
+function LearnAdmin() {
+  const { quizzes, attempts, news, wiki, staff, me, reload } = useApp()
+  const audience = useAudience()
+  const isBuero = me.app_role === 'buero'
+  const [sel, setSel] = useState<string | null>(null), [edit, setEdit] = useState<QuizEdit | null>(null)
+  const [aq, setAq] = useState(''), [err, setErr] = useState(''), [busy, setBusy] = useState(false)
+  const [counts, setCounts] = useState<Record<string, number>>({})
+  useEffect(() => { if (isBuero) supabase!.from('quiz_questions').select('quiz_id').then(({ data }) => { const c: Record<string, number> = {}; for (const r of data ?? []) c[r.quiz_id] = (c[r.quiz_id] ?? 0) + 1; setCounts(c) }) }, [quizzes, isBuero])
+  const target = (q: Quiz) => q.newsId ? { kind: 'News', title: news.find(n => n.id === q.newsId)?.title ?? '–' } : { kind: 'Wissen', title: wiki.find(a => a.id === q.articleId)?.title ?? '–' }
+  // Wer soll das Quiz machen? News: deren Zielgruppe. Artikel: wer ihn lesen darf. Filialleitung sieht nur ihr Studio.
+  const people = (q: Quiz) => {
+    let list = q.newsId ? (() => { const n = news.find(x => x.id === q.newsId); return n ? audience(n) : [] })()
+      : (() => { const lvl = wiki.find(a => a.id === q.articleId)?.accessLevel ?? 'alle'
+        return staff.filter(s => s.active && (lvl === 'alle' ? s.branch_id !== 'buero' : lvl === 'filialleitung' ? s.app_role !== 'mitarbeiterin' : s.app_role === 'buero')) })()
+    if (!isBuero) list = list.filter(s => s.branch_id === me.branch_id)
+    return list
+  }
+  const best = (qid: string, eid: string) => { const a = attempts.filter(x => x.quizId === qid && x.employeeId === eid); return { n: a.length, max: a.length ? Math.max(...a.map(x => x.scorePct)) : null, passedAt: a.find(x => x.passed)?.at ?? null } }
+  const passedCount = (q: Quiz) => people(q).filter(p => best(q.id, p.id).passedAt).length
+
+  const openEdit = async (q?: Quiz) => {
+    setErr(''); setAq('')
+    if (!q) { setEdit({ target: 'news', newsId: '', articleId: '', title: '', passPct: 80, qs: [emptyQ()] }); return }
+    const { data } = await supabase!.from('quiz_questions').select('kind, prompt, options, correct').eq('quiz_id', q.id).order('sort')
+    setEdit({ id: q.id, target: q.newsId ? 'news' : 'article', newsId: q.newsId ?? '', articleId: q.articleId ?? '', title: q.title, passPct: q.passPct,
+      qs: (data ?? []).filter((x: any) => x.kind !== 'text').map((x: any) => ({ kind: x.kind, prompt: x.prompt, options: x.options, correct: x.correct })) })
+  }
+  const setQ = (i: number, patch: Partial<QEdit>) => edit && setEdit({ ...edit, qs: edit.qs.map((q, j) => j === i ? { ...q, ...patch } : q) })
+  const save = async () => {
+    if (!edit) return
+    const ref = edit.target === 'news' ? edit.newsId : edit.articleId
+    const qs = edit.qs.map(q => ({ ...q, options: q.options.map(o => o.trim()) })).filter(q => q.prompt.trim())
+    if (!ref) { setErr(edit.target === 'news' ? 'Bitte eine News wählen.' : 'Bitte einen Artikel wählen.'); return }
+    if (!qs.length) { setErr('Mindestens eine Frage ist nötig.'); return }
+    const bad = qs.findIndex(q => q.options.filter(Boolean).length < 2 || q.correct.length === 0 || q.correct.some(c => !q.options[c]))
+    if (bad >= 0) { setErr(`Frage ${bad + 1}: mindestens zwei Antworten und eine richtige markieren.`); return }
+    setBusy(true); setErr('')
+    const row = { news_id: edit.target === 'news' ? ref : null, article_id: edit.target === 'article' ? ref : null, title: edit.title.trim(), pass_pct: Math.min(100, Math.max(1, edit.passPct)), updated_at: new Date().toISOString() }
+    const { data, error } = edit.id ? await supabase!.from('quizzes').update(row).eq('id', edit.id).select('id').single() : await supabase!.from('quizzes').insert(row).select('id').single()
+    if (error || !data) { setBusy(false); setErr(/duplicate|unique/.test(error?.message ?? '') ? 'Dazu gibt es schon ein Quiz.' : 'Speichern hat nicht geklappt.'); return }
+    await supabase!.from('quiz_questions').delete().eq('quiz_id', data.id)
+    // Leere Antworten entfernen und die markierten Indizes nachziehen
+    await supabase!.from('quiz_questions').insert(qs.map((q, i) => { const keep = q.options.map((o, j) => o ? j : -1).filter(j => j >= 0)
+      return { quiz_id: data.id, sort: i, kind: q.kind, prompt: q.prompt.trim(), options: keep.map(j => q.options[j]), correct: q.correct.filter(c => keep.includes(c)).map(c => keep.indexOf(c)) } }))
+    setBusy(false); setEdit(null); setSel(data.id); await reload()
+  }
+  const taken = new Set(quizzes.filter(q => q.id !== edit?.id).map(q => q.newsId ?? q.articleId))
+  const q = quizzes.find(x => x.id === sel)
+  const arts = wiki.filter(a => !a.fromNews && !taken.has(a.id) && aq.trim().length > 1 && `${a.title} ${a.cat}`.toLowerCase().includes(aq.toLowerCase())).slice(0, 8)
+  const seg = (on: boolean) => `h-8 px-3 rounded-[8px] text-[13px] transition ${on ? 'bg-white text-ink shadow-[0_1px_2px_rgba(29,34,28,.08)]' : 'text-ink/60'}`
+  return (<>
+    <H action={isBuero && <New onClick={() => openEdit()}>Neues Quiz</New>}>Lernen</H>
+    {edit && <Panel className="p-6 mb-8">
+      <div className="grid grid-cols-[1fr_280px] gap-8">
+        <div className="space-y-4">
+          {edit.qs.map((x, i) => <div key={i} className="rounded-[12px] bg-white p-4">
+            <div className="flex items-start gap-3"><span className="text-mute text-[13px] pt-2.5">{i + 1}.</span>
+              <input value={x.prompt} onChange={e => setQ(i, { prompt: e.target.value })} placeholder="Frage" className={`${inp} !bg-sage-50 font-medium`} />
+              <div className="flex gap-1 p-1 rounded-[10px] bg-sage-50 shrink-0">{(['single', 'multi'] as const).map(k => <button key={k} onClick={() => setQ(i, { kind: k, correct: k === 'single' ? x.correct.slice(0, 1) : x.correct })} className={seg(x.kind === k)}>{k === 'single' ? 'Eine richtig' : 'Mehrere richtig'}</button>)}</div>
+              <button onClick={() => setEdit({ ...edit, qs: edit.qs.filter((_, j) => j !== i) })} title="Frage entfernen" className="pt-2.5 text-mute hover:text-ink"><Trash2 size={15} /></button></div>
+            <div className="mt-3 pl-6 space-y-1.5">{x.options.map((o, j) => { const on = x.correct.includes(j)
+              return <div key={j} className="flex items-center gap-2">
+                <button title="Als richtig markieren" onClick={() => setQ(i, { correct: x.kind === 'single' ? [j] : on ? x.correct.filter(c => c !== j) : [...x.correct, j] })} className={`w-5 h-5 shrink-0 flex items-center justify-center ${x.kind === 'single' ? 'rounded-full' : 'rounded-[6px]'} ${on ? 'bg-olive-700 text-white' : 'shadow-[inset_0_0_0_1.5px_#979E92]'}`}>{on && <Check size={12} strokeWidth={3} />}</button>
+                <input value={o} onChange={e => setQ(i, { options: x.options.map((y, k) => k === j ? e.target.value : y) })} placeholder={`Antwort ${j + 1}`} className="flex-1 h-9 rounded-[8px] bg-sage-50 px-3 text-[14px] outline-none" />
+                {x.options.length > 2 && <button onClick={() => setQ(i, { options: x.options.filter((_, k) => k !== j), correct: x.correct.filter(c => c !== j).map(c => c > j ? c - 1 : c) })} className="text-mute hover:text-ink"><X size={14} /></button>}
+              </div> })}
+              <button onClick={() => setQ(i, { options: [...x.options, ''] })} className="text-[13px] text-olive-700 pt-1">Antwort hinzufügen</button></div>
+          </div>)}
+          <button onClick={() => setEdit({ ...edit, qs: [...edit.qs, emptyQ()] })} className={btn2}>Frage hinzufügen</button>
+        </div>
+        <div className="space-y-3 text-[14px]">
+          <Field label="Gehört zu"><div className="flex gap-1 p-1 rounded-[10px] bg-white">{(['news', 'article'] as const).map(k => <button key={k} onClick={() => setEdit({ ...edit, target: k })} className={`flex-1 ${seg(edit.target === k)} ${edit.target === k ? '!bg-olive-700 !text-white' : ''}`}>{k === 'news' ? 'News' : 'Artikel'}</button>)}</div></Field>
+          {edit.target === 'news' ? <Field label="News"><select value={edit.newsId} onChange={e => setEdit({ ...edit, newsId: e.target.value, title: edit.title || (news.find(n => n.id === e.target.value)?.title ?? '') })} className={inp}><option value="">Wählen …</option>{news.filter(n => !taken.has(n.id)).map(n => <option key={n.id} value={n.id}>{n.title}</option>)}</select></Field>
+            : <Field label="Artikel">{edit.articleId ? <div className="flex items-center gap-2 h-10 px-3 rounded-[10px] bg-white"><span className="flex-1 truncate">{wiki.find(a => a.id === edit.articleId)?.title}</span><button onClick={() => setEdit({ ...edit, articleId: '' })} className="text-mute"><X size={14} /></button></div>
+              : <div className="relative"><input value={aq} onChange={e => setAq(e.target.value)} placeholder="Artikel suchen …" className={inp} />
+                {arts.length > 0 && <div className="absolute z-10 left-0 right-0 mt-1 rounded-[10px] bg-white shadow-[0_8px_24px_-12px_rgba(29,34,28,.35)] max-h-56 overflow-y-auto">{arts.map(a => <button key={a.id} onClick={() => { setEdit({ ...edit, articleId: a.id, title: edit.title || a.title }); setAq('') }} className="w-full text-left px-3 py-2 text-[13px] hover:bg-sage-50">{a.title} <span className="text-mute">· {a.cat}</span></button>)}</div>}</div>}</Field>}
+          <Field label="Titel"><input value={edit.title} onChange={e => setEdit({ ...edit, title: e.target.value })} className={inp} /></Field>
+          <Field label="Bestanden ab (%)"><input type="number" min={1} max={100} value={edit.passPct} onChange={e => setEdit({ ...edit, passPct: Number(e.target.value) })} className={inp} /></Field>
+          <Err m={err} />
+          <div className="flex gap-2"><button disabled={busy} onClick={save} className={`${btn} flex-1`}>Speichern</button><button onClick={() => setEdit(null)} className="h-10 px-3 rounded-[10px] text-mute hover:text-ink">Abbrechen</button></div>
+        </div>
+      </div>
+    </Panel>}
+    <div className={`grid gap-8 ${q ? 'grid-cols-[1fr_340px]' : 'grid-cols-1'}`}>
+      <div><table className="tbl w-full text-[14px]"><thead><tr><Th>Quiz</Th><Th>Gehört zu</Th>{isBuero && <Th>Fragen</Th>}<Th>Bestanden</Th></tr></thead>
+        <tbody className="divide-y divide-line">{quizzes.length === 0 && <tr><td colSpan={4} className="px-4 py-4 text-mute">Noch kein Quiz.</td></tr>}
+          {quizzes.map(x => { const tg = target(x), ps = people(x).length, pc = passedCount(x)
+            return <tr key={x.id} onClick={() => setSel(x.id === sel ? null : x.id)} className={`cursor-pointer ${sel === x.id ? 'bg-sage-50' : 'hover:bg-sage-50/70'}`}>
+              <td className="px-4 py-3">{x.title || tg.title}{x.sample && <span className="ml-2 text-xs text-mute">Beispiel</span>}<p className="text-xs text-mute">ab {x.passPct} %</p></td>
+              <td className="px-4 text-mute">{tg.kind} · {tg.title}</td>{isBuero && <td className="px-4 text-mute">{counts[x.id] ?? '–'}</td>}
+              <td className="px-4 w-44"><div className="flex items-center gap-2"><Bar p={ps ? pc / ps * 100 : 0} /><span className="text-xs text-mute tabular-nums whitespace-nowrap">{pc}/{ps}</span></div></td></tr> })}</tbody></table></div>
+      {q && <Side><p className="font-medium">{q.title || target(q).title}</p><p className="text-xs text-mute mt-1">{target(q).kind} · bestanden ab {q.passPct} %</p>
+        {isBuero && <div className="mt-3 flex gap-3 text-[13px]"><button onClick={() => openEdit(q)} className="text-olive-700">Bearbeiten</button>
+          <button onClick={async () => { if (confirm('Dieses Quiz löschen? Die Ergebnisse gehen verloren.')) { await supabase!.from('quizzes').delete().eq('id', q.id); setSel(null); await reload() } }} className="text-mute hover:text-ink flex items-center gap-1"><Trash2 size={13} />Löschen</button></div>}
+        <div className="mt-5"><Sec>Nachweis</Sec><div className="divide-y divide-line max-h-[520px] overflow-y-auto no-scrollbar">{people(q).map(p => { const b = best(q.id, p.id)
+          return <div key={p.id} className="py-2 flex items-center justify-between gap-3 text-[13px]"><span className="truncate">{p.first} {p.last} <span className="text-mute">· {p.branch}</span></span>
+            {b.passedAt ? <span className="inline-flex items-center gap-1.5 shrink-0"><span className="w-[7px] h-[7px] rounded-full bg-ok" />{fmtDate(b.passedAt, { day: '2-digit', month: '2-digit' })}</span>
+              : b.n ? <span className="text-mute shrink-0">{b.max} % · {b.n}×</span> : <span className="text-mute shrink-0">offen</span>}</div> })}</div></div>
+      </Side>}
     </div>
   </>)
 }

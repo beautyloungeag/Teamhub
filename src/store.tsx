@@ -18,6 +18,10 @@ export type WikiBlock = { t: 'h' | 'p' | 'ul' | 'ol' | 'quote' | 'img' | 'video'
 export type WikiArticle = { id: string; cat: string; title: string; minutes: number; updated: string; body: string[]; mediaKind: string; mediaUrl: string | null; published: boolean; fromNews?: boolean; intro: string; tags: string[]; accessLevel: 'alle' | 'filialleitung' | 'buero'; imported: boolean }
 export type Step = { id: string; title: string; minutes: number; articleId: string | null; proposed: boolean }
 export type Branch = { id: string; name: string; is_office: boolean }
+export type Quiz = { id: string; newsId: string | null; articleId: string | null; title: string; passPct: number; sample: boolean }
+export type Attempt = { quizId: string; employeeId: string; scorePct: number; passed: boolean; at: string }
+export type QuizQuestion = { id: string; sort: number; kind: 'single' | 'multi' | 'text'; prompt: string; options: string[] }
+export type QuizResult = { score_pct: number; passed: boolean; pass_pct: number; correct: number; total: number; results: Record<string, boolean> }
 
 // Gruppen aus der Funktion – gleiche Regel wie public.job_groups() in der Datenbank
 export const GROUPS = ['Filialleitung', 'Kosmetikerinnen', 'Lernende', 'Büro'] as const
@@ -64,6 +68,7 @@ type Ctx = {
   registrations: { event_id: string; employee_id: string; coming: boolean }[]
   standby: { employee_id: string; day: string; note: string }[]; toggleStandby: (day: string) => Promise<void>
   demoData: boolean; setDemoData: (on: boolean) => Promise<void>
+  quizzes: Quiz[]; attempts: Attempt[]; submitQuiz: (quizId: string, answers: Record<string, number[]>) => Promise<QuizResult | null>
   wiki: WikiArticle[]; reloadWiki: () => Promise<void>; steps: Step[]; allSteps: Step[]; obDone: Set<string>; toggleStep: (id: string) => Promise<void>
   skills: string[]; setSkills: (s: string[]) => void
   photo: string | null; setPhotoFile: (f: File) => Promise<void>
@@ -95,6 +100,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [events, setEvents] = useState<Ev[]>([])
   const [registrations, setRegistrations] = useState<Ctx['registrations']>([])
   const [standby, setStandby] = useState<Ctx['standby']>([])
+  const [quizzes, setQuizzes] = useState<Quiz[]>([])
+  const [attempts, setAttempts] = useState<Attempt[]>([])
   const [demoData, setDemoState] = useState(true)
   const [allSteps, setAllSteps] = useState<Step[]>([])
   const steps = useMemo(() => allSteps.filter(x => !x.proposed), [allSteps])
@@ -119,7 +126,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!supabase || !employee) return
     const sb = supabase
     const today = isoDay()
-    const [br, em, sk, nw, rd, tt, ti, tc, tk, ev, cnt, rg, wk, ob, obp, mp, fl, tcm, tvt, sbd] = await Promise.all([
+    const [br, em, sk, nw, rd, tt, ti, tc, tk, ev, cnt, rg, wk, ob, obp, mp, fl, tcm, tvt, sbd, qz, qa] = await Promise.all([
       sb.from('branches').select('id, name, is_office').order('sort'),
       sb.from('employees').select('id, email, phone, first_name, last_name, job_title, app_role, branch_id, skills, photo_path, active, app_installed_at, push_enabled').order('first_name'),
       sb.from('skills').select('name').order('sort'),
@@ -140,6 +147,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       sb.from('ticket_comments').select('id, ticket_id, author_id, author_name, body, created_at').order('created_at'),
       sb.from('ticket_votes').select('ticket_id, employee_id'),
       sb.from('standby_days').select('employee_id, day, note').gte('day', today).order('day'),
+      sb.from('quizzes').select('id, news_id, article_id, title, pass_pct, is_sample'),
+      sb.from('quiz_attempts').select('quiz_id, employee_id, score_pct, passed, created_at').order('created_at'),
     ])
     const demo = (fl.data as any)?.demo_data !== false
     setDemoState(demo)
@@ -189,6 +198,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       comments: coms.filter(c => c.ticket_id === x.id).map(c => ({ id: c.id, author: c.author_name, authorId: c.author_id, body: c.body, when: relWhen(c.created_at) })),
     })))
     setStandby((sbd.data ?? []) as Ctx['standby'])
+    setQuizzes(keep(qz.data).map((q: any) => ({ id: q.id, newsId: q.news_id, articleId: q.article_id, title: q.title, passPct: q.pass_pct, sample: q.is_sample })))
+    setAttempts((qa.data ?? []).map((a: any) => ({ quizId: a.quiz_id, employeeId: a.employee_id, scorePct: a.score_pct, passed: a.passed, at: a.created_at })))
     newsForWiki.current = nw.data ?? []
     void wk
     setAllSteps(keep(ob.data).map((s: any) => ({ id: s.id, title: s.title, minutes: s.minutes, articleId: s.article_id, proposed: !!s.proposed })))
@@ -289,7 +300,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     },
     assign: async (id, a) => { await sb.from('tickets').update({ assignee: a || null, status: a ? 'Zugewiesen' : 'Neu' }).eq('id', id); await reload() },
     setStatus: async (id, s) => { await sb.from('tickets').update({ status: s }).eq('id', id); await reload() },
-    events, joined, declined, registrations, standby, demoData,
+    events, joined, declined, registrations, standby, demoData, quizzes, attempts,
+    submitQuiz: async (quizId, answers) => {
+      const { data, error } = await sb.rpc('submit_quiz', { p_quiz: quizId, p_answers: answers })
+      if (error) return null
+      await reload()
+      return data as QuizResult
+    },
     toggleEvent: async (id) => {
       const { error } = joined.has(id)
         ? await sb.from('event_registrations').delete().match({ event_id: id, employee_id: employee.id })
