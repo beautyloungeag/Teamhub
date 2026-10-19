@@ -28,3 +28,18 @@ h1,h2,h3{font-family:var(--font-display);font-weight:500;letter-spacing:-0.01em}
 .tbl th:first-child,.tbl td:first-child{padding-left:0}
 .tbl tbody tr{transition:background .15s}
 input[type=checkbox]{accent-color:#495940}
+
+/* Benni: schwebende Kugel (BenniOrb.tsx), Bewegung relativ zur Grösse */
+.benni-orb{display:inline-block;position:relative;flex-shrink:0;vertical-align:middle;pointer-events:none}
+.benni-orb .orb-float{position:absolute;inset:0}
+.benni-orb canvas,.benni-orb .orb-fallback{display:block;position:absolute;inset:0;width:100%;height:100%;border-radius:50%}
+.benni-orb canvas{opacity:0;transition:opacity .4s ease}
+.benni-orb.has-renderer canvas{opacity:1}
+.benni-orb .orb-fallback{background:radial-gradient(ellipse at 30% 20%,#fff 0%,#ffffff50 20%,transparent 45%),radial-gradient(ellipse at 60% 80%,#F2F4EC 8%,transparent 55%),conic-gradient(from -10deg,#E9EDE1,#6B8A4F,#A9BC90,#F6F7F1,#84A066,#E9EDE1);box-shadow:inset 0 0 2px #fff,inset -5px -7px 14px #2F3A2A18}
+.benni-orb.has-renderer .orb-fallback{opacity:0}
+.benni-orb .orb-shadow{position:absolute;width:65%;height:10%;left:17.5%;bottom:-12%;border-radius:50%;background:radial-gradient(ellipse,#2F3A2A26,transparent 70%);filter:blur(2px)}
+.benni-orb[data-motion="true"] .orb-float{animation:orb-float 7s ease-in-out infinite}
+.benni-orb[data-motion="true"] .orb-shadow{animation:orb-shadow 7s ease-in-out infinite}
+@keyframes orb-float{0%,100%{transform:translateY(1.5%) rotate(-1deg)}50%{transform:translateY(-4%) rotate(1deg)}}
+@keyframes orb-shadow{0%,100%{opacity:.8;transform:scale(1)}50%{opacity:.45;transform:scale(.8)}}
+@media (prefers-reduced-motion: reduce){.benni-orb .orb-float,.benni-orb .orb-shadow{animation:none!important}.benni-orb canvas{transition:none}}

@@ -148,7 +148,7 @@ function Shell({ onLogout, onSwitch }: { onLogout: () => void; onSwitch?: () => 
             const on = tab === x && !sub
             if (x === 'ai') return (
               <button key={x} onClick={() => go(x)} className={`flex flex-col items-center gap-1 py-0.5 text-[11px] ${on ? 'text-olive-800' : 'text-mute'}`}>
-                <span className={`w-8 h-8 rounded-full flex items-center justify-center font-display text-[13px] ${on ? 'bg-olive-700 text-white' : 'bg-sage-100 text-olive-700'}`}>B</span>{label}
+                <BMark className="w-8 h-8" />{label}
               </button>
             )
             return (
@@ -378,7 +378,7 @@ function AI({ open }: { open: (s: Sub) => void }) {
                 </div>
               </div>
             ))}
-            {busy && <div className="w-16 rounded-[16px] bg-white px-4 py-3 flex gap-1">{[0, 1, 2].map(i => <span key={i} className="w-1.5 h-1.5 rounded-full bg-sage-400 animate-pulse" style={{ animationDelay: i * 150 + 'ms' }} />)}</div>}
+            {busy && <div className="pl-1 pt-1"><BMark className="w-8 h-8" working /></div>}
             <div ref={end} />
           </div>
         )}

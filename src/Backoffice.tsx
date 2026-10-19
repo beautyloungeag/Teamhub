@@ -168,7 +168,7 @@ function NewsAdmin() {
     <H action={<New onClick={() => setCompose(!compose)}>Neue News</New>}>News</H>
     {compose && <Panel className="p-6 mb-8 grid grid-cols-[1fr_280px] gap-6">
       <div className="space-y-3">
-        <div className="flex gap-2 items-center pb-3 border-b border-line"><BMark className="w-7 h-7 text-[12px]" />
+        <div className="flex gap-2 items-center pb-3 border-b border-line"><BMark className="w-7 h-7" working={!!ai} />
           <input value={brief} onChange={e => setBrief(e.target.value)} onKeyDown={e => e.key === 'Enter' && draft()} placeholder="Worum geht es? Benni schreibt einen Entwurf" className="flex-1 h-9 rounded-[8px] bg-white px-3 text-[14px] outline-none" />
           <button disabled={!brief.trim() || !!ai} onClick={draft} className="h-9 px-3 rounded-[8px] bg-olive-700 text-white text-[13px] disabled:opacity-40">{ai === 'text' ? 'Schreibt …' : 'Entwurf schreiben'}</button></div>
         <input value={f.title} onChange={e => setF({ ...f, title: e.target.value })} placeholder="Titel" className="w-full text-[20px] font-medium outline-none bg-transparent" />
@@ -727,7 +727,7 @@ function AdminChat({ onClose }: { onClose: () => void }) {
       <div className="flex-1 overflow-y-auto no-scrollbar p-5 space-y-3">
         {msgs.length === 0 && <div className="border-t border-line">{ideas.map(i => <button key={i} onClick={() => send(i)} className="w-full text-left py-3 text-[14px] border-b border-line hover:text-olive-700">{i}</button>)}</div>}
         {msgs.map((m, i) => <div key={i} className={m.me ? 'flex justify-end' : ''}><div className={`max-w-[92%] rounded-2xl px-4 py-3 text-[14px] leading-snug ${m.me ? 'bg-olive-700 text-white' : 'bg-sage-50'}`}>{m.t}</div></div>)}
-        {busy && <div className="w-16 rounded-2xl bg-white px-4 py-3 flex gap-1">{[0, 1, 2].map(i => <span key={i} className="w-1.5 h-1.5 rounded-full bg-sage-400 animate-pulse" />)}</div>}
+        {busy && <div className="pl-1 pt-1"><BMark className="w-8 h-8" working /></div>}
         <div ref={end} />
       </div>
       <div className="p-4 flex gap-2 border-t border-line"><input value={v} onChange={e => setV(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} placeholder={`Frag ${ASSISTANT} …`} className="flex-1 h-11 rounded-[10px] bg-sage-50 px-3 text-[14px] outline-none" /><button onClick={() => send()} className="w-11 h-11 rounded-[10px] bg-olive-700 text-white flex items-center justify-center"><Send size={16} /></button></div>
