@@ -2,6 +2,13 @@
 
 Interne Mitarbeiter-App (PWA + Desktop-Backoffice) der Beautylounge AG. Kundin: Renée Baumann. PM-Projekt: `projekt.aleksa.ai`, Key **BLTH** (`d4ee5d5c-4553-436c-bba7-137a03a2b704`). ⚠️ Das Repo `beautyloungeag/Teamhub` ist **öffentlich** — nie Personendaten committen.
 
+### Nachtrag 2026-10-19 spät nachts — Inhalte automatisch auf EN/FR
+
+- **Function `translate`:** `sync` übersetzt kurze Felder (News, Aufgaben-Vorlagen und -Punkte, Onboarding, Events, Quiz-Titel und -Fragen, im Wissen Titel/Kategorie/Kurzfassung) und legt sie je Zeile in `i18n = {h, EN, FR}` ab (Migration 0013). `h` ist der Hash der deutschen Felder: übersetzt wird nur, was neu oder geändert ist. Läuft per Cron `teamhub-translate` alle 10 Min. (Secret wie `teamhub-notify`) und sofort nach jedem Speichern im Backoffice (`retranslate()`). Quiz-Lösungen und `rubric` gehen nie an die Übersetzung.
+- **Volltexte im Wissen:** `article {id, lang}` übersetzt erst beim ersten Öffnen auf EN/FR (~10 s), danach aus dem Cache `i18n.full_EN/full_FR` (~1 s). Ändert sich `RULES` in der Function, `RULES_V` hochzählen, dann werden alle Volltexte beim nächsten Öffnen neu übersetzt.
+- **Regeln:** Team wird geduzt, Kundinnen in Skripten gesiezt (FR vous); Eigen-, Studio-, Produkt- und Behandlungsnamen bleiben.
+- **App:** `tx()` im Store wählt die Sprache des Profils, Rückfall Deutsch. News und Wissen haben den Umschalter „Automatisch übersetzt · Original“ (im Original auch Titel und Kurzfassung deutsch). Getestet auf FR mit der Test-Mitarbeiterin (Heute, Aufgaben, Pflicht-News, Quiz, Wissen).
+
 ### Nachtrag 2026-10-19 nachts — KI-Funktionen (OpenAI-Schlüssel von Aleksa als Secret `OPENAI_API_KEY`)
 
 - **Modell:** `gpt-5.6-sol` (Standard in `_shared/openai.ts`, überschreibbar mit Secret `AI_MODEL`/`ASSISTANT_MODEL`; Bilder `gpt-image-2.5-sunburst`, Secret `IMAGE_MODEL`). Liste der freigeschalteten Modelle: `assistant` mit `{action:"models"}` (nur Büro).
@@ -10,7 +17,7 @@ Interne Mitarbeiter-App (PWA + Desktop-Backoffice) der Beautylounge AG. Kundin: 
 - **News-Entwurf (Function `newsdraft`, nur Büro):** Stichworte → Titel, Kurzfassung, Text; Bild auf Wunsch (Storage `media/news/…`, Spalte `news.image_path`, Migration 0011). App zeigt das Bild in der News.
 - **Kundenhistorie:** `phorest` Aktionen `client_search` und `client_history` (12 Monate, alle Studios, Termin-Notizen, Namen der Behandelnden aus Phorest, auf Wunsch KI-Zusammenfassung; Kontaktdaten gehen nicht ans Modell). Jeder Zugriff landet in `client_lookups` (Migration 0012, lesbar nur Büro). App: Menü → Kundenhistorie.
 - **Behoben (0011):** Seit 0005 konnten Fotos zu Meldungen und Aufgaben-Nachweisen nur von der Absenderin geladen werden; `files_read` wieder vollständig, Meldungsfotos an die Ticket-Rechte gekoppelt.
-- **Offen:** Übersetzung der Inhalte (DE→EN/FR), Wiki-Aufräumen (Liste von Renée), Timebutler (Firmen-Token von Beautylounge).
+- **Offen:** Wiki-Aufräumen (Liste von Renée), Timebutler (Firmen-Token von Beautylounge).
 
 ### Nachtrag 2026-10-19 spät — Quiz (E-Learning)
 
