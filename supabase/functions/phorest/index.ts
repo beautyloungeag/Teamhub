@@ -86,7 +86,7 @@ Deno.serve(async (req) => {
       }
       const names = await clientNames(appts.map((a) => a.clientId))
       return json({ ok: true, mapped: true, date, shifts, appointments: appts.sort((a, b) => a.startTime.localeCompare(b.startTime)).map((a) => ({
-        start: hhmm(a.startTime), end: hhmm(a.endTime), service: a.serviceName ?? '', client: names.get(a.clientId) ?? 'Kundin', branch_id: a._branch, state: a.state,
+        start: hhmm(a.startTime), end: hhmm(a.endTime), service: a.serviceName ?? '', client: names.get(a.clientId) ?? 'Kundin', client_id: a.clientId ?? null, branch_id: a._branch, state: a.state,
       })) })
     }
 

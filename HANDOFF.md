@@ -2,6 +2,12 @@
 
 Interne Mitarbeiter-App (PWA + Desktop-Backoffice) der Beautylounge AG. Kundin: Renée Baumann. PM-Projekt: `projekt.aleksa.ai`, Key **BLTH** (`d4ee5d5c-4553-436c-bba7-137a03a2b704`). ⚠️ Das Repo `beautyloungeag/Teamhub` ist **öffentlich** — nie Personendaten committen.
 
+### Nachtrag 2026-10-19 nachts — Benni kennt Termine an jedem Tag
+
+- **Vorher:** Den eigenen Tag bekam Benni nur, wenn die Frage bestimmte Stichwörter enthielt (`isShift`), und nur für heute. „Welchen Termin habe ich morgen um 14 Uhr?“ lief ins Leere.
+- **Jetzt:** Werkzeuge `my_day {date}` (Schicht + Termine mit `client_id`, 60 Tage zurück/voraus), `my_week` (Arbeitszeiten 7 Tage), `team_day {date, branch}` (nur Filialleitung für das eigene Studio und Büro). Der Systemprompt nennt Datum und Uhrzeit in Zürich, Benni rechnet „morgen“, „Freitag“ selbst um. Anschlussfrage „Worauf muss ich bei ihr achten?“: Benni ruft `my_day` erneut auf und holt mit der `client_id` die Historie. `phorest` → `my_day` liefert dafür `client_id` mit (die App ignoriert das Feld). Ohne KI-Schlüssel bleibt der alte Weg (nur heute).
+- Getestet 19.10. mit den Demo-Konten: Termin morgen 14 Uhr mit Kundin, Historie dazu, Arbeitswoche, „heute frei“, Team morgen in Basel 1.
+
 ### Nachtrag 2026-10-19 nachts — Testkonten für die Demo 20.10.
 
 - ⚠️ **Beide Testkonten tragen bis nach der Demo Namen, Funktion und Phorest-Spalte zweier echter Kolleginnen aus Basel 1** (Mitarbeiterin = eine Kosmetikerin, Filialleitung = die Respo), damit die Demo aussieht wie im Betrieb. Die Login-Adressen bleiben die Testadressen. Folgen: Die beiden erscheinen in Team-Listen doppelt, und alles, was in der Demo angelegt wird, steht unter ihrem Namen, also nach der Demo löschen.

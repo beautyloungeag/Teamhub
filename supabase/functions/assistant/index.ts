@@ -1,5 +1,5 @@
 // KI-Reiter im TeamHub (BLTH-25): beantwortet interne Fragen aus dem freigegebenen
-// Wissen, kennt den eigenen Tag aus Phorest (nur im Rahmen der Rolle) und schlägt bei
+// Wissen, kennt eigene Termine und Schichten an jedem Tag aus Phorest (nur im Rahmen der Rolle) und schlägt bei
 // nicht lösbaren Anliegen eine Meldung vor. Schreibt selbst nichts — die Meldung schickt
 // die Mitarbeiterin mit einem Tipp ab.
 // Secrets: OPENAI_API_KEY (optional; ohne ihn antwortet der Reiter nur aus dem Wissen),
@@ -37,7 +37,9 @@ function rank(q: string, arts: (Article & { tags?: string[] })[]) {
   }).filter((x) => x.score >= 3).sort((x, y) => y.score - x.score)
 }
 const isBroken = (q: string) => /kaputt|defekt|funktioniert nicht|geht nicht|ausgefallen|fällt aus|tropft|leck/i.test(q)
-const isShift = (q: string) => /dienst|schicht|arbeitet|arbeite ich|wer ist|im studio|termine|mein tag|heute bei mir|steht heute|was steht|habe ich heute/i.test(q)
+const isShift = (q: string) => /dienst|schicht|arbeitet|arbeite ich|wer ist|im studio|termin|mein tag|heute bei mir|steht heute|was steht|habe ich heute/i.test(q)
+// Kalendertag in Zürich als YYYY-MM-DD, verschoben um n Tage
+const zDay = (n = 0) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Zurich' }).format(new Date(Date.now() + n * 864e5))
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
@@ -63,16 +65,21 @@ Deno.serve(async (req) => {
   const { data: arts } = await db.from('wiki_articles').select('id, category, title, body, tags').eq('published', true)
   const ranked = rank(q, (arts ?? []) as Article[])
 
-  // Eigener Tag aus Phorest, nur wenn danach gefragt wird (spart Zeit und Daten).
-  let day: any = null
-  if (isShift(q)) {
-    const call = (b: unknown) => fetch(`${url}/functions/v1/phorest`, { method: 'POST', headers: { Authorization: authz, apikey: anon, 'Content-Type': 'application/json' }, body: JSON.stringify(b) }).then((r) => r.json()).catch(() => null)
-    const [mine, team] = await Promise.all([call({ action: 'my_day' }), me.app_role !== 'mitarbeiterin' && me.branch_id !== 'buero' ? call({ action: 'team_today', branch: me.branch_id }) : Promise.resolve(null)])
-    day = { mine: mine?.ok ? mine : null, team: team?.ok ? team.team : null }
+  // Ohne KI: eigener Tag (heute) aus Phorest, nur wenn danach gefragt wird
+  const phorestCall = (b: unknown) => fetch(`${url}/functions/v1/phorest`, { method: 'POST', headers: { Authorization: authz, apikey: anon, 'Content-Type': 'application/json' }, body: JSON.stringify(b) }).then((r) => r.json()).catch(() => ({ ok: false }))
+  const today = async () => {
+    if (!isShift(q)) return null
+    const [mine, team] = await Promise.all([phorestCall({ action: 'my_day' }), me.app_role !== 'mitarbeiterin' && me.branch_id !== 'buero' ? phorestCall({ action: 'team_today', branch: me.branch_id }) : Promise.resolve(null)])
+    return { mine: mine?.ok ? mine : null, team: team?.ok ? team.team : null }
   }
 
   const key = Deno.env.get('OPENAI_API_KEY')
-  if (!key) return json({ ok: true, mode: 'wissen', ...fallback(q, ranked.map((r) => r.a), day, me) })
+  if (!key) return json({ ok: true, mode: 'wissen', ...fallback(q, ranked.map((r) => r.a), await today(), me) })
+  const { data: branchRows } = await db.from('branches').select('id, name, is_office')
+  const studios = (branchRows ?? []).filter((b: any) => !b.is_office)
+  const now = new Date()
+  const dateLine = new Intl.DateTimeFormat('de-CH', { timeZone: 'Europe/Zurich', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(now)
+  const timeLine = new Intl.DateTimeFormat('de-CH', { timeZone: 'Europe/Zurich', hour: '2-digit', minute: '2-digit' }).format(now)
 
   const context = ranked.slice(0, 4).map((r) => `### ${r.a.title} (${r.a.category}, id ${r.a.id})\n${r.a.body.slice(0, 3000)}`).join('\n\n')
   const sys = [
@@ -80,19 +87,44 @@ Deno.serve(async (req) => {
     'Beantworte Fachfragen NUR aus den Wissensartikeln (unten oder per read_article). Steht die Antwort nicht darin, sag das ehrlich und erfinde nichts.',
     'Kundinnen: Fragt jemand nach einer Kundin (Historie, letzte Besuche, Notizen, worauf achten), nutze client_history mit Name, E-Mail oder Telefon. Bei mehreren Treffern frag nach, welche gemeint ist. Fasse kurz zusammen: seit wann, häufigste Behandlungen, bei wem, letzter Besuch, wichtige Notizen (Allergien, Reklamationen, Wünsche). Nichts erfinden.',
     'Lernen: Will jemand lernen oder mit dem Onboarding weitermachen, nutze onboarding_status, nimm den ersten offenen Schritt, lies den Artikel mit read_article und erkläre ihn in einem kurzen Häppchen (höchstens 6 Sätze). Stelle danach eine einfache Kontrollfrage. Ist die Antwort im Kern richtig, lobe kurz und markiere den Schritt mit mark_step_done als erledigt, dann biete den nächsten an.',
+    `Heute ist ${dateLine} (${zDay()}), es ist ${timeLine} Uhr in der Schweiz. Rechne Angaben wie „morgen“, „übermorgen“, „am Freitag“ oder „nächsten Dienstag“ selbst in ein Datum um.`,
+    'Eigene Termine und Schichten: Fragt jemand nach seinen Terminen, Kundinnen oder seiner Schicht an einem Tag, nutze my_day mit dem Datum. Nenne Uhrzeit, Kundin und Behandlung, bei einer Frage nach einer bestimmten Uhrzeit den Termin, der dann läuft oder beginnt. Für Arbeitszeiten der nächsten sieben Tage nutze my_week. Steht nichts im Plan, sag das klar (zum Beispiel: an dem Tag frei).',
+    'Will jemand wissen, worauf sie bei einer Kundin aus ihrem Plan achten soll, hol mit client_history und der client_id aus my_day deren Historie. Fehlt dir die client_id (zum Beispiel bei einer Anschlussfrage zu einem Termin von vorhin), ruf my_day für denselben Tag erneut auf und nimm sie von dort. Frag dafür nicht nach Name, E-Mail oder Telefon.',
+    me.app_role !== 'mitarbeiterin' ? `Wer an einem Tag in einem Studio arbeitet, liefert team_day. Studios: ${studios.map((b: any) => `${b.name} (id ${b.id})`).join(', ')}.${me.app_role === 'filialleitung' ? ` Du darfst nur dein eigenes Studio (id ${me.branch_id}) abfragen.` : ''}` : 'Pläne von Kolleginnen kannst du nicht einsehen.',
     'Kannst du ein Anliegen nicht lösen (etwas ist kaputt, Personal- oder Betriebsanliegen), schlag eine Meldung vor. Verbesserungsvorschläge sind eine Idee.',
     'Gib am Ende ausschliesslich JSON zurück: {"text": string, "source_ids": string[], "ticket": null | {"kind": "Meldung"|"Idee", "title": string}}',
     `\n## Passende Wissensartikel\n${context || '(keine passenden Artikel)'}`,
-    day ? `\n## Tagesplan aus Phorest\n${JSON.stringify(day).slice(0, 4000)}` : '',
   ].join('\n')
   const tools = [
     { type: 'function', function: { name: 'client_history', description: 'Sucht eine Kundin in Phorest und liefert ihre Besuche und Termin-Notizen der letzten 12 Monate. Bei mehreren Treffern kommt eine Auswahlliste.', parameters: { type: 'object', properties: { query: { type: 'string', description: 'Name, E-Mail oder Telefon' }, client_id: { type: 'string', description: 'falls aus einer Auswahlliste bekannt' } }, required: ['query'] } } },
+    { type: 'function', function: { name: 'my_day', description: 'Eigene Schicht und Kundentermine aus Phorest für einen Tag (Uhrzeit, Kundin, Behandlung, client_id).', parameters: { type: 'object', properties: { date: { type: 'string', description: 'YYYY-MM-DD' } }, required: ['date'] } } },
+    { type: 'function', function: { name: 'my_week', description: 'Eigene Arbeitszeiten der nächsten sieben Tage aus Phorest.', parameters: { type: 'object', properties: {} } } },
+    ...(me.app_role !== 'mitarbeiterin' ? [{ type: 'function', function: { name: 'team_day', description: 'Wer an einem Tag in einem Studio arbeitet, mit Schicht und Anzahl Termine.', parameters: { type: 'object', properties: { date: { type: 'string', description: 'YYYY-MM-DD' }, branch: { type: 'string', description: 'Studio-id' } }, required: ['date'] } } }] : []),
     { type: 'function', function: { name: 'onboarding_status', description: 'Onboarding-Schritte dieser Mitarbeiterin mit erledigt/offen und Artikel-ID.', parameters: { type: 'object', properties: {} } } },
     { type: 'function', function: { name: 'read_article', description: 'Liest einen Wissensartikel (nur freigegebene, die diese Person sehen darf).', parameters: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } } },
     { type: 'function', function: { name: 'mark_step_done', description: 'Markiert einen eigenen Onboarding-Schritt als erledigt, nachdem die Kontrollfrage richtig beantwortet wurde.', parameters: { type: 'object', properties: { step_id: { type: 'string' } }, required: ['step_id'] } } },
   ]
-  const phorestCall = (b: unknown) => fetch(`${url}/functions/v1/phorest`, { method: 'POST', headers: { Authorization: authz, apikey: anon, 'Content-Type': 'application/json' }, body: JSON.stringify(b) }).then((r) => r.json()).catch(() => ({ ok: false }))
+  // Datum prüfen: nur echte Tage zwischen 60 Tagen zurück und 60 Tagen voraus
+  const okDate = (d: unknown) => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d) && d >= zDay(-60) && d <= zDay(60)
   const runTool = async (name: string, args: any): Promise<unknown> => {
+    if (name === 'my_day') {
+      if (!okDate(args.date)) return { error: 'datum_ungueltig', erlaubt: `${zDay(-60)} bis ${zDay(60)}` }
+      const d = await phorestCall({ action: 'my_day', date: args.date })
+      if (!d.ok) return { error: 'phorest_unavailable' }
+      if (!d.mapped) return { error: 'keiner_phorest_spalte_zugeordnet' }
+      return { datum: d.date, schicht: d.shifts, termine: (d.appointments ?? []).map((a: any) => ({ von: a.start, bis: a.end, kundin: a.client, behandlung: a.service, client_id: a.client_id })) }
+    }
+    if (name === 'my_week') {
+      const w = await phorestCall({ action: 'staff_week' })
+      return w.ok ? (w.mapped ? { arbeitstage: w.days } : { error: 'keiner_phorest_spalte_zugeordnet' }) : { error: 'phorest_unavailable' }
+    }
+    if (name === 'team_day') {
+      if (me.app_role === 'mitarbeiterin') return { error: 'nicht_erlaubt' }
+      if (!okDate(args.date)) return { error: 'datum_ungueltig' }
+      const branch = me.app_role === 'filialleitung' ? me.branch_id : String(args.branch ?? me.branch_id)
+      const t = await phorestCall({ action: 'team_today', branch, date: args.date })
+      return t.ok ? { datum: args.date, studio: branch, team: t.team } : { error: t.error ?? 'phorest_unavailable' }
+    }
     if (name === 'client_history') {
       if (args.client_id) return await phorestCall({ action: 'client_history', client_id: args.client_id, months: 12 })
       const s = await phorestCall({ action: 'client_search', q: String(args.query ?? '') })
@@ -154,7 +186,7 @@ Deno.serve(async (req) => {
     throw new Error('too_many_rounds')
   } catch (e) {
     // Grund mitgeben (zeigt die App nicht an), damit Fehler nachvollziehbar sind
-    return json({ ok: true, mode: 'wissen', reason: String(e).slice(0, 400), ...fallback(q, ranked.map((r) => r.a), day, me) })
+    return json({ ok: true, mode: 'wissen', reason: String(e).slice(0, 400), ...fallback(q, ranked.map((r) => r.a), await today(), me) })
   }
 })
 
