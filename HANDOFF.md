@@ -2,6 +2,19 @@
 
 Interne Mitarbeiter-App (PWA + Desktop-Backoffice) der Beautylounge AG. Kundin: Renée Baumann. PM-Projekt: `projekt.aleksa.ai`, Key **BLTH** (`d4ee5d5c-4553-436c-bba7-137a03a2b704`). ⚠️ Das Repo `beautyloungeag/Teamhub` ist **öffentlich** — nie Personendaten committen.
 
+### Nachtrag 2026-10-19 nachts — Testkonten für die Demo 20.10.
+
+- ⚠️ **Beide Testkonten tragen bis nach der Demo Namen, Funktion und Phorest-Spalte zweier echter Kolleginnen aus Basel 1** (Mitarbeiterin = eine Kosmetikerin, Filialleitung = die Respo), damit die Demo aussieht wie im Betrieb. Die Login-Adressen bleiben die Testadressen. Folgen: Die beiden erscheinen in Team-Listen doppelt, und alles, was in der Demo angelegt wird, steht unter ihrem Namen, also nach der Demo löschen.
+- **Rückweg nach der Demo:**
+  ```sql
+  begin;
+  update employees set first_name='Test', last_name='Mitarbeiterin', job_title='Kosmetikerin' where email='info+mitarbeiterin@aleksa.ai';
+  update employees set first_name='Test', last_name='Filialleitung', job_title='Respo' where email='info+filialleitung@aleksa.ai';
+  delete from employee_phorest where employee_id in (select id from employees where email in ('info+mitarbeiterin@aleksa.ai','info+filialleitung@aleksa.ai'));
+  commit;
+  ```
+  Vor dem Pilot die Testkonten ohnehin ganz löschen (Zeile in `employees` + Auth-Konto).
+
 ### Nachtrag 2026-10-19 spät nachts — Benni-Kugel, Netlify-Credits
 
 - **Benni hat ein Profilbild:** schwebende Kugel wie die Feleo-Agenten, in Olivtönen (`src/BenniOrb.tsx`, CSS `.benni-orb` in `index.css`). `BMark` rendert sie überall; `working` lässt sie schneller laufen (Chat wartet, News-Entwurf). Commit `deb189e`. **Noch nicht live**, siehe nächster Punkt.
@@ -51,7 +64,7 @@ Interne Mitarbeiter-App (PWA + Desktop-Backoffice) der Beautylounge AG. Kundin: 
 
 - **Design System (Aleksas Wahl 19.10.):** Olive #495940 / Stein #F5F5F2 / Messing #B08A52 nur für „heute wichtig“, Jost (Titel, Rubriken gesperrt) + Albert Sans (Text), Titel nie fett. Handy Variante B (weisse Gruppen auf Stein, Schicht auf Olive 800), Seitenleisten dunkel Olive mit Logo (`src/Logo.tsx`), Benni als Monogramm statt Funkel-Icon, Status als Punkt + Wort, Kennzahlen ohne Kacheln, Menü als Liste. Tokens in `src/index.css` (alte `sage-*`-Namen zeigen auf die neuen Werte). Referenzseite mit Befund: claude-team `ai-team/assets/beautylounge-teamhub/design-system/index.html`. Backoffice-Unterseiten (News, Aufgaben, Meldungen, Schulungen, Team, Studios, Wissen, Benni-Seitenleiste) ebenfalls überarbeitet: flache Tabellen (`.tbl`), Formulare und Vorschläge als `Panel` auf Stein, Detailspalten als `Side` mit Linie, Rubriken `Sec`, Erklärsätze entfernt. Anmeldung am Desktop mit Studio-Foto `public/login-studio.webp` (Nagelplätze, von Aleksa am 19.10.; weitere Fotos in claude-team `ai-team/assets/beautylounge-teamhub/fotos/`).
 - **Live:** `https://teamhub.beautylounge.ch` ist öffentlich, Login per Code dort getestet (Test-Filialleitung). Supabase-URL, Anon-Key und VAPID-Public-Key stehen seit `ad3fb25` als Standard im Code (alle öffentlich), Netlify-Variablen sind dafür nicht mehr nötig. **Kein Handyrahmen mehr** (`useDesktop` in `App.tsx`, Grenze 768 px): am Desktop Mitarbeiterin-App mit Seitenleiste und Inhalt in 760 px Breite, Büro/Filialleitung starten im Backoffice (vollflächig) und wechseln über die Seitenleiste; am Handy immer die App mit Leiste unten, kein Backoffice. Login am Desktop als Karte.
-- **Testkonten für die Demo-Übung:** `info+mitarbeiterin@aleksa.ai` (Rolle Mitarbeiterin) und `info+filialleitung@aleksa.ai` (Rolle Filialleitung), beide Studio Basel 1, Name „Test …“. Codes landen per Plus-Adresse im Postfach info@aleksa.ai (geprüft). Test-Mitarbeiterin hängt in `employee_phorest` an Sabrinas Spalte in Basel 1 (`-gjTnLQl-VV0D6xYT9s5LQ`), „Mein Tag“ zeigt damit echte Termine (19.10.: Schicht 10:30–19:00, 7 Termine). ⚠️ Ein `sync_staff` löscht diese Zeile wieder. Test-Filialleitung ohne Phorest-Spalte. ⚠️ **Vor dem Pilot löschen** (Zeile in `employees` + Auth-Konto), sonst zählen sie in Listen und Startbereitschaft mit.
+- **Testkonten für die Demo-Übung:** `info+mitarbeiterin@aleksa.ai` (Rolle Mitarbeiterin) und `info+filialleitung@aleksa.ai` (Rolle Filialleitung), beide Studio Basel 1, Name „Test …“. Codes landen per Plus-Adresse im Postfach info@aleksa.ai (geprüft). Test-Mitarbeiterin hängt in `employee_phorest` an der Spalte einer echten Kollegin in Basel 1, „Mein Tag“ zeigt damit echte Termine. ⚠️ Ein `sync_staff` löscht diese Zeile wieder. Test-Filialleitung ohne Phorest-Spalte. ⚠️ **Vor dem Pilot löschen** (Zeile in `employees` + Auth-Konto), sonst zählen sie in Listen und Startbereitschaft mit.
 
 ### Nachtrag 2026-10-09
 
