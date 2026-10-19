@@ -46,7 +46,16 @@ Deno.serve(async (req) => {
   const db = createClient(url, anon, { global: { headers: { Authorization: authz } } })
   const { data: me } = await db.rpc('current_employee')
   if (!me?.id) return json({ ok: false, error: 'not_signed_in' }, 401)
-  const { message = '', history = [] } = await req.json().catch(() => ({}))
+  const body = await req.json().catch(() => ({}))
+  // Nur Büro: welche Modelle der hinterlegte Schlüssel kennt (für die Einrichtung)
+  if (body.action === 'models') {
+    if (me.app_role !== 'buero') return json({ ok: false, error: 'forbidden' }, 403)
+    const key = Deno.env.get('OPENAI_API_KEY'); if (!key) return json({ ok: false, error: 'no_key' })
+    const r = await fetch('https://api.openai.com/v1/models', { headers: { Authorization: `Bearer ${key}` } })
+    const d = await r.json().catch(() => ({}))
+    return json({ ok: r.ok, status: r.status, models: (d.data ?? []).map((m: any) => m.id).filter((id: string) => /^(gpt|o\d|chatgpt)/.test(id)).sort(), error: d.error?.message })
+  }
+  const { message = '', history = [] } = body
   const q = String(message).slice(0, 2000)
   if (!q.trim()) return json({ ok: false, error: 'empty' }, 400)
 
@@ -67,32 +76,85 @@ Deno.serve(async (req) => {
 
   const context = ranked.slice(0, 4).map((r) => `### ${r.a.title} (${r.a.category}, id ${r.a.id})\n${r.a.body.slice(0, 3000)}`).join('\n\n')
   const sys = [
-    `Du bist der interne Assistent im TeamHub der Beautylounge. Du sprichst mit ${me.first_name} (${me.job_title}, Studio ${me.branch_id}). Antworte kurz, freundlich, in der Sprache der Frage (Deutsch, Englisch oder Französisch).`,
-    'Beantworte Fachfragen NUR aus den unten stehenden Wissensartikeln. Steht die Antwort nicht darin, sag das ehrlich und erfinde nichts.',
+    `Du bist Benni, der interne Assistent im TeamHub der Beautylounge. Du sprichst mit ${me.first_name} (${me.job_title}, Studio ${me.branch_id}). Antworte kurz, freundlich, in der Sprache der Frage (Deutsch, Englisch oder Französisch). Schweizer Hochdeutsch (ss statt ß).`,
+    'Beantworte Fachfragen NUR aus den Wissensartikeln (unten oder per read_article). Steht die Antwort nicht darin, sag das ehrlich und erfinde nichts.',
+    'Kundinnen: Fragt jemand nach einer Kundin (Historie, letzte Besuche, Notizen, worauf achten), nutze client_history mit Name, E-Mail oder Telefon. Bei mehreren Treffern frag nach, welche gemeint ist. Fasse kurz zusammen: seit wann, häufigste Behandlungen, bei wem, letzter Besuch, wichtige Notizen (Allergien, Reklamationen, Wünsche). Nichts erfinden.',
+    'Lernen: Will jemand lernen oder mit dem Onboarding weitermachen, nutze onboarding_status, nimm den ersten offenen Schritt, lies den Artikel mit read_article und erkläre ihn in einem kurzen Häppchen (höchstens 6 Sätze). Stelle danach eine einfache Kontrollfrage. Ist die Antwort im Kern richtig, lobe kurz und markiere den Schritt mit mark_step_done als erledigt, dann biete den nächsten an.',
     'Kannst du ein Anliegen nicht lösen (etwas ist kaputt, Personal- oder Betriebsanliegen), schlag eine Meldung vor. Verbesserungsvorschläge sind eine Idee.',
-    'Kundendaten, Preise oder Termine anderer Personen nennst du nur, wenn sie unten im Tagesplan stehen.',
-    'Gib ausschliesslich JSON zurück: {"text": string, "source_ids": string[], "ticket": null | {"kind": "Meldung"|"Idee", "title": string}}',
-    `\n## Wissensartikel\n${context || '(keine passenden Artikel)'}`,
+    'Gib am Ende ausschliesslich JSON zurück: {"text": string, "source_ids": string[], "ticket": null | {"kind": "Meldung"|"Idee", "title": string}}',
+    `\n## Passende Wissensartikel\n${context || '(keine passenden Artikel)'}`,
     day ? `\n## Tagesplan aus Phorest\n${JSON.stringify(day).slice(0, 4000)}` : '',
   ].join('\n')
-  const msgs = [{ role: 'system', content: sys }, ...(Array.isArray(history) ? history.slice(-8).map((h: any) => ({ role: h.me ? 'user' : 'assistant', content: String(h.t ?? '').slice(0, 1500) })) : []), { role: 'user', content: q }]
-  try {
-    const r = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: Deno.env.get('ASSISTANT_MODEL') ?? 'gpt-5.6-sol', messages: msgs, response_format: { type: 'json_object' } }),
-      signal: AbortSignal.timeout(60000),
-    })
-    if (!r.ok) throw new Error(`openai_${r.status}`)
-    const out = JSON.parse((await r.json()).choices?.[0]?.message?.content ?? '{}')
-    const byId = new Map((arts ?? []).map((a: any) => [a.id, a.title]))
-    const answer: Answer = {
-      text: String(out.text ?? ''),
-      sources: (out.source_ids ?? []).filter((id: string) => byId.has(id)).map((id: string) => ({ id, title: byId.get(id) })),
-      ...(out.ticket?.title ? { ticket: { kind: out.ticket.kind === 'Idee' ? 'Idee' : 'Meldung', title: String(out.ticket.title).slice(0, 200) } } : {}),
+  const tools = [
+    { type: 'function', function: { name: 'client_history', description: 'Sucht eine Kundin in Phorest und liefert ihre Besuche und Termin-Notizen der letzten 12 Monate. Bei mehreren Treffern kommt eine Auswahlliste.', parameters: { type: 'object', properties: { query: { type: 'string', description: 'Name, E-Mail oder Telefon' }, client_id: { type: 'string', description: 'falls aus einer Auswahlliste bekannt' } }, required: ['query'] } } },
+    { type: 'function', function: { name: 'onboarding_status', description: 'Onboarding-Schritte dieser Mitarbeiterin mit erledigt/offen und Artikel-ID.', parameters: { type: 'object', properties: {} } } },
+    { type: 'function', function: { name: 'read_article', description: 'Liest einen Wissensartikel (nur freigegebene, die diese Person sehen darf).', parameters: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } } },
+    { type: 'function', function: { name: 'mark_step_done', description: 'Markiert einen eigenen Onboarding-Schritt als erledigt, nachdem die Kontrollfrage richtig beantwortet wurde.', parameters: { type: 'object', properties: { step_id: { type: 'string' } }, required: ['step_id'] } } },
+  ]
+  const phorestCall = (b: unknown) => fetch(`${url}/functions/v1/phorest`, { method: 'POST', headers: { Authorization: authz, apikey: anon, 'Content-Type': 'application/json' }, body: JSON.stringify(b) }).then((r) => r.json()).catch(() => ({ ok: false }))
+  const runTool = async (name: string, args: any): Promise<unknown> => {
+    if (name === 'client_history') {
+      if (args.client_id) return await phorestCall({ action: 'client_history', client_id: args.client_id, months: 12 })
+      const s = await phorestCall({ action: 'client_search', q: String(args.query ?? '') })
+      if (!s.ok) return { error: 'phorest_unavailable' }
+      if (s.clients.length === 1) return await phorestCall({ action: 'client_history', client_id: s.clients[0].client_id, months: 12 })
+      return { auswahl: s.clients.map((c: any) => ({ client_id: c.client_id, name: c.name, seit: c.since, tel_endet_auf: c.phone_tail })) }
     }
-    return json({ ok: true, mode: 'ki', ...answer })
-  } catch {
-    return json({ ok: true, mode: 'wissen', ...fallback(q, ranked.map((r) => r.a), day, me) })
+    if (name === 'onboarding_status') {
+      const [{ data: steps }, { data: done }, { data: flags }] = await Promise.all([
+        db.from('onboarding_steps').select('id, title, minutes, article_id, sort, proposed, is_sample').order('sort'),
+        db.from('onboarding_progress').select('step_id').eq('employee_id', me.id), db.rpc('app_flags')])
+      const demo = (flags as any)?.demo_data !== false, d = new Set((done ?? []).map((x: any) => x.step_id))
+      // Schritte ohne hinterlegten Artikel bekommen den am besten passenden Wissensartikel (nach Titel)
+      return (steps ?? []).filter((x: any) => !x.proposed && (demo || !x.is_sample)).map((x: any) => {
+        const guess = x.article_id ? null : rank(x.title, (arts ?? []) as Article[])[0]?.a
+        return { step_id: x.id, titel: x.title, minuten: x.minutes, artikel_id: x.article_id ?? guess?.id ?? null, artikel_geschaetzt: !x.article_id && !!guess, erledigt: d.has(x.id) }
+      })
+    }
+    if (name === 'read_article') {
+      const { data } = await db.from('wiki_articles').select('id, title, category, body').eq('id', String(args.id ?? '')).eq('published', true).maybeSingle()
+      return data ? { id: data.id, titel: data.title, kategorie: data.category, text: String(data.body ?? '').slice(0, 6000) } : { error: 'nicht_gefunden' }
+    }
+    if (name === 'mark_step_done') {
+      const { error } = await db.from('onboarding_progress').insert({ step_id: String(args.step_id ?? ''), employee_id: me.id })
+      return error && !/duplicate/.test(error.message) ? { error: 'nicht_gespeichert' } : { ok: true }
+    }
+    return { error: 'unbekannt' }
+  }
+  const msgs: any[] = [{ role: 'system', content: sys }, ...(Array.isArray(history) ? history.slice(-10).map((h: any) => ({ role: h.me ? 'user' : 'assistant', content: String(h.t ?? '').slice(0, 2000) })) : []), { role: 'user', content: q }]
+  const readIds = new Set<string>()
+  try {
+    for (let round = 0; round < 5; round++) {
+      const r = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: Deno.env.get('ASSISTANT_MODEL') ?? 'gpt-5.6-sol', messages: msgs, tools, reasoning_effort: 'none', response_format: { type: 'json_object' } }),  // Werkzeuge gehen in chat/completions nur ohne Reasoning
+        signal: AbortSignal.timeout(90000),
+      })
+      if (!r.ok) throw new Error(`openai_${r.status}: ${(await r.text()).slice(0, 300)}`)
+      const m = (await r.json()).choices?.[0]?.message
+      if (m?.tool_calls?.length) {
+        msgs.push(m)
+        for (const c of m.tool_calls) {
+          let args: any = {}; try { args = JSON.parse(c.function?.arguments ?? '{}') } catch { /* leer */ }
+          if (c.function?.name === 'read_article' && args.id) readIds.add(String(args.id))
+          const result = await runTool(c.function?.name, args)
+          msgs.push({ role: 'tool', tool_call_id: c.id, content: JSON.stringify(result).slice(0, 12000) })
+        }
+        continue
+      }
+      const out = JSON.parse(m?.content ?? '{}')
+      const byId = new Map((arts ?? []).map((a: any) => [a.id, a.title]))
+      const answer: Answer = {
+        text: String(out.text ?? ''),
+        sources: [...new Set([...(out.source_ids ?? []), ...readIds])].filter((id: string) => byId.has(id)).map((id: string) => ({ id, title: byId.get(id) })),
+        ...(out.ticket?.title ? { ticket: { kind: out.ticket.kind === 'Idee' ? 'Idee' : 'Meldung', title: String(out.ticket.title).slice(0, 200) } } : {}),
+      }
+      return json({ ok: true, mode: 'ki', ...answer })
+    }
+    throw new Error('too_many_rounds')
+  } catch (e) {
+    // Grund mitgeben (zeigt die App nicht an), damit Fehler nachvollziehbar sind
+    return json({ ok: true, mode: 'wissen', reason: String(e).slice(0, 400), ...fallback(q, ranked.map((r) => r.a), day, me) })
   }
 })
 

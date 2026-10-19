@@ -122,4 +122,6 @@ begin
     (qid, 0, 'single', 'Wann werden Liegen und Kopfstützen ab 1. Oktober desinfiziert?', array['Einmal am Abend','Nach jeder Behandlung','Zweimal pro Woche'], array[1]),
     (qid, 1, 'single', 'Wo findest du die komplette Richtlinie?', array['Im Wissen unter „Hygiene“','Im Pausenraum','Bei der Filialleitung per Mail'], array[0]),
     (qid, 2, 'multi', 'Was hat sich mit der neuen Richtlinie geändert?', array['Desinfektion der Liegen nach jeder Behandlung','Die Tagesaufgaben-Checkliste ist angepasst','Neue Öffnungszeiten'], array[0,1]);
+  insert into public.quiz_questions (quiz_id, sort, kind, prompt, rubric) values
+    (qid, 3, 'text', 'Warum desinfizieren wir die Liegen nach jeder Behandlung?', 'Hygiene: Keime oder Krankheitserreger sollen nicht von einer Kundin zur nächsten übertragen werden; Schutz der Kundinnen (und des Teams) vor Infektionen.');
 end $$;

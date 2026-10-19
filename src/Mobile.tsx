@@ -7,7 +7,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from './lib/auth'
 import { supabase } from './lib/supabase'
-import { phorest, type MyDay, type TeamToday, type StaffWeek } from './lib/phorest'
+import { phorest, type MyDay, type TeamToday, type StaffWeek, type ClientHit, type ClientHistory } from './lib/phorest'
 import { pushState, enablePush, disablePush, testPush, reportDevice, isStandalone, isIOS, isAndroid, canPromptInstall, promptInstall, type PushState } from './lib/push'
 import { useApp, isoDay, type Lang, type News, type WikiArticle, type WikiBlock, type Staff } from './store'
 import { Terminbuch, EventCalendar } from './Calendar'
@@ -21,7 +21,7 @@ export const ASSISTANT = 'Benni'
 
 type Tab = 'home' | 'tasks' | 'ai' | 'wiki' | 'menu'
 type Sub = null | { k: 'news-list' } | { k: 'news'; item: News } | { k: 'wiki'; item: WikiArticle } | { k: 'onboarding' } | { k: 'team' } | { k: 'profile'; item: Staff }
-  | { k: 'me' } | { k: 'conn' } | { k: 'book' } | { k: 'tickets' } | { k: 'ticket'; id: string } | { k: 'events' } | { k: 'inbox' } | { k: 'time' } | { k: 'install' }
+  | { k: 'me' } | { k: 'conn' } | { k: 'book' } | { k: 'tickets' } | { k: 'ticket'; id: string } | { k: 'clients' } | { k: 'events' } | { k: 'inbox' } | { k: 'time' } | { k: 'install' }
 
 const ini = (s: { first: string; last: string }) => ((s.first[0] ?? '') + (s.last[0] ?? '')).toUpperCase()
 
@@ -80,6 +80,8 @@ function Shell({ onLogout, onSwitch }: { onLogout: () => void; onSwitch?: () => 
     if (o.startsWith('news:')) { const n = news.find(x => x.id === o.slice(5)); if (n) open({ k: 'news', item: n }) }
     else if (o === 'events') open({ k: 'events' }); else if (o === 'tickets') open({ k: 'tickets' })
   }
+  // „Mit Benni lernen“ aus dem Onboarding: in den Benni-Reiter wechseln, die Frage stellt der Reiter selbst
+  useEffect(() => { const f = () => go('ai'); window.addEventListener('th-benni', f); return () => window.removeEventListener('th-benni', f) }, []) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     reportDevice()
     if (location.search.includes('open=') && !loading) { openUrl(location.href); history.replaceState(null, '', '/') }
@@ -99,6 +101,7 @@ function Shell({ onLogout, onSwitch }: { onLogout: () => void; onSwitch?: () => 
     case 'me': screen = <MyProfile />; break
     case 'tickets': screen = <Tickets open={open} />; break
     case 'ticket': screen = <TicketDetail id={sub.id} />; break
+    case 'clients': screen = <ClientHistoryView />; break
     case 'events': screen = <Events />; break
     case 'conn': screen = <Connections />; break
     case 'book': screen = <div className="px-5 pb-4 h-[calc(100dvh-150px)] md:h-[calc(100dvh-110px)]"><h1 className="text-[26px] font-medium tracking-tight mb-3">{t('Kundentermine')}</h1><Terminbuch compact /></div>; break
@@ -276,6 +279,7 @@ function NewsDetail({ n }: { n: News }) {
       <p className="text-xs text-mute mt-3">{n.tag} · {n.audience} · {n.date}</p>
       <h1 className="mt-2 text-[26px] font-medium tracking-tight leading-tight">{n.title}</h1>
       <p className="mt-2 text-[13px] text-mute">{t('von {name}', { name: n.author })}</p>
+      {n.image && <img src={n.image} alt="" className="mt-5 w-full aspect-[3/2] object-cover rounded-[16px] bg-sage-100" />}
       <div className="mt-5 space-y-4 text-[16px] leading-relaxed">{n.body.split('\n\n').map((p, i) => <p key={i}>{p}</p>)}</div>
       {n.wikiCategory && <p className="mt-4 text-[13px] text-sage-800 flex items-center gap-1"><BookOpen size={14} />{t('Auch im Wissen unter {cat} abgelegt', { cat: n.wikiCategory })}</p>}
       {n.mustRead && read.has(n.id) && <div className="mt-8 h-12 rounded-[10px] bg-sage-100 text-olive-800 flex items-center justify-center gap-2 font-medium"><Check size={18} />{t('Gelesen und bestätigt')}</div>}
@@ -343,7 +347,8 @@ function AI({ open }: { open: (s: Sub) => void }) {
   const [v, setV] = useState('')
   const [busy, setBusy] = useState(false)
   const end = useRef<HTMLDivElement>(null)
-  const ideas = ['Was steht heute bei mir an?', 'Wie lange wirkt das Desinfektionsmittel?', 'Das Wachsgerät in Kabine 3 ist kaputt', 'Wie entferne ich Shellac ohne Nagelschaden?']
+  const ideas = ['Was steht heute bei mir an?', 'Lass uns mit dem Onboarding weiterlernen.', 'Wie entferne ich Shellac ohne Nagelschaden?', 'Das Wachsgerät in Kabine 3 ist kaputt']
+  useEffect(() => { let q: string | null = null; try { q = sessionStorage.getItem('th-benni-ask'); sessionStorage.removeItem('th-benni-ask') } catch { /* privat */ } if (q) send(q) }, []) // eslint-disable-line react-hooks/exhaustive-deps
   const send = async (q = v) => {
     if (!q.trim() || busy || !supabase) return
     const history = msgs
@@ -483,7 +488,8 @@ function Onboarding({ open }: { open: (s: Sub) => void }) {
     <div className="px-5 pb-10"><h1 className="mt-3 text-[26px] font-medium tracking-tight">{t('Onboarding')}</h1>
       <p className="mt-1 text-[14px] text-mute">{t('Alles für deine ersten Tage. Deine Respo sieht, wie weit du bist.')}</p>
       <Card onClick={() => open({ k: 'install' })} className="mt-4 p-4 flex items-center gap-3"><span className="w-10 h-10 rounded-xl bg-olive-700 text-white flex items-center justify-center"><Smartphone size={19} /></span><span className="flex-1"><span className="block text-[15px] font-medium">{t('Zuerst: TeamHub aufs Handy')}</span><span className="block text-xs text-mute">{t('Auf den Home-Bildschirm legen und Mitteilungen einschalten')}</span></span><ChevronRight size={18} className="text-sage-400" /></Card>
-      <div className="mt-4 h-1.5 rounded-full bg-sage-100 overflow-hidden"><div className="h-full bg-sage-600 transition-all" style={{ width: (steps.length ? steps.filter(s => obDone.has(s.id)).length / steps.length * 100 : 0) + '%' }} /></div>
+      <button onClick={() => { try { sessionStorage.setItem('th-benni-ask', t('Lass uns mit dem Onboarding weiterlernen.')) } catch { /* privat */ } window.dispatchEvent(new Event('th-benni')) }} className="mt-3 w-full rounded-[16px] bg-white p-4 flex items-center gap-3 text-left"><BMark className="w-10 h-10 text-[15px]" /><span className="flex-1"><span className="block text-[15px] font-medium">{t('Mit Benni lernen')}</span><span className="block text-xs text-mute">{t('Schritt für Schritt, mit kurzer Kontrollfrage')}</span></span><ChevronRight size={18} className="text-sage-400" /></button>
+      <div className="mt-4 h-[3px] rounded-full bg-sage-100 overflow-hidden"><div className="h-full bg-olive-700 transition-all" style={{ width: (steps.length ? steps.filter(s => obDone.has(s.id)).length / steps.length * 100 : 0) + '%' }} /></div>
       <div className="mt-5 space-y-2">
         {steps.map((s, i) => { const art = wiki.find(w => w.id === s.articleId)
           return <div key={s.id} className="rounded-[16px] bg-white p-4 flex items-center gap-3">
@@ -513,6 +519,7 @@ function MenuView({ open, onLogout }: { open: (s: Sub) => void; onLogout: () => 
         </List>
         <div className="mt-3"><List>
           <Row icon={<CalendarDays size={19} strokeWidth={1.6} />} title={t('Kundentermine')} sub={`${me.app_role === 'buero' ? t('Alle Studios') : t('Dein Studio')} · ${t('live aus Phorest')}`} onClick={() => open({ k: 'book' })} />
+          <Row icon={<Search size={19} strokeWidth={1.6} />} title={t('Kundenhistorie')} sub={t('Besuche und Notizen einer Kundin')} onClick={() => open({ k: 'clients' })} />
           {tiles.map(([title, sub, Icon, target]) => <Row key={title} icon={<Icon size={19} strokeWidth={1.6} />} title={t(title)} sub={sub} onClick={() => open(target)} />)}
         </List></div>
         <div className="mt-3"><List>
@@ -535,6 +542,57 @@ function Team({ open }: { open: (s: Sub) => void }) {
       <div className="px-5 space-y-3"><SearchBox value={q} onChange={setQ} placeholder={t('Name oder Skill, z. B. Pediküre')} /><Chips items={['Alle', ...branches.map(x => x.name)]} value={b} onChange={setB} label={x => x === 'Alle' ? t('Alle') : x} />
         <p className="text-xs text-mute pt-1">{t('{n} Personen', { n: list.length })}</p>
         <List>{list.map(s => <Row key={s.id} icon={<Avatar s={s} photo={s.photo} size="w-9 h-9" />} title={`${s.first} ${s.last}`} sub={`${s.role} · ${s.branch}${s.skills.length ? ' · ' + s.skills.slice(0, 3).join(', ') : ''}`} onClick={() => open({ k: 'profile', item: s })} />)}</List>
+      </div>
+    </div>
+  )
+}
+
+/* ---------- Kundenhistorie aus Phorest (Zusammenfassung durch Benni) ---------- */
+function ClientHistoryView() {
+  const { t } = useApp()
+  const [q, setQ] = useState(''), [hits, setHits] = useState<ClientHit[] | null>(null), [h, setH] = useState<ClientHistory | null>(null)
+  const [busy, setBusy] = useState(false), [err, setErr] = useState('')
+  const search = async () => {
+    if (q.trim().length < 3 || busy) return
+    setBusy(true); setErr(''); setH(null)
+    const r = await phorest<{ ok: boolean; clients: ClientHit[] }>({ action: 'client_search', q })
+    setBusy(false)
+    if (!r.ok) { setErr(t('Phorest ist gerade nicht erreichbar. Bitte später noch einmal öffnen.')); return }
+    setHits(r.clients)
+  }
+  const pick = async (c: ClientHit) => {
+    setBusy(true); setErr('')
+    const r = await phorest<ClientHistory>({ action: 'client_history', client_id: c.client_id, months: 12, summary: true })
+    setBusy(false)
+    if (!r.ok) { setErr(t('Phorest ist gerade nicht erreichbar. Bitte später noch einmal öffnen.')); return }
+    setH(r)
+  }
+  const fmt = (d: string) => d ? new Intl.DateTimeFormat(locale(), { timeZone: 'UTC', day: 'numeric', month: 'numeric', year: '2-digit' }).format(new Date(d + 'T12:00:00Z')) : ''
+  return (
+    <div className="pb-10"><Title>{t('Kundenhistorie')}</Title>
+      <div className="px-5">
+        {!h && <>
+          <div className="flex gap-2"><div className="flex-1"><SearchBox value={q} onChange={setQ} placeholder={t('Name, E-Mail oder Telefon')} /></div>
+            <button disabled={busy || q.trim().length < 3} onClick={search} className="h-11 px-4 rounded-[10px] bg-olive-700 text-white text-[14px] disabled:opacity-40">{t('Suchen')}</button></div>
+          {err && <p className="mt-3 text-[13px] text-alert">{err}</p>}
+          {busy && <p className="mt-4 text-[14px] text-mute">{t('Lädt aus Phorest …')}</p>}
+          {hits && !busy && <div className="mt-4"><List>{hits.length === 0 && <Empty>{t('Keine Kundin gefunden.')}</Empty>}
+            {hits.map(c => <Row key={c.client_id} title={c.name} sub={[c.since && t('seit {d}', { d: fmt(c.since) }), c.phone_tail && `…${c.phone_tail}`].filter(Boolean).join(' · ')} onClick={() => pick(c)} />)}</List></div>}
+        </>}
+        {h && <>
+          <button onClick={() => setH(null)} className="text-[14px] text-olive-700">{t('Andere Kundin suchen')}</button>
+          <h2 className="mt-3 text-[24px] leading-tight">{h.client.name}</h2>
+          <p className="text-[13px] text-mute mt-1">{[h.client.since && t('Kundin seit {d}', { d: fmt(h.client.since) }), h.client.last_visit && t('zuletzt {d}', { d: fmt(h.client.last_visit) }), h.client.preferred && t('bevorzugt {n}', { n: h.client.preferred })].filter(Boolean).join(' · ')}</p>
+          {h.summary && <div className="mt-5 rounded-[16px] bg-white px-4 py-4"><p className="rubric text-olive-700 flex items-center gap-2"><BMark className="w-5 h-5 text-[10px]" />{t('Zusammenfassung')}</p>
+            <div className="mt-2 text-[15px] leading-relaxed space-y-1">{h.summary.split('\n').filter(Boolean).map((l, i) => <p key={i}>{l}</p>)}</div></div>}
+          <Label>{t('Besuche der letzten {n} Monate', { n: h.months })}</Label>
+          <List>{h.visits.length === 0 && <Empty>{t('Keine Besuche in diesem Zeitraum.')}</Empty>}{h.visits.map((v, i) => (
+            <div key={i} className="px-4 py-3">
+              <div className="flex justify-between gap-3 text-[14px]"><span className={v.cancelled ? 'line-through text-mute' : ''}>{v.service}</span><span className="text-mute shrink-0">{fmt(v.date)}</span></div>
+              <p className="text-xs text-mute mt-0.5">{[v.branch, v.staff, v.cancelled && t('abgesagt')].filter(Boolean).join(' · ')}</p>
+              {v.notes && <p className="text-[13px] mt-1.5 text-ink/80 whitespace-pre-wrap">{v.notes}</p>}
+            </div>))}</List>
+        </>}
       </div>
     </div>
   )

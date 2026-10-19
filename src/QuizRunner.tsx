@@ -10,7 +10,7 @@ export function QuizRunner({ quiz }: { quiz: Quiz }) {
   const passed = mine.find(a => a.passed)
   const last = mine[mine.length - 1]
   const [qs, setQs] = useState<QuizQuestion[] | null>(null)
-  const [ans, setAns] = useState<Record<string, number[]>>({})
+  const [ans, setAns] = useState<Record<string, number[] | string>>({})
   const [res, setRes] = useState<QuizResult | null>(null)
   const [busy, setBusy] = useState(false), [err, setErr] = useState('')
 
@@ -19,18 +19,18 @@ export function QuizRunner({ quiz }: { quiz: Quiz }) {
     const { data, error } = await supabase!.rpc('quiz_for_me', { p_quiz: quiz.id })
     setBusy(false)
     if (error) { setErr(t('Das Quiz lässt sich gerade nicht laden.')); return }
-    setQs(((data ?? []) as QuizQuestion[]).filter(q => q.kind !== 'text'))
+    setQs((data ?? []) as QuizQuestion[])
   }
   const pick = (q: QuizQuestion, i: number) => setAns(a => {
-    const cur = a[q.id] ?? []
+    const cur = (a[q.id] ?? []) as number[]
     return { ...a, [q.id]: q.kind === 'single' ? [i] : cur.includes(i) ? cur.filter(x => x !== i) : [...cur, i] }
   })
-  const done = qs ? qs.every(q => (ans[q.id] ?? []).length > 0) : false
+  const done = qs ? qs.every(q => q.kind === 'text' ? String(ans[q.id] ?? '').trim().length > 2 : ((ans[q.id] ?? []) as number[]).length > 0) : false
   const submit = async () => {
     setBusy(true); setErr('')
     const r = await submitQuiz(quiz.id, ans)
     setBusy(false)
-    if (!r) { setErr(t('Das hat nicht geklappt. Bitte versuche es noch einmal.')); return }
+    if (!r || r.error) { setErr(r?.error === 'ai_unavailable' ? t('Die Auswertung der Freitext-Antworten klappt gerade nicht. Bitte gleich noch einmal.') : t('Das hat nicht geklappt. Bitte versuche es noch einmal.')); return }
     setRes(r)
   }
 
@@ -52,7 +52,7 @@ export function QuizRunner({ quiz }: { quiz: Quiz }) {
       <p className="font-display text-[44px] leading-none mt-3">{res.score_pct} %</p>
       <p className="mt-2 text-[15px]">{res.passed ? t('Bestanden. Danke!') : t('Noch nicht bestanden. Ab {n} % klappt es.', { n: res.pass_pct })}</p>
       <div className="mt-4 rounded-[16px] bg-white divide-y divide-line">{qs.map((q, i) => (
-        <div key={q.id} className="px-4 py-3 flex gap-3 items-start text-[14px]"><span className={`mt-1.5 w-[7px] h-[7px] rounded-full shrink-0 ${res.results[q.id] ? 'bg-ok' : 'bg-alert'}`} /><span className="flex-1">{i + 1}. {q.prompt}</span><span className="text-mute text-[13px] shrink-0">{res.results[q.id] ? t('richtig') : t('falsch')}</span></div>
+        <div key={q.id} className="px-4 py-3 flex gap-3 items-start text-[14px]"><span className={`mt-1.5 w-[7px] h-[7px] rounded-full shrink-0 ${res.results[q.id] ? 'bg-ok' : 'bg-alert'}`} /><span className="flex-1">{i + 1}. {q.prompt}{res.feedback?.[q.id] && <span className="block text-[13px] text-mute mt-1">{res.feedback[q.id]}</span>}</span><span className="text-mute text-[13px] shrink-0">{res.results[q.id] ? t('richtig') : t('falsch')}</span></div>
       ))}</div>
       {!res.passed && <button onClick={() => { setRes(null); setAns({}) }} className="mt-4 w-full h-12 rounded-[10px] bg-olive-700 text-white font-medium">{t('Nochmal versuchen')}</button>}
       {res.passed && <button onClick={() => { setQs(null); setRes(null) }} className="mt-4 w-full h-12 rounded-[10px] bg-sage-50 font-medium">{t('Fertig')}</button>}
@@ -67,13 +67,14 @@ export function QuizRunner({ quiz }: { quiz: Quiz }) {
         <div key={q.id} className="rounded-[16px] bg-white px-4 py-3">
           <p className="text-[15px] font-medium">{i + 1}. {q.prompt}</p>
           {q.kind === 'multi' && <p className="text-xs text-mute mt-0.5">{t('Mehrere Antworten richtig')}</p>}
-          <div className="mt-2">{q.options.map((o, j) => { const on = (ans[q.id] ?? []).includes(j)
+          {q.kind === 'text' ? <textarea value={String(ans[q.id] ?? '')} onChange={e => setAns(a => ({ ...a, [q.id]: e.target.value }))} rows={3} placeholder={t('Deine Antwort in eigenen Worten')} className="mt-2 w-full rounded-[10px] bg-sage-50 px-3 py-2 text-[15px] outline-none resize-none placeholder:text-mute" />
+          : <div className="mt-2">{q.options.map((o, j) => { const on = ((ans[q.id] ?? []) as number[]).includes(j)
             return <button key={j} onClick={() => pick(q, j)} className="w-full flex items-center gap-3 py-2.5 text-left text-[15px] border-t border-line first:border-t-0">
-              <span className={`w-5 h-5 shrink-0 flex items-center justify-center transition ${q.kind === 'single' ? 'rounded-full' : 'rounded-[6px]'} ${on ? 'bg-olive-700 text-white' : 'shadow-[inset_0_0_0_1.5px_#979E92]'}`}>{on && <Check size={12} strokeWidth={3} />}</span>{o}</button> })}</div>
+              <span className={`w-5 h-5 shrink-0 flex items-center justify-center transition ${q.kind === 'single' ? 'rounded-full' : 'rounded-[6px]'} ${on ? 'bg-olive-700 text-white' : 'shadow-[inset_0_0_0_1.5px_#979E92]'}`}>{on && <Check size={12} strokeWidth={3} />}</span>{o}</button> })}</div>}
         </div>
       ))}</div>
       {err && <p className="mt-2 text-[13px] text-alert">{err}</p>}
-      <button disabled={!done || busy} onClick={submit} className="mt-4 w-full h-12 rounded-[10px] bg-olive-700 text-white font-medium disabled:opacity-40">{t('Auswerten')}</button>
+      <button disabled={!done || busy} onClick={submit} className="mt-4 w-full h-12 rounded-[10px] bg-olive-700 text-white font-medium disabled:opacity-40">{busy ? t('Wird ausgewertet …') : t('Auswerten')}</button>
     </div>
   )
 }

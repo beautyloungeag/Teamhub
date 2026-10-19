@@ -2,6 +2,16 @@
 
 Interne Mitarbeiter-App (PWA + Desktop-Backoffice) der Beautylounge AG. Kundin: Renée Baumann. PM-Projekt: `projekt.aleksa.ai`, Key **BLTH** (`d4ee5d5c-4553-436c-bba7-137a03a2b704`). ⚠️ Das Repo `beautyloungeag/Teamhub` ist **öffentlich** — nie Personendaten committen.
 
+### Nachtrag 2026-10-19 nachts — KI-Funktionen (OpenAI-Schlüssel von Aleksa als Secret `OPENAI_API_KEY`)
+
+- **Modell:** `gpt-5.6-sol` (Standard in `_shared/openai.ts`, überschreibbar mit Secret `AI_MODEL`/`ASSISTANT_MODEL`; Bilder `gpt-image-2.5-sunburst`, Secret `IMAGE_MODEL`). Liste der freigeschalteten Modelle: `assistant` mit `{action:"models"}` (nur Büro).
+- **Benni (Function `assistant`) mit Werkzeugen:** `client_history` (Kundin suchen, bei mehreren Treffern nachfragen), `onboarding_status` + `read_article` + `mark_step_done` (Lernbegleiter: kurzes Häppchen, Kontrollfrage, bei richtiger Antwort Schritt erledigt; Schritte ohne Artikel bekommen den passendsten Wiki-Artikel). ⚠️ Werkzeuge gehen in `chat/completions` nur mit `reasoning_effort: 'none'`. Fällt die KI aus, antwortet Benni im Wissensmodus und gibt `reason` mit.
+- **Quiz:** Function `quiz` wertet aus (ersetzt `submit_quiz` im Browser), Freitext-Fragen bewertet die KI gegen die Vorgabe (`rubric`) mit einem Satz Rückmeldung. Editor kann „Freitext“. Beispiel-Quiz hat jetzt eine Freitext-Frage.
+- **News-Entwurf (Function `newsdraft`, nur Büro):** Stichworte → Titel, Kurzfassung, Text; Bild auf Wunsch (Storage `media/news/…`, Spalte `news.image_path`, Migration 0011). App zeigt das Bild in der News.
+- **Kundenhistorie:** `phorest` Aktionen `client_search` und `client_history` (12 Monate, alle Studios, Termin-Notizen, Namen der Behandelnden aus Phorest, auf Wunsch KI-Zusammenfassung; Kontaktdaten gehen nicht ans Modell). Jeder Zugriff landet in `client_lookups` (Migration 0012, lesbar nur Büro). App: Menü → Kundenhistorie.
+- **Behoben (0011):** Seit 0005 konnten Fotos zu Meldungen und Aufgaben-Nachweisen nur von der Absenderin geladen werden; `files_read` wieder vollständig, Meldungsfotos an die Ticket-Rechte gekoppelt.
+- **Offen:** Übersetzung der Inhalte (DE→EN/FR), Wiki-Aufräumen (Liste von Renée), Timebutler (Firmen-Token von Beautylounge).
+
 ### Nachtrag 2026-10-19 spät — Quiz (E-Learning)
 
 - **Migration `0010_quiz.sql`** (eingespielt): `quizzes` (je News ODER Wissensartikel, `pass_pct` Standard 80), `quiz_questions` (single/multi/text, Lösungen nur fürs Büro lesbar), `quiz_attempts` (Nachweis je Person). RPCs `quiz_for_me()` (Fragen ohne Lösung), `submit_quiz()` (wertet serverseitig aus; bestanden + News → `news_reads.confirmed_at`), `confirm_news()` verlangt bei News mit Quiz ein bestandenes Quiz (`quiz_first`), `open_news()` prüft jetzt `news_for_me()`.

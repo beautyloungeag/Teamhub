@@ -121,7 +121,27 @@ function NewsAdmin() {
   const { news, newsReads, branches, me, reload, skillCatalog, staff } = useApp()
   const audience = useAudience()
   const [sel, setSel] = useState<string | null>(news[0]?.id ?? null), [compose, setCompose] = useState(false)
-  const blank = { title: '', teaser: '', body: '', tag: 'Studio', must: false, branches: [] as string[], groups: [] as string[], skills: [] as string[], people: [] as string[], when: '', wiki: '' }
+  const blank = { title: '', teaser: '', body: '', tag: 'Studio', must: false, branches: [] as string[], groups: [] as string[], skills: [] as string[], people: [] as string[], when: '', wiki: '', image: '' }
+  // Benni: Entwurf aus Stichworten, Bild auf Wunsch (Function newsdraft, nur Büro)
+  const [brief, setBrief] = useState(''), [imgPrompt, setImgPrompt] = useState(''), [ai, setAi] = useState<'' | 'text' | 'image'>(''), [preview, setPreview] = useState<string | null>(null)
+  const draft = async () => {
+    if (!brief.trim() || ai) return
+    setAi('text'); setErr('')
+    const { data, error } = await supabase!.functions.invoke('newsdraft', { body: { action: 'text', brief } })
+    setAi('')
+    if (error || !data?.ok) { setErr('Benni konnte gerade keinen Entwurf schreiben.'); return }
+    setF(v => ({ ...v, title: data.title, teaser: data.teaser, body: data.body })); setImgPrompt(data.image_prompt || data.title)
+  }
+  const image = async () => {
+    const prompt = imgPrompt || f.title
+    if (!prompt.trim() || ai) return
+    setAi('image'); setErr('')
+    const { data, error } = await supabase!.functions.invoke('newsdraft', { body: { action: 'image', prompt } })
+    setAi('')
+    if (error || !data?.ok) { setErr('Das Bild konnte gerade nicht erzeugt werden.'); return }
+    setF(v => ({ ...v, image: data.path }))
+    const { data: u } = await supabase!.storage.from('media').createSignedUrl(data.path, 3600); setPreview(u?.signedUrl ?? null)
+  }
   const [f, setF] = useState(blank)
   const [pq, setPq] = useState('')
   const reach = audience({ audienceBranches: f.branches, audienceGroups: f.groups, audienceSkills: f.skills, audiencePeople: f.people }).length
@@ -135,19 +155,27 @@ function NewsAdmin() {
     setBusy(true); setErr('')
     const { error } = await supabase!.from('news').insert({
       title: f.title.trim(), teaser: f.teaser.trim() || f.body.trim().slice(0, 140), body: f.body.trim(), tag: f.must ? 'Pflicht' : f.tag, must_read: f.must,
-      audience_branches: f.branches, audience_groups: f.groups, audience_skills: f.skills, audience_people: f.people, author_id: me.id, author_name: `${me.first} ${me.last}`, publish_at: f.when ? new Date(f.when).toISOString() : new Date().toISOString(), wiki_category: f.wiki || null,
+      audience_branches: f.branches, audience_groups: f.groups, audience_skills: f.skills, audience_people: f.people, image_path: f.image || null, author_id: me.id, author_name: `${me.first} ${me.last}`, publish_at: f.when ? new Date(f.when).toISOString() : new Date().toISOString(), wiki_category: f.wiki || null,
     })
     setBusy(false)
     if (error) { setErr('Veröffentlichen hat nicht geklappt.'); return }
-    setCompose(false); setF(blank); setPq(''); await reload(); notifyNow()
+    setCompose(false); setF(blank); setPq(''); setBrief(''); setImgPrompt(''); setPreview(null); await reload(); notifyNow()
   }
   const people = n ? audience(n) : []
   return (<>
     <H action={<New onClick={() => setCompose(!compose)}>Neue News</New>}>News</H>
     {compose && <Panel className="p-6 mb-8 grid grid-cols-[1fr_280px] gap-6">
-      <div className="space-y-3"><input value={f.title} onChange={e => setF({ ...f, title: e.target.value })} placeholder="Titel" className="w-full text-[20px] font-medium outline-none" />
+      <div className="space-y-3">
+        <div className="flex gap-2 items-center pb-3 border-b border-line"><BMark className="w-7 h-7 text-[12px]" />
+          <input value={brief} onChange={e => setBrief(e.target.value)} onKeyDown={e => e.key === 'Enter' && draft()} placeholder="Worum geht es? Benni schreibt einen Entwurf" className="flex-1 h-9 rounded-[8px] bg-white px-3 text-[14px] outline-none" />
+          <button disabled={!brief.trim() || !!ai} onClick={draft} className="h-9 px-3 rounded-[8px] bg-olive-700 text-white text-[13px] disabled:opacity-40">{ai === 'text' ? 'Schreibt …' : 'Entwurf schreiben'}</button></div>
+        <input value={f.title} onChange={e => setF({ ...f, title: e.target.value })} placeholder="Titel" className="w-full text-[20px] font-medium outline-none bg-transparent" />
         <input value={f.teaser} onChange={e => setF({ ...f, teaser: e.target.value })} placeholder="Kurzfassung für die Karte (optional)" className="w-full text-[15px] outline-none text-mute" />
-        <textarea value={f.body} onChange={e => setF({ ...f, body: e.target.value })} rows={8} placeholder="Text. Absätze mit einer Leerzeile trennen." className="w-full resize-none outline-none text-[15px]" /></div>
+        <textarea value={f.body} onChange={e => setF({ ...f, body: e.target.value })} rows={8} placeholder="Text. Absätze mit einer Leerzeile trennen." className="w-full resize-none outline-none text-[15px] bg-transparent" />
+        {preview ? <div className="relative"><img src={preview} alt="" className="w-full aspect-[3/2] object-cover rounded-[12px]" /><button onClick={() => { setF({ ...f, image: '' }); setPreview(null) }} className="absolute top-2 right-2 h-8 px-3 rounded-[8px] bg-white/90 text-[13px]">Bild entfernen</button></div>
+          : <div className="flex gap-2"><input value={imgPrompt} onChange={e => setImgPrompt(e.target.value)} placeholder="Bild beschreiben (optional)" className="flex-1 h-9 rounded-[8px] bg-white px-3 text-[14px] outline-none" />
+            <button disabled={!(imgPrompt || f.title).trim() || !!ai} onClick={image} className="h-9 px-3 rounded-[8px] bg-white text-[13px] disabled:opacity-40">{ai === 'image' ? 'Bild entsteht …' : 'Bild erzeugen'}</button></div>}
+      </div>
       <div className="space-y-3 text-[14px]">
         <div>
           <div className="flex items-baseline justify-between mb-1.5"><span className="text-xs text-mute">Zielgruppe</span><span className="text-xs text-olive-700">{reach} {reach === 1 ? 'Person' : 'Personen'}</span></div>
@@ -355,9 +383,9 @@ function StandbyAdmin() {
 }
 
 /* ---------- Lernen: Quiz zu News oder Wissensartikel, Nachweis je Person ---------- */
-type QEdit = { kind: 'single' | 'multi'; prompt: string; options: string[]; correct: number[] }
+type QEdit = { kind: 'single' | 'multi' | 'text'; prompt: string; options: string[]; correct: number[]; rubric: string }
 type QuizEdit = { id?: string; target: 'news' | 'article'; newsId: string; articleId: string; title: string; passPct: number; qs: QEdit[] }
-const emptyQ = (): QEdit => ({ kind: 'single', prompt: '', options: ['', ''], correct: [] })
+const emptyQ = (): QEdit => ({ kind: 'single', prompt: '', options: ['', ''], correct: [], rubric: '' })
 function LearnAdmin() {
   const { quizzes, attempts, news, wiki, staff, me, reload } = useApp()
   const audience = useAudience()
@@ -381,9 +409,9 @@ function LearnAdmin() {
   const openEdit = async (q?: Quiz) => {
     setErr(''); setAq('')
     if (!q) { setEdit({ target: 'news', newsId: '', articleId: '', title: '', passPct: 80, qs: [emptyQ()] }); return }
-    const { data } = await supabase!.from('quiz_questions').select('kind, prompt, options, correct').eq('quiz_id', q.id).order('sort')
+    const { data } = await supabase!.from('quiz_questions').select('kind, prompt, options, correct, rubric').eq('quiz_id', q.id).order('sort')
     setEdit({ id: q.id, target: q.newsId ? 'news' : 'article', newsId: q.newsId ?? '', articleId: q.articleId ?? '', title: q.title, passPct: q.passPct,
-      qs: (data ?? []).filter((x: any) => x.kind !== 'text').map((x: any) => ({ kind: x.kind, prompt: x.prompt, options: x.options, correct: x.correct })) })
+      qs: (data ?? []).map((x: any) => ({ kind: x.kind, prompt: x.prompt, options: x.kind === 'text' ? ['', ''] : x.options, correct: x.correct ?? [], rubric: x.rubric ?? '' })) })
   }
   const setQ = (i: number, patch: Partial<QEdit>) => edit && setEdit({ ...edit, qs: edit.qs.map((q, j) => j === i ? { ...q, ...patch } : q) })
   const save = async () => {
@@ -392,16 +420,18 @@ function LearnAdmin() {
     const qs = edit.qs.map(q => ({ ...q, options: q.options.map(o => o.trim()) })).filter(q => q.prompt.trim())
     if (!ref) { setErr(edit.target === 'news' ? 'Bitte eine News wählen.' : 'Bitte einen Artikel wählen.'); return }
     if (!qs.length) { setErr('Mindestens eine Frage ist nötig.'); return }
-    const bad = qs.findIndex(q => q.options.filter(Boolean).length < 2 || q.correct.length === 0 || q.correct.some(c => !q.options[c]))
-    if (bad >= 0) { setErr(`Frage ${bad + 1}: mindestens zwei Antworten und eine richtige markieren.`); return }
+    const bad = qs.findIndex(q => q.kind === 'text' ? !q.rubric.trim() : q.options.filter(Boolean).length < 2 || q.correct.length === 0 || q.correct.some(c => !q.options[c]))
+    if (bad >= 0) { setErr(qs[bad].kind === 'text' ? `Frage ${bad + 1}: bitte beschreiben, woran eine richtige Antwort zu erkennen ist.` : `Frage ${bad + 1}: mindestens zwei Antworten und eine richtige markieren.`); return }
     setBusy(true); setErr('')
     const row = { news_id: edit.target === 'news' ? ref : null, article_id: edit.target === 'article' ? ref : null, title: edit.title.trim(), pass_pct: Math.min(100, Math.max(1, edit.passPct)), updated_at: new Date().toISOString() }
     const { data, error } = edit.id ? await supabase!.from('quizzes').update(row).eq('id', edit.id).select('id').single() : await supabase!.from('quizzes').insert(row).select('id').single()
     if (error || !data) { setBusy(false); setErr(/duplicate|unique/.test(error?.message ?? '') ? 'Dazu gibt es schon ein Quiz.' : 'Speichern hat nicht geklappt.'); return }
     await supabase!.from('quiz_questions').delete().eq('quiz_id', data.id)
     // Leere Antworten entfernen und die markierten Indizes nachziehen
-    await supabase!.from('quiz_questions').insert(qs.map((q, i) => { const keep = q.options.map((o, j) => o ? j : -1).filter(j => j >= 0)
-      return { quiz_id: data.id, sort: i, kind: q.kind, prompt: q.prompt.trim(), options: keep.map(j => q.options[j]), correct: q.correct.filter(c => keep.includes(c)).map(c => keep.indexOf(c)) } }))
+    await supabase!.from('quiz_questions').insert(qs.map((q, i) => {
+      if (q.kind === 'text') return { quiz_id: data.id, sort: i, kind: 'text', prompt: q.prompt.trim(), options: [], correct: [], rubric: q.rubric.trim() }
+      const keep = q.options.map((o, j) => o ? j : -1).filter(j => j >= 0)
+      return { quiz_id: data.id, sort: i, kind: q.kind, prompt: q.prompt.trim(), options: keep.map(j => q.options[j]), correct: q.correct.filter(c => keep.includes(c)).map(c => keep.indexOf(c)), rubric: '' } }))
     setBusy(false); setEdit(null); setSel(data.id); await reload()
   }
   const taken = new Set(quizzes.filter(q => q.id !== edit?.id).map(q => q.newsId ?? q.articleId))
@@ -416,15 +446,16 @@ function LearnAdmin() {
           {edit.qs.map((x, i) => <div key={i} className="rounded-[12px] bg-white p-4">
             <div className="flex items-start gap-3"><span className="text-mute text-[13px] pt-2.5">{i + 1}.</span>
               <input value={x.prompt} onChange={e => setQ(i, { prompt: e.target.value })} placeholder="Frage" className={`${inp} !bg-sage-50 font-medium`} />
-              <div className="flex gap-1 p-1 rounded-[10px] bg-sage-50 shrink-0">{(['single', 'multi'] as const).map(k => <button key={k} onClick={() => setQ(i, { kind: k, correct: k === 'single' ? x.correct.slice(0, 1) : x.correct })} className={seg(x.kind === k)}>{k === 'single' ? 'Eine richtig' : 'Mehrere richtig'}</button>)}</div>
+              <div className="flex gap-1 p-1 rounded-[10px] bg-sage-50 shrink-0">{(['single', 'multi', 'text'] as const).map(k => <button key={k} onClick={() => setQ(i, { kind: k, correct: k === 'single' ? x.correct.slice(0, 1) : x.correct })} className={seg(x.kind === k)}>{k === 'single' ? 'Eine richtig' : k === 'multi' ? 'Mehrere richtig' : 'Freitext'}</button>)}</div>
               <button onClick={() => setEdit({ ...edit, qs: edit.qs.filter((_, j) => j !== i) })} title="Frage entfernen" className="pt-2.5 text-mute hover:text-ink"><Trash2 size={15} /></button></div>
-            <div className="mt-3 pl-6 space-y-1.5">{x.options.map((o, j) => { const on = x.correct.includes(j)
+            {x.kind === 'text' ? <div className="mt-3 pl-6"><textarea value={x.rubric} onChange={e => setQ(i, { rubric: e.target.value })} rows={2} placeholder="Woran erkennt die KI eine richtige Antwort? z. B. „Schutz vor Keimen, keine Übertragung zwischen Kundinnen“" className="w-full rounded-[8px] bg-sage-50 px-3 py-2 text-[14px] outline-none resize-none" /></div>
+            : <div className="mt-3 pl-6 space-y-1.5">{x.options.map((o, j) => { const on = x.correct.includes(j)
               return <div key={j} className="flex items-center gap-2">
                 <button title="Als richtig markieren" onClick={() => setQ(i, { correct: x.kind === 'single' ? [j] : on ? x.correct.filter(c => c !== j) : [...x.correct, j] })} className={`w-5 h-5 shrink-0 flex items-center justify-center ${x.kind === 'single' ? 'rounded-full' : 'rounded-[6px]'} ${on ? 'bg-olive-700 text-white' : 'shadow-[inset_0_0_0_1.5px_#979E92]'}`}>{on && <Check size={12} strokeWidth={3} />}</button>
                 <input value={o} onChange={e => setQ(i, { options: x.options.map((y, k) => k === j ? e.target.value : y) })} placeholder={`Antwort ${j + 1}`} className="flex-1 h-9 rounded-[8px] bg-sage-50 px-3 text-[14px] outline-none" />
                 {x.options.length > 2 && <button onClick={() => setQ(i, { options: x.options.filter((_, k) => k !== j), correct: x.correct.filter(c => c !== j).map(c => c > j ? c - 1 : c) })} className="text-mute hover:text-ink"><X size={14} /></button>}
               </div> })}
-              <button onClick={() => setQ(i, { options: [...x.options, ''] })} className="text-[13px] text-olive-700 pt-1">Antwort hinzufügen</button></div>
+              <button onClick={() => setQ(i, { options: [...x.options, ''] })} className="text-[13px] text-olive-700 pt-1">Antwort hinzufügen</button></div>}
           </div>)}
           <button onClick={() => setEdit({ ...edit, qs: [...edit.qs, emptyQ()] })} className={btn2}>Frage hinzufügen</button>
         </div>

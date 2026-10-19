@@ -5,8 +5,11 @@
 //   branch_day  {branch, date?}  Filialkalender: nur eigene Filiale(n), Büro alle
 //   team_today  {branch}         wer arbeitet heute: nur Filialleitung der Filiale oder Büro
 //   staff_week  {employee_id?}   Schichten der nächsten 7 Tage einer Person (ohne Kundendaten; für Profil)
+//   client_search {q}            Kundin suchen (Name, E-Mail oder Telefon), protokolliert
+//   client_history {client_id, months?, summary?} Besuche + Notizen der letzten Monate, auf Wunsch mit KI-Zusammenfassung, protokolliert
 //   sync_staff  {}               Zuordnung per Firmen-Mail neu aufbauen (nur Büro)
 import { createClient } from 'jsr:@supabase/supabase-js@2'
+import { aiJson, hasAI } from '../_shared/openai.ts'
 
 const BASE = 'https://api-gateway-eu.phorest.com/third-party-api-server/api/business/'
 const cors = {
@@ -124,6 +127,80 @@ Deno.serve(async (req) => {
         }))
       }
       return json({ ok: true, mapped: true, days: days.sort((a, b) => a.date.localeCompare(b.date)) })
+    }
+
+    if (body.action === 'client_search') {
+      const q = String(body.q ?? '').trim()
+      if (q.length < 3) return json({ ok: false, error: 'too_short' }, 400)
+      const digits = q.replace(/[^0-9]/g, '')
+      const paths: string[] = []
+      if (q.includes('@')) paths.push(`/client?email=${encodeURIComponent(q.toLowerCase())}&size=20`)
+      else if (digits.length >= 7) { const d = digits.replace(/^00/, '').replace(/^0/, '41'); paths.push(`/client?phone=${d}&size=20`, `/client?phone=${digits}&size=20`) }
+      else {
+        const parts = q.split(/\s+/)
+        if (parts.length >= 2) paths.push(`/client?firstName=${encodeURIComponent(parts[0])}&lastName=${encodeURIComponent(parts.slice(1).join(' '))}&size=20`)
+        paths.push(`/client?lastName=${encodeURIComponent(parts[parts.length - 1])}&size=20`, `/client?firstName=${encodeURIComponent(parts[0])}&size=20`)
+      }
+      const seen = new Map<string, any>()
+      for (const p of paths) { try { for (const c of (await ph(p))?._embedded?.clients ?? []) if (!c.archived && !c.deleted) seen.set(c.clientId, c) } catch { /* nächste Variante */ } }
+      await admin.from('client_lookups').insert({ employee_id: me.id, action: 'search', query: q.slice(0, 120), result_count: seen.size })
+      return json({ ok: true, clients: [...seen.values()].slice(0, 15).map((c) => ({
+        client_id: c.clientId, name: `${c.firstName ?? ''} ${c.lastName ?? ''}`.trim(),
+        phone_tail: String(c.mobile ?? c.landLine ?? '').replace(/\s/g, '').slice(-4), since: String(c.createdAt ?? c.firstVisit ?? '').slice(0, 10),
+      })) })
+    }
+
+    if (body.action === 'client_history') {
+      const cid = String(body.client_id ?? '')
+      if (!cid) return json({ ok: false, error: 'no_client' }, 400)
+      const months = Math.min(24, Math.max(1, Number(body.months) || 12))
+      const client = await ph(`/client/${encodeURIComponent(cid)}`)
+      // Phorest liefert Termine nur in Zeitfenstern (max. ~31 Tage); je Studio und Monat eine Abfrage
+      const windows = Array.from({ length: months }, (_, i) => {
+        const to = new Date(Date.now() - i * 30 * 864e5), from = new Date(to.getTime() - 30 * 864e5)
+        const f = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Zurich' }).format(d)
+        return [f(from), f(to)]
+      })
+      // Namen der Behandelnden direkt aus Phorest (alle Studios), nicht nur zugeordnete Konten
+      const sName = new Map<string, string>()
+      await Promise.all((branches ?? []).filter((b) => b.phorest_branch_id).map(async (b) => {
+        try { for (const x of (await ph(`/branch/${b.phorest_branch_id}/staff?size=200`))?._embedded?.staffs ?? []) sName.set(x.staffId, `${x.firstName ?? ''}`.trim()) } catch { /* ohne Namen weiter */ }
+      }))
+      const jobs: (() => Promise<any[]>)[] = []
+      for (const b of branches ?? []) {
+        if (!b.phorest_branch_id) continue
+        for (const [f, t] of windows) jobs.push(async () => {
+          try { const r = await ph(`/branch/${b.phorest_branch_id}/appointment?from_date=${f}&to_date=${t}&client_id=${encodeURIComponent(cid)}&fetch_canceled=true&fetch_notes=true&size=100`)
+            return (r?._embedded?.appointments ?? []).map((a: any) => ({ ...a, _branch: b.name })) } catch { return [] }
+        })
+      }
+      const all: any[] = []
+      for (let i = 0; i < jobs.length; i += 8) (await Promise.all(jobs.slice(i, i + 8).map((j) => j()))).forEach((x) => all.push(...x))
+      const byId = new Map(all.map((a) => [a.appointmentId, a]))
+      const visits = [...byId.values()].sort((a, b) => `${b.appointmentDate}${b.startTime}`.localeCompare(`${a.appointmentDate}${a.startTime}`)).map((a) => ({
+        date: a.appointmentDate, time: hhmm(a.startTime), branch: a._branch, service: a.serviceName ?? '', staff: sName.get(a.staffId) ?? '',
+        cancelled: !!(a.cancelled || a.activationState === 'CANCELED'), notes: String(a.notes ?? a.note ?? '').trim(),
+      }))
+      await admin.from('client_lookups').insert({ employee_id: me.id, action: 'history', client_id: cid, result_count: visits.length })
+      const info = {
+        name: `${client.firstName ?? ''} ${client.lastName ?? ''}`.trim(), since: String(client.clientSince ?? client.firstVisit ?? client.createdAt ?? '').slice(0, 10),
+        last_visit: String(client.lastVisit ?? '').slice(0, 10), preferred: sName.get(client.preferredStaffId) ?? '',
+      }
+      // Zusammenfassung: nur Besuche und Notizen, keine Kontaktdaten an das Sprachmodell
+      let summary: string | null = null
+      if (body.summary && hasAI() && visits.length) {
+        try {
+          const out = await aiJson<{ summary: string }>([
+            'Du fasst für eine Mitarbeiterin eines Kosmetikstudios die Historie einer Kundin aus Phorest zusammen, damit sie gut vorbereitet in den Termin geht.',
+            'Höchstens 6 kurze Zeilen, Schweizer Hochdeutsch, sachlich. Inhalt: seit wann Kundin, wie oft und welche Behandlungen meist, bei wem (nur wenn Namen vorhanden sind, sonst gar nicht erwähnen), letzter Besuch, Absagen nur wenn auffällig.',
+            'Aus den Notizen nur, was für die Behandlung zählt (Allergien, Unverträglichkeiten, Reklamationen, Vorlieben, Wünsche), mit Datum. Nichts erfinden; gibt es keine Notizen, sag das in einem Halbsatz.',
+            'Gib nur JSON zurück: {"summary": string}',
+          ].join('\n'), JSON.stringify({ kundin_seit: info.since, letzter_besuch: info.last_visit, bevorzugt: info.preferred, besuche: visits.slice(0, 80) }))
+          summary = String(out.summary ?? '').trim() || null
+          await admin.from('client_lookups').insert({ employee_id: me.id, action: 'summary', client_id: cid, result_count: visits.length })
+        } catch { summary = null }
+      }
+      return json({ ok: true, months, client: info, visits, summary })
     }
 
     if (body.action === 'sync_staff') {

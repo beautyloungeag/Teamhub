@@ -7,7 +7,7 @@ export type { Lang }
 
 /* ---------- Typen ---------- */
 export type Staff = { id: string; first: string; last: string; branch: string; branch_id: string; role: string; skills: string[]; photo: string | null; app_role: string; active: boolean; email: string; phone?: string | null; appInstalled?: boolean; pushEnabled?: boolean }
-export type News = { id: string; title: string; teaser: string; body: string; author: string; date: string; tag: string; mustRead: boolean; audience: string; audienceBranches: string[]; audienceGroups: string[]; audienceSkills: string[]; audiencePeople: string[]; publishAt: string; wikiCategory: string | null }
+export type News = { id: string; title: string; teaser: string; body: string; author: string; date: string; tag: string; mustRead: boolean; audience: string; audienceBranches: string[]; audienceGroups: string[]; audienceSkills: string[]; audiencePeople: string[]; publishAt: string; wikiCategory: string | null; image: string | null }
 export type TaskItem = { id: string; title: string; time: string; group: string; prio: boolean; proof: boolean; articleId: string | null }
 export type Template = { id: string; name: string; repeat: 'daily' | 'weekly' | 'monthly'; weekday: number | null; monthday: number | null; branchIds: string[]; items: TaskItem[]; active: boolean; proposed: boolean; sample: boolean }
 export type Done = { by: string; at: string; photo: string | null }
@@ -21,7 +21,7 @@ export type Branch = { id: string; name: string; is_office: boolean }
 export type Quiz = { id: string; newsId: string | null; articleId: string | null; title: string; passPct: number; sample: boolean }
 export type Attempt = { quizId: string; employeeId: string; scorePct: number; passed: boolean; at: string }
 export type QuizQuestion = { id: string; sort: number; kind: 'single' | 'multi' | 'text'; prompt: string; options: string[] }
-export type QuizResult = { score_pct: number; passed: boolean; pass_pct: number; correct: number; total: number; results: Record<string, boolean> }
+export type QuizResult = { score_pct: number; passed: boolean; pass_pct: number; correct: number; total: number; results: Record<string, boolean>; feedback?: Record<string, string>; error?: string }
 
 // Gruppen aus der Funktion – gleiche Regel wie public.job_groups() in der Datenbank
 export const GROUPS = ['Filialleitung', 'Kosmetikerinnen', 'Lernende', 'Büro'] as const
@@ -68,7 +68,7 @@ type Ctx = {
   registrations: { event_id: string; employee_id: string; coming: boolean }[]
   standby: { employee_id: string; day: string; note: string }[]; toggleStandby: (day: string) => Promise<void>
   demoData: boolean; setDemoData: (on: boolean) => Promise<void>
-  quizzes: Quiz[]; attempts: Attempt[]; submitQuiz: (quizId: string, answers: Record<string, number[]>) => Promise<QuizResult | null>
+  quizzes: Quiz[]; attempts: Attempt[]; submitQuiz: (quizId: string, answers: Record<string, number[] | string>) => Promise<QuizResult | null>
   wiki: WikiArticle[]; reloadWiki: () => Promise<void>; steps: Step[]; allSteps: Step[]; obDone: Set<string>; toggleStep: (id: string) => Promise<void>
   skills: string[]; setSkills: (s: string[]) => void
   photo: string | null; setPhotoFile: (f: File) => Promise<void>
@@ -165,11 +165,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
     setStaff((em.data ?? []).map((e: any) => toStaff(e, brs, photos)))
     setSkillCatalog((sk.data ?? []).map((s: any) => s.name))
+    const nImgs = new Map<string, string>()
+    const np = keep(nw.data).map((n: any) => n.image_path).filter(Boolean)
+    if (np.length) { const { data } = await sb.storage.from('media').createSignedUrls(np, 3600); for (const x of data ?? []) if (x.signedUrl && x.path) nImgs.set(x.path, x.signedUrl) }
     setNews(keep(nw.data).map((n: any) => ({
       id: n.id, title: n.title, teaser: n.teaser, body: n.body, author: n.author_name || 'Büro', tag: n.tag, mustRead: n.must_read,
       date: fmtDate(n.publish_at), audience: n.audience_people?.length ? `${n.audience_people.length} ${n.audience_people.length === 1 ? 'Person' : 'Personen'}` : [n.audience_branches?.length ? n.audience_branches.map(bname).join(', ') : 'Alle Studios', ...(n.audience_groups ?? []), ...(n.audience_skills ?? [])].join(' · '),
       audienceBranches: n.audience_branches ?? [], audienceGroups: n.audience_groups ?? [], audienceSkills: n.audience_skills ?? [], audiencePeople: n.audience_people ?? [],
-      publishAt: n.publish_at, wikiCategory: n.wiki_category,
+      publishAt: n.publish_at, wikiCategory: n.wiki_category, image: n.image_path ? nImgs.get(n.image_path) ?? null : null,
     })))
     setNewsReads((rd.data ?? []) as Ctx['newsReads'])
     const items = (ti.data ?? []) as any[]
@@ -302,8 +305,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setStatus: async (id, s) => { await sb.from('tickets').update({ status: s }).eq('id', id); await reload() },
     events, joined, declined, registrations, standby, demoData, quizzes, attempts,
     submitQuiz: async (quizId, answers) => {
-      const { data, error } = await sb.rpc('submit_quiz', { p_quiz: quizId, p_answers: answers })
-      if (error) return null
+      // Auswertung in der Function `quiz` (Freitext bewertet die KI); Lösungen bleiben auf dem Server
+      const { data, error } = await sb.functions.invoke('quiz', { body: { quiz_id: quizId, answers } })
+      if (error) { let e = 'failed'; try { e = (await (error as { context?: Response }).context?.json())?.error ?? e } catch { /* egal */ } return { error: e } as QuizResult }
       await reload()
       return data as QuizResult
     },
