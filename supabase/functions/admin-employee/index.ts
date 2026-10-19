@@ -1,5 +1,7 @@
-// Mitarbeiterin anlegen oder deaktivieren (nur Büro). Legt das Anmeldekonto still an —
-// es geht keine Einladung raus; anmelden kann sie sich, sobald sie die App-Adresse hat.
+// Personen verwalten. Büro: alles. Filialleitung: im eigenen Studio Mitarbeiterinnen anlegen,
+// deaktivieren und wieder aktivieren. Endgültig löschen nur das Büro.
+// Legt das Anmeldekonto still an — es geht keine Einladung raus; anmelden kann sie sich mit
+// ihrer Firmen-Mail und dem Code, sobald sie die App-Adresse hat.
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 
 const cors = {
@@ -14,29 +16,46 @@ Deno.serve(async (req) => {
   const url = Deno.env.get('SUPABASE_URL')!
   const user = createClient(url, Deno.env.get('SUPABASE_ANON_KEY')!, { global: { headers: { Authorization: req.headers.get('Authorization') ?? '' } } })
   const { data: me } = await user.rpc('current_employee')
-  if (me?.app_role !== 'buero') return json({ ok: false, error: 'forbidden' }, 403)
+  const office = me?.app_role === 'buero', lead = me?.app_role === 'filialleitung'
+  if (!office && !lead) return json({ ok: false, error: 'forbidden' }, 403)
+  // Studios der Filialleitung (ohne Büro)
+  const mine: string[] = [me.branch_id, ...(me.extra_branch_ids ?? [])].filter((b: string) => b && b !== 'buero')
   const admin = createClient(url, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
   const b = await req.json().catch(() => ({}))
 
   if (b.action === 'create') {
     const email = String(b.email ?? '').trim().toLowerCase()
     if (!/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/.test(email) || !b.first_name || !b.last_name || !b.branch_id) return json({ ok: false, error: 'missing_fields' }, 400)
-    const role = ['mitarbeiterin', 'filialleitung', 'buero'].includes(b.app_role) ? b.app_role : 'mitarbeiterin'
+    if (lead && !mine.includes(b.branch_id)) return json({ ok: false, error: 'forbidden' }, 403)
+    const role = office && ['mitarbeiterin', 'filialleitung', 'buero'].includes(b.app_role) ? b.app_role : 'mitarbeiterin'
     const { data: emp, error } = await admin.from('employees').insert({
       email, first_name: String(b.first_name).trim(), last_name: String(b.last_name).trim(), job_title: String(b.job_title ?? '').trim(),
-      app_role: role, branch_id: b.branch_id, phone: b.phone ?? null,
+      app_role: role, branch_id: b.branch_id, phone: b.phone ?? null, skills: Array.isArray(b.skills) ? b.skills : [],
     }).select('id').single()
     if (error) return json({ ok: false, error: /duplicate/.test(error.message) ? 'exists' : error.message }, 400)
-    // Trigger link_auth_user verknüpft das Konto per E-Mail
+    // Trigger link_auth_user verknüpft das Konto per E-Mail. Ohne Login-Konto keine halbe Person zurücklassen.
     const { error: ae } = await admin.auth.admin.createUser({ email, email_confirm: true })
-    // Ohne Login-Konto keine halbe Person zurücklassen: Zeile wieder entfernen, damit ein neuer Versuch klappt
     if (ae && !/already/i.test(ae.message)) { await admin.from('employees').delete().eq('id', emp.id); return json({ ok: false, error: 'auth_failed', detail: ae.message }, 500) }
     return json({ ok: true, employee_id: emp.id })
   }
+
+  // Für set_active und delete: Zielperson laden und Rechte prüfen
+  const { data: target } = await admin.from('employees').select('id, auth_user_id, branch_id, app_role').eq('id', String(b.employee_id ?? '')).maybeSingle()
+  if (!target) return json({ ok: false, error: 'not_found' }, 404)
+  if (target.id === me.id && (b.action === 'delete' || !b.active)) return json({ ok: false, error: 'self' }, 400)
+  if (lead && (!mine.includes(target.branch_id) || target.app_role === 'buero')) return json({ ok: false, error: 'forbidden' }, 403)
+
   if (b.action === 'set_active') {
-    if (b.employee_id === me.id && !b.active) return json({ ok: false, error: 'self' }, 400)
-    const { error } = await admin.from('employees').update({ active: !!b.active, updated_at: new Date().toISOString() }).eq('id', b.employee_id)
+    const { error } = await admin.from('employees').update({ active: !!b.active, updated_at: new Date().toISOString() }).eq('id', target.id)
     return error ? json({ ok: false, error: error.message }, 400) : json({ ok: true })
+  }
+  if (b.action === 'delete') {
+    if (!office) return json({ ok: false, error: 'forbidden' }, 403)
+    // Verlauf bleibt erhalten (Meldungen, Nachweise behalten den Namen), persönliche Daten gehen mit
+    const { error } = await admin.from('employees').delete().eq('id', target.id)
+    if (error) return json({ ok: false, error: error.message }, 400)
+    if (target.auth_user_id) await admin.auth.admin.deleteUser(target.auth_user_id).catch(() => null)
+    return json({ ok: true })
   }
   return json({ ok: false, error: 'unknown_action' }, 400)
 })

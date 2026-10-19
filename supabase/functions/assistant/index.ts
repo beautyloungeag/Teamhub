@@ -1,10 +1,12 @@
 // Benni, der Assistent im TeamHub (BLTH-25). Kennt die Person, die fragt (Rolle, Studio, Lage im
 // TeamHub), holt sich Termine, Kundinnen, Kolleginnen, Behandlungen und mehr selbst aus Phorest,
 // beantwortet Fachfragen nur aus dem freigegebenen Wissen und schlägt bei nicht lösbaren Anliegen
-// eine Meldung vor. Schreibt selbst nur den eigenen Onboarding-Fortschritt.
-// Mit {stream: true} kommen Arbeitsschritte als NDJSON ({step, detail}), am Ende {done: true, …}.
+// eine Meldung vor. Schreibt selbst nur den eigenen Onboarding-Fortschritt und die eigenen Chats.
+// Body: {chat_id?, message, files?, model?: schnell|standard|stark, web?, stream?}. Mit chat_id speichert die
+// Function Frage und Antwort selbst (benni_chats/benni_messages) und gibt dem Chat beim ersten Mal einen Titel.
+// Mit {stream: true} kommen Arbeitsschritte als NDJSON ({step, detail} | {title}), am Ende {done: true, …}.
 // Secrets: OPENAI_API_KEY (optional; ohne ihn antwortet Benni nur aus dem Wissen),
-//          ASSISTANT_MODEL, ASSISTANT_REASONING (optional).
+//          ASSISTANT_MODEL, ASSISTANT_REASONING, TITLE_MODEL (optional).
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 
 const cors = {
@@ -16,6 +18,13 @@ const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: 
 
 type Article = { id: string; category: string; title: string; body: string }
 type Answer = { text: string; sources: { id: string; title: string }[]; ticket?: { kind: 'Meldung' | 'Idee'; title: string } }
+type File = { name: string; mime: string; data?: string; text?: string }
+// Modellwahl in der Eingabeleiste
+const MODELS: Record<string, { id: string; effort: string }> = {
+  schnell: { id: 'gpt-5.4-mini', effort: 'low' },
+  standard: { id: Deno.env.get('ASSISTANT_MODEL') ?? 'gpt-5.6-sol', effort: Deno.env.get('ASSISTANT_REASONING') ?? 'low' },
+  stark: { id: 'gpt-6.1-sol', effort: 'medium' },
+}
 
 const words = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').split(/[^a-z0-9äöü]+/).filter((w) => w.length > 2)
 const STOP = new Set(['wie', 'was', 'wer', 'die', 'der', 'das', 'und', 'ist', 'ich', 'mit', 'fur', 'fuer', 'bei', 'wird', 'eine', 'einen', 'lange', 'kann', 'habe', 'noch', 'soll', 'darf', 'muss'])
@@ -48,10 +57,13 @@ const APP_GUIDE = `Handy-App (alle Rollen), unten fünf Reiter: Heute, Aufgaben,
 - Heute: Schicht und Anzahl Termine aus Phorest, Abschnitt „Bitte lesen“ für Pflicht-News, Tagesaufgaben mit Fortschritt, „Mein Tag“ (eigene Kundentermine), News. Filialleitung zusätzlich „Heute im Studio“.
 - Aufgaben: Tagesaufgaben des eigenen Studios, gruppiert nach Listen (Vorlagen vom Büro, z. B. Öffnung, Mittag, Schliessung, Wochenputz). Abhaken mit „Erledigt“, bei manchen mit Foto als Nachweis. Name und Uhrzeit werden gespeichert.
 - Wissen: Suche, Onboarding für Neue („Mit Benni lernen“), alle Artikel des bisherigen Wikis. Unter manchen Artikeln und Pflicht-News ein Quiz (bestanden ab 80 %).
-- Menü: eigenes Profil (Arbeitszeiten der Woche, Aushilfe-Tage eintragen, Sprache DE/EN/FR, Mitteilungen einschalten), Kundentermine (eigenes Studio live aus Phorest, Büro alle), Kundenhistorie (Besuche und Notizen einer Kundin), News, Kalender (eigene Termine aus Phorest sowie Schulungen und Events mit „Ich komme“ / „Ich komme nicht“, Filter oben), Team (Kolleginnen, Skills, anrufen), Melden & Ideen (Meldung mit Foto oder Video, Ideen unterstützen, kommentieren), Posteingang (Webmail), Zeit & Ferien (Timebutler), Verbindungen.
+- Wissen ist nach Kategorien geordnet (Karten mit Bild), darin die Artikel als Liste.
+- Benni: mehrere Chats (oben „Chats“, neuer Chat, löschen), Dateien und Fotos anhängen (Büroklammer), diktieren (Mikrofon), Modell wählen (Schnell, Standard, Gründlich) und Websuche einschalten.
+- Eigenes Profil: am Handy über das Bild oben rechts auf „Heute“ oder im Menü, am Desktop unten in der Seitenleiste. Dort Arbeitszeiten der Woche, Aushilfe-Tage, Sprache DE/EN/FR, Mitteilungen, Profilbild. Skills vergibt die Filialleitung oder das Büro.
+- Menü: Kundentermine (eigenes Studio live aus Phorest, Büro alle; Tipp auf einen Termin zeigt Notizen und Historie), Kundenhistorie (Besuche und Notizen einer Kundin), News, Kalender (eigene Termine aus Phorest sowie Schulungen und Events mit „Ich komme“ / „Ich komme nicht“, Filter oben), Team (Kolleginnen mit Telefon und E-Mail), Melden & Ideen (Meldung mit Foto oder Video für ein wählbares Studio, Meldungen und Ideen der anderen sehen und mit dem Pfeil nach oben unterstützen, kommentieren), Zeit & Ferien (Timebutler), Verbindungen.
 - Pflicht-News gelten erst als bestätigt, wenn man sie öffnet und unten „Gelesen und verstanden“ tippt. Hat sie ein Quiz, gilt sie mit dem bestandenen Quiz als bestätigt.
 - Ferien beantragen und Zeiterfassung laufen in Timebutler (Menü → Zeit & Ferien), nicht im TeamHub.
-Backoffice am Desktop (Filialleitung für das eigene Studio, Büro für alle): Übersicht, Kundentermine, News (nur Büro, mit Benni-Entwurf), Aufgaben (Vorlagen anlegen nur Büro), Meldungen & Ideen, Schulungen & Events, Aushilfe (wer kann an einem Tag einspringen), Lernen (Quiz und Nachweise), Team & Skills, Studios und Wissen (beide nur Büro). Am Handy gibt es kein Backoffice.`
+Backoffice am Desktop (Filialleitung für das eigene Studio, Büro für alle): Übersicht, Kundentermine, News (nur Büro, mit Benni-Entwurf), Aufgaben (Vorlagen anlegen nur Büro), Meldungen & Ideen, Schulungen & Events, Aushilfe (wer kann an einem Tag einspringen), Lernen (Quiz und Nachweise), Team & Skills (Filialleitung: eigenes Studio, Personen anlegen, Skills vergeben, deaktivieren; löschen nur Büro), Studios und Wissen (beide nur Büro). Am Handy gibt es kein Backoffice.`
 
 function phorestGuide(ids: string) {
   return `Liest Phorest direkt (nur GET). Pfad relativ zum Business, ohne Domain. Filial-IDs: ${ids}.
@@ -85,9 +97,32 @@ Deno.serve(async (req) => {
     const d = await r.json().catch(() => ({}))
     return json({ ok: r.ok, status: r.status, models: (d.data ?? []).map((m: any) => m.id).filter((id: string) => /^(gpt|o\d|chatgpt)/.test(id)).sort(), error: d.error?.message })
   }
-  const { message = '', history = [], stream = false } = body
-  const q = String(message).slice(0, 2000)
-  if (!q.trim()) return json({ ok: false, error: 'empty' }, 400)
+  const { message = '', stream = false } = body
+  const files: File[] = (Array.isArray(body.files) ? body.files : []).slice(0, 4)
+    .filter((f: any) => f && typeof f.name === 'string' && (typeof f.text === 'string' || (typeof f.data === 'string' && f.data.length < 14e6)))
+    .map((f: any) => ({ name: String(f.name).slice(0, 120), mime: String(f.mime ?? 'application/octet-stream'), data: f.data, text: typeof f.text === 'string' ? f.text.slice(0, 60000) : undefined }))
+  const q = String(message).slice(0, 4000).trim() || (files.length ? 'Schau dir bitte die Datei an.' : '')
+  if (!q) return json({ ok: false, error: 'empty' }, 400)
+  const tier = MODELS[body.model] ? String(body.model) : 'standard'
+  const web = body.web === true
+
+  // Gespräch: eigener Chat (RLS), Verlauf aus der Datenbank, Frage sofort speichern
+  const chatId: string | null = typeof body.chat_id === 'string' && body.chat_id ? body.chat_id : null
+  let chat: { id: string; title: string } | null = null
+  let history: { me: boolean; t: string }[] = Array.isArray(body.history) ? body.history : []
+  let prevResponse: { id: string; model: string } | null = null
+  if (chatId) {
+    const { data: c } = await db.from('benni_chats').select('id, title').eq('id', chatId).maybeSingle()
+    if (!c) return json({ ok: false, error: 'chat_not_found' }, 404)
+    chat = c
+    const { data: rows } = await db.from('benni_messages').select('role, text, data, created_at').eq('chat_id', chatId).order('created_at', { ascending: false }).limit(16)
+    const list = (rows ?? []).reverse() as any[]
+    history = list.map((r) => ({ me: r.role === 'user', t: r.text + (r.data?.files?.length ? ` [Anhang: ${r.data.files.map((f: any) => f.name).join(', ')}]` : '') }))
+    const lastA = [...list].reverse().find((r) => r.role === 'assistant')
+    // OpenAI hält den Gesprächsstand 30 Tage; damit kennt Benni auch Dateien und Werkzeugergebnisse von vorher
+    if (lastA?.data?.response_id && Date.now() - new Date(lastA.created_at).getTime() < 25 * 864e5) prevResponse = { id: lastA.data.response_id, model: lastA.data.model }
+    await db.from('benni_messages').insert({ chat_id: chatId, role: 'user', text: q, data: files.length ? { files: files.map((f) => ({ name: f.name, kind: f.mime.startsWith('image/') ? 'image' : 'file' })) } : {} })
+  }
 
   // Arbeitsschritte an die App (nur bei stream)
   const enc = new TextEncoder()
@@ -177,17 +212,26 @@ Deno.serve(async (req) => {
       '- Phorest ist die Quelle für Termine, Schichten, Kundinnen, freie Zeiten, Behandlungen, Preise und Dauer. Eigener Tag: my_day. Eigene Woche: my_week. Wer arbeitet, wer hat wann frei, alle Termine eines Studios: studio_day. Kundin (Historie, letzte Besuche, nächster Termin, worauf achten): client_history. Behandlungen, Preis, Dauer, online buchbar: services.' + (lead ? ' Alles andere aus Phorest (Produkte und Lager, Bewertungen, Gutscheine, Pakete, Räume, Geräte, wer welche Behandlung macht): phorest_read.' : ''),
       '- Zeitangaben wie heute, morgen, übermorgen, Freitag, nächste Woche oder „um 14 Uhr“ rechnest du selbst in ein Datum um. Bei einer Uhrzeit nennst du den Termin, der dann beginnt oder läuft.',
       '- „Worauf muss ich bei ihr achten“ oder „Was hatte sie zuletzt“ zu einer Kundin aus einem Plan: client_history mit der client_id aus my_day oder studio_day. Fehlt sie bei einer Anschlussfrage, hol den Tag erneut. Frag dafür nicht nach Name, E-Mail oder Telefon.',
+      '- Geht es um eine bestimmte Kundin (Karte, Kontakt, Telefon, E-Mail, Historie, nächster Termin, „zeig mir …“), ruf client_history auf (mit der client_id aus my_day oder studio_day, sonst mit dem Namen) und setz client_card auf ihre client_id: Die App zeigt dann eine Kundenkarte mit Kontakt, Besuchen, nächsten Terminen und Notizen. Im Text dann nur das Wichtigste in 1 bis 3 Sätzen, nichts aus der Karte doppelt aufzählen.',
       '- Fachfragen (Behandlungen, Hygiene, Abläufe, Geräte, Regeln) beantwortest du nur aus dem Wissen: zuerst die Vorauswahl unten, sonst search_knowledge und read_article. Steht es nicht drin, sag das ehrlich und erfinde nichts.',
       '- Fragen zu News: news. Wege in der App erklärst du mit dem App-Leitfaden unten.',
-      `- Rechte: ${me.app_role === 'mitarbeiterin' ? 'Du siehst Termine nur für das eigene Studio und nur den eigenen Dienstplan im Detail.' : me.app_role === 'filialleitung' ? `Du siehst Phorest für das eigene Studio (${studio}).` : 'Du siehst Phorest für alle Studios.'} Telefonnummern, E-Mail-Adressen und Adressen von Kundinnen gibst du nie weiter.`,
-      '- Lernen: Will jemand lernen oder mit dem Onboarding weitermachen, nutze onboarding_status, nimm den ersten offenen Schritt, lies den Artikel mit read_article und erkläre ihn in einem kurzen Häppchen (höchstens 6 Sätze). Stelle danach eine einfache Kontrollfrage. Ist die Antwort im Kern richtig, lobe kurz, markiere den Schritt mit mark_step_done und biete den nächsten an.',
+      `- Rechte: ${me.app_role === 'mitarbeiterin' ? 'Du siehst Termine nur für das eigene Studio und nur den eigenen Dienstplan im Detail.' : me.app_role === 'filialleitung' ? `Du siehst Phorest für das eigene Studio (${studio}).` : 'Du siehst Phorest für alle Studios.'} Kontaktdaten von Kundinnen (Telefon, E-Mail) gibst du dem Team gern, wenn danach gefragt wird; sie sind für die Arbeit da (Termin verschieben, Rückruf). Nach aussen gibst du nichts weiter.`,
+      '- Lernmodus (Onboarding, „lass uns lernen“, „Nächste Lektion“): onboarding_status, ersten offenen Schritt nehmen, Artikel mit read_article lesen. Dann so:',
+      '  1. Erklär den Schritt in Lernkarten: cards mit 1 bis 3 Karten, je {"title": kurzer Titel, "body": 2 bis 4 Sätze oder eine kurze Liste mit „- “}. Eine Karte, ein Gedanke, nur aus dem Artikel. Der text ist dann nur die Überleitung („Bereit für eine Kontrollfrage?“) mit choices ["Ja, frag mich", "Erst weiterlernen"].',
+      '  2. „Erst weiterlernen“: weitere Karten zum selben Schritt (vertiefen, Beispiele aus dem Artikel), danach wieder dieselbe Überleitung.',
+      '  3. „Ja, frag mich“: genau eine Kontrollfrage in quiz {"question": string, "options": 3 kurze Antworten, davon eine richtig, gemischt; oder [] für eine freie Antwort}. text nur „Frage 1 von 2“. Die Lernkarten sind dabei verdeckt, also nichts verraten.',
+      '  4. Nach jeder Antwort sagst du kurz, ob sie stimmt und warum (ein bis zwei Sätze). Je Schritt stellst du 2 Fragen nacheinander, jede in einer eigenen Antwort mit quiz. Nach der letzten Frage: reveal true (die Karten werden aufgedeckt), bei mindestens einer richtigen Antwort mark_step_done, dann choices ["Nächste Lektion", "Pause"]. Bei zwei falschen Antworten: Karte noch einmal anders erklären statt abhaken.',
+      '  5. Sind alle Schritte erledigt, gratulier kurz.',
+      '- choices sonst nur, wenn es wenige klare Antwortmöglichkeiten gibt (z. B. welche von zwei Kundinnen), höchstens 3, je höchstens 4 Wörter.',
       '- Kannst du ein Anliegen nicht lösen (etwas ist kaputt, Personal- oder Betriebsanliegen), schlag eine Meldung vor. Verbesserungsvorschläge sind eine Idee.',
       `- Studios: ${studios.map((b: any) => `${b.name} (id ${b.id})`).join(', ')}.`,
       '\n## Antwortstil',
-      'Wie eine erfahrene, herzliche Kollegin: kurz, konkret, per du (klein geschrieben), Schweizer Hochdeutsch (ss statt ß), in der Sprache der Frage (Deutsch, Englisch oder Französisch). Erst die Antwort, dann höchstens ein hilfreicher nächster Schritt. Mehrere Punkte als Liste mit „- “, wichtige Wörter sparsam **fett**. Keine Floskeln, keine Überschriften.',
+      'Wie eine erfahrene, herzliche Kollegin: kurz, konkret, per du (das Du klein geschrieben, sonst normale Gross- und Kleinschreibung), Schweizer Hochdeutsch (ss statt ß), in der Sprache der Frage (Deutsch, Englisch oder Französisch). Erst die Antwort, dann höchstens ein hilfreicher nächster Schritt. Mehrere Punkte als Liste mit „- “, wichtige Wörter sparsam **fett**. Keine Floskeln, keine Überschriften.',
+      ...(web ? ['- Websuche ist eingeschaltet: Für aktuelle oder allgemeine Fragen ausserhalb von Phorest und Wiki darfst du im Web suchen und nennst kurz die Quelle. Interne Abläufe und Regeln weiterhin nur aus dem Wissen.'] : []),
+      ...(files.length ? [`- Die Person hat Dateien angehängt (${files.map((f) => f.name).join(', ')}). Lies sie und beziehe dich konkret darauf.`] : []),
       `\n## App-Leitfaden\n${APP_GUIDE}`,
       '\n## Ausgabe',
-      'Gib am Ende ausschliesslich JSON zurück: {"text": string, "source_ids": string[], "ticket": null | {"kind": "Meldung"|"Idee", "title": string}}. source_ids sind die IDs der Wissensartikel, auf die sich die Antwort stützt.',
+      'Gib am Ende ausschliesslich JSON zurück: {"text": string, "source_ids": string[], "ticket": null | {"kind": "Meldung"|"Idee", "title": string}, "client_card": null | string, "cards": [{"title": string, "body": string}], "quiz": null | {"question": string, "options": string[]}, "choices": string[], "reveal": boolean}. source_ids sind die IDs der Wissensartikel, auf die sich die Antwort stützt. Nicht genutzte Felder: null, [] oder false.',
       `\n## Passende Wissensartikel (Vorauswahl)\n${context || '(keine passenden Artikel)'}`,
     ].join('\n')
 
@@ -209,6 +253,7 @@ Deno.serve(async (req) => {
     const params = (p: Record<string, unknown>, r: string[]) => ({ type: 'object', properties: p, required: r })
 
     const readIds = new Set<string>()
+    const clientCards = new Map<string, Record<string, unknown>>()
     const runTool = async (name: string, args: any): Promise<unknown> => {
       if (name === 'my_day') {
         if (!okDate(args.date)) return { error: 'datum_ungueltig', erlaubt: `${zDay(-60)} bis ${zDay(60)}` }
@@ -239,7 +284,16 @@ Deno.serve(async (req) => {
         const hist = async (id: string) => {
           const h = await phorestCall({ action: 'client_history', client_id: id, months: 12 })
           if (!h.ok) return { error: 'phorest_nicht_erreichbar' }
-          return { kundin: h.client, besuche: (h.visits ?? []).slice(0, 60), kommende_termine: h.upcoming ?? [] }
+          const visits = (h.visits ?? []) as any[], done = visits.filter((v) => !v.cancelled)
+          // Kundenkarte für die App (zeigt Benni nur, wenn er client_card setzt)
+          clientCards.set(id, {
+            client_id: id, name: h.client?.name ?? '', since: h.client?.since ?? '', last_visit: h.client?.last_visit ?? '', preferred: h.client?.preferred ?? '',
+            email: h.client?.email ?? '', phone: h.client?.phone ?? '', visits: done.length, cancelled: visits.length - done.length,
+            recent: done.slice(0, 3).map((v) => ({ date: v.date, time: v.time, service: v.service, staff: v.staff, branch: v.branch })),
+            upcoming: (h.upcoming ?? []).slice(0, 2).map((v: any) => ({ date: v.date, time: v.time, service: v.service, staff: v.staff, branch: v.branch })),
+            notes: visits.filter((v) => v.notes).slice(0, 3).map((v) => ({ date: v.date, text: String(v.notes).slice(0, 240) })),
+          })
+          return { client_id: id, kundin: h.client, besuche: visits.slice(0, 60), kommende_termine: h.upcoming ?? [] }
         }
         if (args.client_id) return await hist(String(args.client_id))
         const s = await phorestCall({ action: 'client_search', q: String(args.query ?? '') })
@@ -288,27 +342,47 @@ Deno.serve(async (req) => {
         })
       }
       if (name === 'mark_step_done') {
+        emit({ step: 'step_done' })
         const { error } = await db.from('onboarding_progress').insert({ step_id: String(args.step_id ?? ''), employee_id: me.id })
         return error && !/duplicate/.test(error.message) ? { error: 'nicht_gespeichert' } : { ok: true }
       }
       return { error: 'unbekanntes_werkzeug' }
     }
 
-    const finish = (raw: string) => {
+    const links = new Map<string, string>()
+    let responseId: string | null = null
+    const finish = async (raw: string) => {
       emit({ step: 'write' })
-      let o: any = {}
-      try { o = JSON.parse(raw || '{}') } catch { o = { text: raw } }
-      const answer: Answer = {
+      // Mit Websuche gibt es keinen strengen JSON-Modus: das Objekt aus dem Text lösen
+      let o: any = { text: raw }
+      try { o = JSON.parse(raw || '{}') } catch {
+        const a = raw.indexOf('{'), b = raw.lastIndexOf('}')
+        if (a >= 0 && b > a) try { o = JSON.parse(raw.slice(a, b + 1)) } catch { /* bleibt Text */ }
+      }
+      const str = (x: unknown, n: number) => String(x ?? '').trim().slice(0, n)
+      const cards = (Array.isArray(o.cards) ? o.cards : []).slice(0, 4).map((c: any) => ({ title: str(c?.title, 120), body: str(c?.body, 1200) })).filter((c: any) => c.body)
+      // Antwortmöglichkeiten mischen: Modelle setzen die richtige gern an den Anfang
+      const quiz = o.quiz?.question ? { question: str(o.quiz.question, 400), options: (Array.isArray(o.quiz.options) ? o.quiz.options : []).slice(0, 4).map((x: unknown) => str(x, 160)).filter(Boolean).sort(() => Math.random() - 0.5) } : null
+      // Karte gewünscht, aber Historie nicht geholt: jetzt holen
+      if (typeof o.client_card === 'string' && o.client_card && !clientCards.has(o.client_card)) await runTool('client_history', { client_id: o.client_card }).catch(() => null)
+      const card = typeof o.client_card === 'string' ? clientCards.get(o.client_card) ?? (clientCards.size === 1 ? [...clientCards.values()][0] : null) : null
+      const answer = {
         text: String(o.text ?? '').trim(),
         sources: [...new Set([...(o.source_ids ?? []), ...readIds])].filter((id: string) => byId.has(id)).map((id: string) => ({ id, title: byId.get(id)! })),
         ...(o.ticket?.title ? { ticket: { kind: o.ticket.kind === 'Idee' ? 'Idee' : 'Meldung', title: String(o.ticket.title).slice(0, 200) } } : {}),
+        ...(card ? { card } : {}),
+        ...(cards.length ? { cards } : {}),
+        ...(quiz ? { quiz } : {}),
+        ...(Array.isArray(o.choices) && o.choices.length && !quiz?.options.length ? { choices: o.choices.slice(0, 3).map((x: unknown) => str(x, 40)).filter(Boolean) } : {}),
+        ...(o.reveal === true ? { reveal: true } : {}),
+        ...(links.size ? { links: [...links].slice(0, 5).map(([url, title]) => ({ url, title })) } : {}),
       }
-      return { ok: true, mode: 'ki', ...answer }
+      return { ok: true, mode: 'ki', ...answer, response_id: responseId, model: model }
     }
-    const past = Array.isArray(history) ? history.slice(-12).map((h: any) => ({ role: h.me ? 'user' : 'assistant', content: String(h.t ?? '').slice(0, 2000) })) : []
-    const model = Deno.env.get('ASSISTANT_MODEL') ?? 'gpt-5.6-sol'
+    const past = history.slice(-12).map((h: any) => ({ role: h.me ? 'user' : 'assistant', content: String(h.t ?? '').slice(0, 2000) }))
+    const { id: model, effort } = MODELS[tier]
     const ai = async (path: string, payload: unknown) => {
-      const r = await fetch(`https://api.openai.com/v1/${path}`, { method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify(payload), signal: AbortSignal.timeout(90000) })
+      const r = await fetch(`https://api.openai.com/v1/${path}`, { method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify(payload), signal: AbortSignal.timeout(150000) })
       if (!r.ok) throw new Error(`openai_${r.status}: ${(await r.text()).slice(0, 300)}`)
       return await r.json()
     }
@@ -316,27 +390,48 @@ Deno.serve(async (req) => {
       let args: any = {}; try { args = JSON.parse(c.args || '{}') } catch { /* leer */ }
       return { id: c.id, output: JSON.stringify(await runTool(c.name, args)).slice(0, 14000) }
     }))
+    // Frage samt Anhängen: Bilder direkt, PDF und Office-Dateien als Datei, ausgelesener Text als Text
+    const userParts = [{ type: 'input_text', text: q }, ...files.map((f) => f.text != null
+      ? { type: 'input_text', text: `Datei „${f.name}“:\n${f.text}` }
+      : f.mime.startsWith('image/') ? { type: 'input_image', image_url: `data:${f.mime};base64,${f.data}`, detail: 'auto' }
+      : { type: 'input_file', filename: f.name, file_data: `data:${f.mime};base64,${f.data}` })]
 
     // Responses-API: Werkzeuge mit Nachdenken (macht Benni deutlich klüger)
     const viaResponses = async () => {
-      const tools = defs.map(([name, description, p, r]) => ({ type: 'function', name, description, parameters: params(p, r) }))
-      let input: any[] = [{ role: 'developer', content: 'Antworte am Ende als JSON-Objekt wie in den Anweisungen beschrieben.' }, ...past, { role: 'user', content: q }], prev: string | undefined
-      for (let round = 0; round < 8; round++) {
-        const res = await ai('responses', { model, instructions: sys, input, tools, reasoning: { effort: Deno.env.get('ASSISTANT_REASONING') ?? 'low' }, text: { format: { type: 'json_object' } }, ...(prev ? { previous_response_id: prev } : {}) })
-        prev = res.id
+      let webTool = 'web_search'
+      const tools = () => [...defs.map(([name, description, p, r]) => ({ type: 'function', name, description, parameters: params(p, r) })), ...(web ? [{ type: webTool }] : [])]
+      // Gleiches Modell wie zuletzt: am gespeicherten Stand weitermachen, sonst Verlauf als Text
+      let usePrev = !!prevResponse && prevResponse.model === model
+      const first = () => [{ role: 'developer', content: 'Antworte am Ende als JSON-Objekt wie in den Anweisungen beschrieben.' }, ...(usePrev ? [] : past), { role: 'user', content: userParts }]
+      let input: any[] = first(), prev: string | undefined = usePrev ? prevResponse!.id : undefined
+      for (let round = 0; round < 10; round++) {
+        let res: any
+        try {
+          res = await ai('responses', { model, instructions: sys, input, tools: tools(), reasoning: { effort }, ...(web ? {} : { text: { format: { type: 'json_object' } } }), ...(prev ? { previous_response_id: prev } : {}) })
+        } catch (e) {
+          const m = String(e)
+          if (round === 0 && usePrev && /previous|not found|404/i.test(m)) { usePrev = false; input = first(); prev = undefined; round--; continue }
+          if (web && webTool === 'web_search' && /web_search/.test(m)) { webTool = 'web_search_preview'; round--; continue }
+          throw e
+        }
+        prev = res.id; responseId = res.id
+        for (const w of (res.output ?? []).filter((o: any) => o.type === 'web_search_call')) emit({ step: 'web', detail: String(w.action?.query ?? '') })
         const calls = (res.output ?? []).filter((o: any) => o.type === 'function_call')
         if (calls.length) {
           input = (await run(calls.map((c: any) => ({ id: c.call_id, name: c.name, args: c.arguments })))).map((x) => ({ type: 'function_call_output', call_id: x.id, output: x.output }))
           continue
         }
-        return finish((res.output ?? []).filter((o: any) => o.type === 'message').flatMap((o: any) => o.content ?? []).filter((c: any) => c.type === 'output_text').map((c: any) => c.text).join(''))
+        const parts = (res.output ?? []).filter((o: any) => o.type === 'message').flatMap((o: any) => o.content ?? []).filter((c: any) => c.type === 'output_text')
+        for (const a of parts.flatMap((c: any) => c.annotations ?? [])) if (a.type === 'url_citation' && a.url && !links.has(a.url)) links.set(a.url, String(a.title ?? new URL(a.url).hostname).slice(0, 120))
+        return finish(parts.map((c: any) => c.text).join(''))
       }
       throw new Error('too_many_rounds')
     }
-    // Rückfall: chat/completions (Werkzeuge nur ohne Nachdenken)
+    // Rückfall: chat/completions (Werkzeuge nur ohne Nachdenken, Anhänge nur Bilder und Text)
     const viaChat = async () => {
       const tools = defs.map(([name, description, p, r]) => ({ type: 'function', function: { name, description, parameters: params(p, r) } }))
-      const msgs: any[] = [{ role: 'system', content: sys }, ...past, { role: 'user', content: q }]
+      const content = userParts.map((p: any) => p.type === 'input_image' ? { type: 'image_url', image_url: { url: p.image_url } } : p.type === 'input_file' ? { type: 'text', text: `(Datei „${p.filename}“ konnte hier nicht gelesen werden)` } : { type: 'text', text: p.text })
+      const msgs: any[] = [{ role: 'system', content: sys + (web ? '\n\nDie Websuche ist gerade nicht verfügbar. Sag ehrlich, dass du im Web nicht nachsehen konntest, und rate nichts.' : '') }, ...past, { role: 'user', content }]
       for (let round = 0; round < 8; round++) {
         const m = (await ai('chat/completions', { model, messages: msgs, tools, reasoning_effort: 'none', response_format: { type: 'json_object' } })).choices?.[0]?.message
         if (m?.tool_calls?.length) {
@@ -356,15 +451,54 @@ Deno.serve(async (req) => {
     }
   }
 
+  // Titel für neue Chats: kleines, schnelles Modell, läuft parallel zur Antwort
+  const titleJob = chat && !chat.title ? (async () => {
+    const plain = q.replace(/\s+/g, ' ').split(' ').slice(0, 6).join(' ').slice(0, 60)
+    let title = plain
+    const key = Deno.env.get('OPENAI_API_KEY')
+    if (key) try {
+      const r = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(15000),
+        body: JSON.stringify({ model: Deno.env.get('TITLE_MODEL') ?? 'gpt-5.4-nano', reasoning_effort: 'none', messages: [
+          { role: 'system', content: 'Gib diesem Gespräch einen kurzen Titel: 2 bis 5 Wörter, in der Sprache der Nachricht und mit deren normaler Rechtschreibung (auf Deutsch also nur Nomen gross, z. B. „Onboarding weiterlernen“), ohne Anführungszeichen und ohne Punkt am Ende. Antworte nur mit dem Titel.' },
+          { role: 'user', content: q.slice(0, 800) + (files.length ? ` [Anhang: ${files.map((f) => f.name).join(', ')}]` : '') },
+        ] }),
+      })
+      const t = String((await r.json())?.choices?.[0]?.message?.content ?? '').replace(/^["„“'»«]+|["„“'»«.]+$/g, '').trim()
+      if (r.ok && t) title = t.slice(0, 60)
+    } catch { /* Rückfall: Anfang der Frage */ }
+    await db.from('benni_chats').update({ title }).eq('id', chat!.id)
+    emit({ title })
+    return title
+  })() : Promise.resolve(null)
+
+  // Antwort im Chat speichern; liefert die Nachrichten-ID für die App
+  const save = async (r: Record<string, any>) => {
+    if (!chat) return {}
+    const text = r.ok && r.text ? String(r.text) : 'Ich bin gerade nicht erreichbar. Bitte versuche es gleich noch einmal.'
+    const data: Record<string, unknown> = {}
+    for (const k of ['sources', 'ticket', 'card', 'cards', 'quiz', 'choices', 'reveal', 'links', 'response_id', 'model']) if (r[k] != null && !(Array.isArray(r[k]) && !r[k].length)) data[k] = r[k]
+    const { data: row } = await db.from('benni_messages').insert({ chat_id: chat.id, role: 'assistant', text, data }).select('id, created_at').single()
+    await db.from('benni_chats').update({ updated_at: new Date().toISOString() }).eq('id', chat.id)
+    return { message_id: row?.id ?? null, chat_id: chat.id }
+  }
+  const finishAll = async () => {
+    let r: Record<string, any>
+    try { r = await work() } catch (e) { r = { ok: false, error: String(e).slice(0, 200) } }
+    const extra = await save(r).catch(() => ({}))
+    const title = await titleJob.catch(() => null)
+    return { ...r, ...extra, ...(title ? { title } : {}) }
+  }
+
   if (stream) {
     return new Response(new ReadableStream<Uint8Array>({
       start(c) {
         out = c
-        work().then((r) => emit({ done: true, ...r })).catch((e) => emit({ done: true, ok: false, error: String(e).slice(0, 200) })).finally(() => { try { c.close() } catch { /* zu */ } })
+        finishAll().then((r) => emit({ done: true, ...r })).finally(() => { try { c.close() } catch { /* zu */ } })
       },
     }), { headers: { ...cors, 'Content-Type': 'application/x-ndjson', 'Cache-Control': 'no-cache' } })
   }
-  return json(await work())
+  return json(await finishAll())
 })
 
 // Ohne Sprachmodell: bestes passendes Wissen, Tagesplan oder Meldungsvorschlag.

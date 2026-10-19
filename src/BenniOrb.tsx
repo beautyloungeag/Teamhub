@@ -125,3 +125,37 @@ export function BenniOrb({ className = 'w-7 h-7', still = false, working = false
     </span>
   )
 }
+
+// Standbild der Kugel für Listen (z. B. jede Benni-Nachricht): einmal zeichnen, als Bild wiederverwenden.
+// Browser erlauben nur rund 16 WebGL-Kontexte, eine lebende Kugel pro Nachricht wäre zu viel.
+let still: Promise<string | null> | null = null
+function orbImage(): Promise<string | null> {
+  still ??= new Promise(resolve => {
+    try {
+      const el = document.createElement('canvas'); el.width = el.height = 112
+      const gl = el.getContext('webgl', { alpha: true, premultipliedAlpha: false, preserveDrawingBuffer: true })
+      if (!gl) return resolve(null)
+      const sh = (type: number, src: string) => { const s = gl.createShader(type)!; gl.shaderSource(s, src); gl.compileShader(s); return s }
+      const p = gl.createProgram()!
+      gl.attachShader(p, sh(gl.VERTEX_SHADER, vertex)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fragment)); gl.linkProgram(p)
+      if (!gl.getProgramParameter(p, gl.LINK_STATUS)) return resolve(null)
+      gl.useProgram(p)
+      gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer()); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]), gl.STATIC_DRAW)
+      const pos = gl.getAttribLocation(p, 'position'); gl.enableVertexAttribArray(pos); gl.vertexAttribPointer(pos, 2, gl.FLOAT, false, 0, 0)
+      gl.viewport(0, 0, 112, 112); gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT)
+      gl.uniform1f(gl.getUniformLocation(p, 'time'), 30); gl.drawArrays(gl.TRIANGLES, 0, 6)
+      const url = el.toDataURL('image/png')
+      gl.getExtension('WEBGL_lose_context')?.loseContext()
+      resolve(url)
+    } catch { resolve(null) }
+  })
+  return still
+}
+
+/** Benni als kleines, ruhiges Profilbild (ohne eigenen WebGL-Kontext). */
+export function BenniAvatar({ className = 'w-7 h-7' }: { className?: string }) {
+  const [src, setSrc] = useState<string | null>(null)
+  useEffect(() => { let on = true; orbImage().then(u => { if (on) setSrc(u) }); return () => { on = false } }, [])
+  return src ? <img src={src} alt="" aria-hidden="true" className={`rounded-full shrink-0 ${className}`} />
+    : <span className={`benni-orb ${className}`} aria-hidden="true"><span className="orb-float"><span className="orb-fallback" /></span></span>
+}

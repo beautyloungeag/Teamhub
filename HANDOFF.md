@@ -2,6 +2,17 @@
 
 Interne Mitarbeiter-App (PWA + Desktop-Backoffice) der Beautylounge AG. Kundin: Renée Baumann. PM-Projekt: `projekt.aleksa.ai`, Key **BLTH** (`d4ee5d5c-4553-436c-bba7-137a03a2b704`). ⚠️ Das Repo `beautyloungeag/Teamhub` ist **öffentlich** — nie Personendaten committen.
 
+### Nachtrag 2026-10-19 kurz vor Mitternacht — Benni mit Chats, Dateien, Diktat, Kundenkarte und Lernmodus
+
+- **Mehrere Chats** (wie ChatGPT): Tabellen `benni_chats` + `benni_messages` (Migration `0017`, nur eigene per RLS). Die Function `assistant` speichert Frage und Antwort selbst, damit eine Antwort auch ankommt, wenn man den Chat wechselt; Chats laufen parallel (Zustand ausserhalb der Komponenten in `src/BenniChat.tsx`). Titel vergibt `gpt-5.4-nano` beim ersten Satz (`TITLE_MODEL`). Löschen mit zweitem Tipp. Am Handy Liste als Schublade („Chats“), am Desktop Spalte links, im Backoffice als Panel (gleiche Komponente, `variant="panel"`).
+- **Gesprächsstand:** Benni macht am gespeicherten Stand bei OpenAI weiter (`previous_response_id`, 25 Tage), kennt also Dateien und Werkzeugergebnisse der vorigen Fragen; bei Modellwechsel oder abgelaufenem Stand die letzten 16 Nachrichten als Text.
+- **Eingabeleiste:** Dateien und Fotos (Büroklammer, Einfügen, Ziehen; Fotos auf 1600 px verkleinert; PDF, .docx, .xlsx, .pptx gehen direkt als Datei an OpenAI, CSV/TXT als Text; max. 4 Dateien, 10 MB), Modellwahl Schnell `gpt-5.4-mini` / Standard `gpt-5.6-sol` / Gründlich `gpt-6.1-sol` (merkt sich der Browser), Websuche-Schalter (`web_search`; verträgt sich nicht mit dem JSON-Modus, deshalb dann freies JSON aus dem Text), Diktat.
+- **Diktat:** neue Function `transcribe`. Während der Aufnahme geht jede Sekunde der Stand an `gpt-4o-mini-transcribe` (Live-Text, nie zwei Anfragen gleichzeitig), beim Fertig-Haken einmal alles an `gpt-4o-transcribe` mit Studio-Wörtern als Hinweis. Pegelanzeige, Abbrechen, max. 3 Minuten. Kein Google-Dienst des Browsers.
+- **Kundenkarte:** Benni darf dem Team Telefon und E-Mail von Kundinnen nennen (Aleksa 19.10.). `phorest` → `client_history` liefert dafür `email`/`phone`; setzt Benni `client_card`, zeigt die App Kontakt (Kopieren, Anrufen, Mail), nächste Termine, letzte Besuche, Notizen und „Ganze Historie“ (springt in die Kundenhistorie).
+- **Lernmodus:** Lernkarten als eigene Karten, danach „Bereit für eine Kontrollfrage?“ mit Knöpfen „Ja, frag mich“ / „Erst weiterlernen“. Bei der Frage werden die Karten des Abschnitts weichgezeichnet (Funkeln), zwei Fragen je Schritt, danach `reveal` und Abhaken. Antwortmöglichkeiten mischt der Server. Einstieg „Mit Benni lernen“ öffnet einen neuen Chat.
+- **Sprechblasen** mit Name, Uhrzeit und Bild (Benni als Standbild der Kugel, `BenniAvatar`, damit nicht jede Nachricht einen WebGL-Kontext braucht).
+- `Avatar` und `ContactRow` liegen jetzt in `src/People.tsx`.
+
 ### Nachtrag 2026-10-19 nachts — Audit und Korrekturen (Glocke wieder raus, Kalender neu)
 
 - **Glocke entfernt** (Aleksa: bringt nichts, zu viel). Pflicht-News stehen auf Heute als ruhiger Abschnitt „Bitte lesen“ (Messing-Überschrift, Punkt, Liste), ohne Puls und ohne Knopf.

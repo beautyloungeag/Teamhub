@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ChevronDown, ChevronLeft, ChevronRight, MapPin, Search, Check, CalendarDays } from 'lucide-react'
+import { ChevronDown, ChevronLeft, ChevronRight, MapPin, Search, Check, CalendarDays, X } from 'lucide-react'
 import { useApp, isoDay, fmtTime, zurichHour, type Ev } from './store'
-import { phorest, toHours, type BranchDay, type MyDay } from './lib/phorest'
+import { phorest, toHours, type BranchDay, type MyDay, type Appt, type ClientHistory } from './lib/phorest'
 import { tr, locale } from './lib/i18n'
 
 /* ---------- Kundentermine (lesend aus Phorest) ---------- */
@@ -22,6 +22,7 @@ export function Terminbuch({ compact }: { compact?: boolean }) {
   const [q, setQ] = useState('')
   const [onlyMe, setOnlyMe] = useState(!!compact && myPhorest.length > 0)
   const [data, setData] = useState<BranchDay | null>(null)
+  const [detail, setDetail] = useState<(Appt & { who: string }) | null>(null)
   // Antworten eines älteren Klicks verwerfen, sonst steht beim schnellen Blättern der falsche Tag da
   useEffect(() => { if (!branch) return; let alive = true; setData(null); phorest<BranchDay>({ action: 'branch_day', branch, date: dayOffset(day) }).then(r => { if (alive) setData(r) }); return () => { alive = false } }, [branch, day])
   const myStaff = myPhorest.filter(m => m.branch_id === branch).map(m => m.staff_id)
@@ -49,7 +50,7 @@ export function Terminbuch({ compact }: { compact?: boolean }) {
       {compact && <div className="mt-2 h-10 rounded-xl bg-white border border-sage-200 px-3 flex items-center gap-2"><Search size={16} className="text-mute" /><input value={q} onChange={e => setQ(e.target.value)} placeholder={t('Kundin suchen')} className="flex-1 outline-none text-[14px] bg-transparent" /></div>}
 
       {q.length > 1 && data?.ok && hits.length === 0 && <p className="mt-2 px-1 text-[13px] text-mute">{t('An diesem Tag keine Kundin mit diesem Namen.')}</p>}
-      {hits.length > 0 && <div className="mt-2 rounded-2xl bg-white border border-sage-100 divide-y divide-sage-50">{hits.slice(0, 5).map((h, i) => <div key={i} className="px-3 py-2 text-[13px] flex justify-between"><span>{h.client} · {h.service}</span><span className="text-mute">{h.start} · {h.who}</span></div>)}</div>}
+      {hits.length > 0 && <div className="mt-2 rounded-2xl bg-white border border-sage-100 divide-y divide-sage-50">{hits.slice(0, 5).map((h, i) => <button key={i} onClick={() => setDetail(h)} className="w-full text-left px-3 py-2 text-[13px] flex justify-between hover:bg-sage-50"><span>{h.client} · {h.service}</span><span className="text-mute">{h.start} · {h.who}</span></button>)}</div>}
 
       <div className="mt-3 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
         <button onClick={() => setDay(Math.max(0, day - 1))} className="w-9 h-9 rounded-lg bg-white border border-sage-200 flex items-center justify-center shrink-0"><ChevronLeft size={16} /></button>
@@ -83,9 +84,9 @@ export function Terminbuch({ compact }: { compact?: boolean }) {
                   {from > START && <div className="absolute inset-x-0 top-0 bg-sage-100/70" style={{ height: (Math.min(from, END) - START) * 2 * SLOT }}>{!c.shift && <p className="p-2 text-xs text-mute">{t('Nicht eingeplant')}</p>}</div>}
                   {c.shift && to < END && <div className="absolute inset-x-0 bg-sage-100/70" style={{ top: (to - START) * 2 * SLOT, bottom: 0 }} />}
                   {blocks.map((b, i) => { const s = toHours(b.start), e = toHours(b.end)
-                    return <div key={i} className="absolute left-1 right-1 rounded-lg px-2 py-1 overflow-hidden text-[11px] leading-tight" style={{ top: (s - START) * 2 * SLOT + 1, height: Math.max((e - s) * 2 * SLOT - 2, 18), background: colorFor(b.service) + '33', borderLeft: `3px solid ${colorFor(b.service)}`, color: '#1D221C' }}>
-                      <p className="font-medium truncate">{b.client}</p><p className="truncate">{b.service}</p><p className="opacity-70">{b.start}–{b.end}</p>
-                    </div> })}
+                    return <button key={i} onClick={() => setDetail({ ...b, who: c.name })} className="absolute left-1 right-1 rounded-lg px-2 py-1 overflow-hidden text-[11px] leading-tight text-left hover:brightness-95 transition" style={{ top: (s - START) * 2 * SLOT + 1, height: Math.max((e - s) * 2 * SLOT - 2, 18), background: colorFor(b.service) + '33', borderLeft: `3px solid ${colorFor(b.service)}`, color: '#1D221C' }}>
+                      <p className="font-medium truncate">{b.client}{b.notes ? ' ·' : ''}</p><p className="truncate">{b.service}</p><p className="opacity-70">{b.start}–{b.end}</p>
+                    </button> })}
                   {day === 0 && nowH > START && nowH < END && <div className="absolute inset-x-0 h-0.5 bg-alert" style={{ top: (nowH - START) * 2 * SLOT }} />}
                 </div>
               </div>
@@ -93,7 +94,48 @@ export function Terminbuch({ compact }: { compact?: boolean }) {
           })}
         </div>}
       </div>
+      {detail && <AppointmentSheet a={detail} onClose={() => setDetail(null)} />}
       <p className="mt-2 text-[11px] text-mute">{onlyMe ? t('Deine Termine aus Phorest · zugeordnet über {email}.', { email: me.email }) : t('Live aus Phorest, nur lesend.')} {t('Ändern, Bezahlen und Check-in bleiben in Phorest.')} {fmt(START)}–{fmt(END)}</p>
+    </div>
+  )
+}
+
+/* Termin antippen: Details wie in Phorest, dazu die Historie der Kundin */
+function AppointmentSheet({ a, onClose }: { a: Appt & { who: string }; onClose: () => void }) {
+  const { t } = useApp()
+  const [h, setH] = useState<ClientHistory | null>(null)
+  useEffect(() => { if (!a.client_id) return; let alive = true; phorest<ClientHistory>({ action: 'client_history', client_id: a.client_id, months: 12 }).then(r => { if (alive) setH(r) }); return () => { alive = false } }, [a.client_id])
+  const d = (s: string) => new Intl.DateTimeFormat(locale(), { timeZone: 'UTC', day: '2-digit', month: '2-digit', year: '2-digit' }).format(new Date(s + 'T12:00:00Z'))
+  return (
+    <div className="fixed inset-0 z-40 flex items-end md:items-stretch md:justify-end" onClick={onClose}>
+      <div className="absolute inset-0 bg-ink/25" />
+      <div onClick={e => e.stopPropagation()} className="relative w-full md:w-[400px] max-h-[85dvh] md:max-h-none overflow-y-auto no-scrollbar bg-paper rounded-t-[24px] md:rounded-none p-6 pb-10 md:pb-6 shadow-[0_-12px_40px_-16px_rgba(29,34,28,.4)]">
+        <div className="flex items-start justify-between gap-3">
+          <div><p className="text-[12px] text-mute">{a.start}–{a.end} · {a.who}</p><h2 className="font-display text-[24px] leading-tight mt-1">{a.client}</h2></div>
+          <button onClick={onClose} aria-label={t('Schliessen')} className="w-9 h-9 rounded-full hover:bg-sage-50 flex items-center justify-center text-mute shrink-0"><X size={18} /></button>
+        </div>
+        <div className="mt-4 rounded-[14px] bg-white divide-y divide-line text-[14px]">
+          <div className="px-4 py-3 flex justify-between gap-3"><span className="text-mute">{t('Behandlung')}</span><span className="text-right">{a.service}</span></div>
+          {a.price != null && <div className="px-4 py-3 flex justify-between gap-3"><span className="text-mute">{t('Preis')}</span><span>CHF {a.price}</span></div>}
+          <div className="px-4 py-3"><p className="text-mute">{t('Notiz am Termin')}</p><p className="mt-1 whitespace-pre-wrap">{a.notes || <span className="text-mute">{t('Keine Notiz.')}</span>}</p></div>
+        </div>
+        {a.client_id && <>
+          <p className="mt-6 mb-2 px-1 rubric text-ink/70">{t('Kundin')}</p>
+          {!h && <p className="px-1 text-[13px] text-mute">{t('Lädt aus Phorest …')}</p>}
+          {h && !h.ok && <p className="px-1 text-[13px] text-mute">{t('Phorest ist gerade nicht erreichbar. Bitte später noch einmal versuchen.')}</p>}
+          {h?.ok && <div className="rounded-[14px] bg-white divide-y divide-line text-[14px]">
+            <div className="px-4 py-3 text-[13px] text-mute">{[h.client.since && t('Kundin seit {d}', { d: d(h.client.since) }), h.client.last_visit && t('zuletzt {d}', { d: d(h.client.last_visit) }), h.client.preferred && t('bevorzugt {n}', { n: h.client.preferred })].filter(Boolean).join(' · ') || '–'}</div>
+            {(h.upcoming ?? []).slice(0, 2).map((v, i) => <div key={'u' + i} className="px-4 py-2.5 flex justify-between gap-3"><span><span className="text-[11px] text-olive-700 block">{t('Kommend')}</span>{v.service}</span><span className="text-mute shrink-0">{d(v.date)}</span></div>)}
+            {h.visits.slice(0, 6).map((v, i) => <div key={i} className="px-4 py-2.5">
+              <div className="flex justify-between gap-3"><span className={v.cancelled ? 'line-through text-mute' : ''}>{v.service}</span><span className="text-mute shrink-0">{d(v.date)}</span></div>
+              <p className="text-[12px] text-mute">{[v.branch, v.staff].filter(Boolean).join(' · ')}</p>
+              {v.notes && <p className="text-[13px] mt-1 text-ink/80 whitespace-pre-wrap">{v.notes}</p>}
+            </div>)}
+            {h.visits.length === 0 && <div className="px-4 py-3 text-[13px] text-mute">{t('Keine Besuche in diesem Zeitraum.')}</div>}
+          </div>}
+        </>}
+        <p className="mt-4 px-1 text-[11px] text-mute">{t('Ändern, Bezahlen und Check-in bleiben in Phorest.')}</p>
+      </div>
     </div>
   )
 }

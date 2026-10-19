@@ -48,3 +48,7 @@ input[type=checkbox]{accent-color:#495940}
 .benni-shimmer{background:linear-gradient(90deg,var(--color-mute) 0%,var(--color-ink) 45%,var(--color-mute) 90%);background-size:220% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:benni-shimmer 2.2s linear infinite}
 @keyframes benni-shimmer{from{background-position:120% 0}to{background-position:-100% 0}}
 @media (prefers-reduced-motion: reduce){.benni-shimmer{animation:none;color:var(--color-mute);background:none}}
+/* Funkeln über verdeckten Lernkarten */
+@keyframes twinkle{0%,100%{opacity:0;transform:scale(.5) rotate(0)}50%{opacity:.95;transform:scale(1) rotate(18deg)}}
+.sparkle{animation:twinkle 2.6s ease-in-out infinite;opacity:0}
+@media (prefers-reduced-motion:reduce){.sparkle{animation:none;opacity:.7}}

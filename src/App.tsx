@@ -5,12 +5,14 @@ import Mobile from './Mobile'
 import Backoffice from './Backoffice'
 import Login from './Login'
 import { tr } from './lib/i18n'
+import { Toaster } from './Toast'
 
 export default function App() {
   return (
     <AuthProvider>
       <AppProvider>
         <Gate />
+        <Toaster />
       </AppProvider>
     </AuthProvider>
   )

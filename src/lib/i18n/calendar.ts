@@ -1,5 +1,12 @@
 // Schlüssel = deutscher Text, Werte [Englisch, Französisch].
 export default {
+  "Behandlung": ["Treatment", "Soin"],
+  "Keine Notiz.": ["No note.", "Aucune note."],
+  "Kommend": ["Upcoming", "À venir"],
+  "Kundin": ["Client", "Cliente"],
+  "Notiz am Termin": ["Appointment note", "Note du rendez-vous"],
+  "Preis": ["Price", "Prix"],
+  "Schliessen": ["Close", "Fermer"],
   "Für dieses Studio ist noch kein Phorest-Kalender verbunden.": ["No Phorest calendar is connected for this studio yet.", "Aucun agenda Phorest n’est encore relié à ce studio."],
   "Für dieses Studio hast du keinen Zugriff auf den Kalender.": ["You don't have access to this studio's calendar.", "Tu n’as pas accès à l’agenda de ce studio."],
   "An diesem Tag keine Kundin mit diesem Namen.": ["No client with this name on this day.", "Aucune cliente de ce nom ce jour-là."],

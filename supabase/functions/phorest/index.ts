@@ -50,7 +50,7 @@ async function clientNames(ids: string[]) {
 
 async function dayData(phorestBranch: string, date: string, staffIds?: string[]) {
   const [appts, wt] = await Promise.all([
-    ph(`/branch/${phorestBranch}/appointment?from_date=${date}&to_date=${date}&fetch_canceled=false&size=500`),
+    ph(`/branch/${phorestBranch}/appointment?from_date=${date}&to_date=${date}&fetch_canceled=false&fetch_notes=true&size=500`),
     ph(`/branch/${phorestBranch}/staff/worktimetable?from_date=${date}&to_date=${date}&size=200`),
   ])
   let list = (appts?._embedded?.appointments ?? []).filter((a: any) => !a.deleted && a.activationState !== 'CANCELED')
@@ -131,7 +131,7 @@ Deno.serve(async (req) => {
         c.free = free
       }
       return json({ ok: true, date, columns: cols.filter((c: any) => c.shift || d.list.some((a: any) => a.staffId === c.staff_id)), appointments: d.list.map((a: any) => ({
-        staff_id: a.staffId, start: hhmm(a.startTime), end: hhmm(a.endTime), service: a.serviceName ?? '', client: names.get(a.clientId) ?? 'Kundin',
+        staff_id: a.staffId, start: hhmm(a.startTime), end: hhmm(a.endTime), service: a.serviceName ?? '', client: names.get(a.clientId) ?? 'Kundin', client_id: a.clientId ?? null, notes: String(a.notes ?? a.note ?? '').trim(), price: a.price ?? null, confirmed: !!a.confirmed,
       })) })
     }
 
@@ -218,6 +218,7 @@ Deno.serve(async (req) => {
       const info = {
         name: `${client.firstName ?? ''} ${client.lastName ?? ''}`.trim(), since: String(client.clientSince ?? client.firstVisit ?? client.createdAt ?? '').slice(0, 10),
         last_visit: String(client.lastVisit ?? '').slice(0, 10), preferred: sName.get(client.preferredStaffId) ?? '',
+        email: client.email ?? '', phone: String(client.mobile ?? client.landLine ?? '').trim(),
       }
       // Zusammenfassung: nur Besuche und Notizen, keine Kontaktdaten an das Sprachmodell
       let summary: string | null = null

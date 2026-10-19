@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { LayoutDashboard, LifeBuoy, Phone, GraduationCap, Smartphone, Store, ArrowUp, ArrowDown, Newspaper, ListChecks, Lightbulb, CalendarDays, Users, BookOpen, Plus, Check, Search, CalendarClock, Send, X, Trash2, Pencil } from 'lucide-react'
+import { LayoutDashboard, LifeBuoy, Phone, GraduationCap, Smartphone, Store, ArrowUp, ArrowDown, Newspaper, ListChecks, Lightbulb, CalendarDays, Users, BookOpen, Plus, Check, Search, CalendarClock, X, Trash2, Pencil } from 'lucide-react'
 import { Terminbuch } from './Calendar'
 import { useApp, isoDay, appliesOn, fmtDate, fmtTime, zurichHour, inNewsAudience, GROUPS, type Ticket, type News, type Quiz, type Staff } from './store'
 import { supabase } from './lib/supabase'
 import { Status, ASSISTANT } from './Mobile'
 import { notifyNow } from './lib/push'
 import { Logo, BMark } from './Logo'
-import { askBenni, BenniWorking, BenniText, type Step, type BenniAnswer } from './BenniChat'
-import { TicketDraft } from './TicketParts'
+import { BenniChat } from './BenniChat'
+import { toast } from './Toast'
 import { Comments, Media } from './TicketParts'
 
 type View = 'overview' | 'book' | 'news' | 'tasks' | 'tickets' | 'events' | 'standby' | 'learn' | 'team' | 'studios' | 'wiki'
@@ -18,7 +18,7 @@ export default function Backoffice({ onSwitch }: { onSwitch?: () => void }) {
   const [v, setV] = useState<View>('overview')
   const [ai, setAi] = useState(false)
   // Filialleitung verwaltet nur ihre Filiale; Inhalte (News, Wissen, Vorlagen, Team) pflegt das Büro.
-  const nav = me.app_role === 'buero' ? NAV : NAV.filter(([k]) => ['overview', 'book', 'tasks', 'tickets', 'events', 'standby', 'learn'].includes(k))
+  const nav = me.app_role === 'buero' ? NAV : NAV.filter(([k]) => ['overview', 'book', 'tasks', 'tickets', 'events', 'standby', 'learn', 'team'].includes(k))
   const allowed = new Set(nav.map(([k]) => k))
   const go = (k: View) => { if (allowed.has(k)) setV(k) }
   return (
@@ -36,7 +36,7 @@ export default function Backoffice({ onSwitch }: { onSwitch?: () => void }) {
         {v === 'overview' && <Overview go={go} can={k => allowed.has(k)} />}{allowed.has('news') && v === 'news' && <NewsAdmin />}{v === 'tasks' && <TasksAdmin />}
         {v === 'tickets' && <TicketsAdmin />}{v === 'standby' && <StandbyAdmin />}{v === 'learn' && <LearnAdmin />}{v === 'events' && <EventsAdmin />}{allowed.has('team') && v === 'team' && <TeamAdmin />}{allowed.has('studios') && v === 'studios' && <StudiosAdmin />}{allowed.has('wiki') && v === 'wiki' && <WikiAdmin />}
       </main>
-      {ai && <AdminChat onClose={() => setAi(false)} />}
+      {ai && <BenniChat variant="panel" onClose={() => setAi(false)} />}
     </div>
   )
 }
@@ -533,12 +533,20 @@ function LearnAdmin() {
   </>)
 }
 
-/* ---------- Team & Skills ---------- */
+/* ---------- Team & Skills ----------
+   Büro: alle Personen, Rechte, Studio, Funktion, Skill-Katalog, endgültig löschen.
+   Filialleitung: Personen des eigenen Studios, Skills vergeben, Mitarbeiterinnen anlegen und deaktivieren. */
 function TeamAdmin() {
-  const { staff, branches, skillCatalog, reload } = useApp()
+  const { staff, branches, skillCatalog, reload, me } = useApp()
+  const office = me.app_role === 'buero'
+  const myB = [me.branch_id, ...(me.extra ?? [])].filter(x => x !== 'buero')
+  const studios = branches.filter(x => office || myB.includes(x.id))
   const [q, setQ] = useState(''), [b, setB] = useState('Alle'), [form, setForm] = useState(false), [skill, setSkill] = useState(''), [err, setErr] = useState(''), [busy, setBusy] = useState(false)
-  const [f, setF] = useState({ first_name: '', last_name: '', email: '', job_title: 'Kosmetikerin', app_role: 'mitarbeiterin', branch_id: 'basel-1' })
-  const list = useMemo(() => staff.filter(s => (b === 'Alle' || s.branch === b) && `${s.first} ${s.last} ${s.role} ${s.skills.join(' ')}`.toLowerCase().includes(q.toLowerCase())), [staff, q, b])
+  const [sel, setSel] = useState<string | null>(null)
+  const [f, setF] = useState({ first_name: '', last_name: '', email: '', job_title: 'Kosmetikerin', app_role: 'mitarbeiterin', branch_id: studios.find(x => !x.is_office)?.id ?? 'basel-1' })
+  const visible = staff.filter(s => office || myB.some(x => inBranch(s, x)))
+  const list = useMemo(() => visible.filter(s => (b === 'Alle' || s.branch === b) && `${s.first} ${s.last} ${s.role} ${s.skills.join(' ')}`.toLowerCase().includes(q.toLowerCase())), [visible, q, b]) // eslint-disable-line react-hooks/exhaustive-deps
+  const p = visible.find(s => s.id === sel) ?? null
   const call = async (body: Record<string, unknown>) => {
     const { data, error } = await supabase!.functions.invoke('admin-employee', { body })
     if (!error) return data
@@ -546,32 +554,81 @@ function TeamAdmin() {
   }
   const create = async () => {
     setBusy(true); setErr('')
-    const r = await call({ action: 'create', ...f })
+    const r = await call({ action: 'create', ...f, app_role: office ? f.app_role : 'mitarbeiterin' })
     setBusy(false)
-    if (!r?.ok) { setErr(r?.error === 'exists' ? 'Diese E-Mail gibt es schon.' : r?.error === 'missing_fields' ? 'Vorname, Nachname, eine gültige E-Mail und Studio sind nötig.' : r?.error === 'auth_failed' ? 'Das Login-Konto liess sich nicht anlegen. Bitte noch einmal versuchen.' : 'Anlegen hat nicht geklappt.'); return }
-    setForm(false); setF({ ...f, first_name: '', last_name: '', email: '' }); await reload()
+    if (!r?.ok) { setErr(r?.error === 'exists' ? 'Diese E-Mail gibt es schon.' : r?.error === 'missing_fields' ? 'Vorname, Nachname, eine gültige E-Mail und Studio sind nötig.' : r?.error === 'auth_failed' ? 'Das Login-Konto liess sich nicht anlegen. Bitte noch einmal versuchen.' : r?.error === 'forbidden' ? 'Für dieses Studio darfst du niemanden anlegen.' : 'Anlegen hat nicht geklappt.'); return }
+    setForm(false); setF({ ...f, first_name: '', last_name: '', email: '' }); await reload(); setSel(r.employee_id); toast('Person angelegt')
   }
   return (<>
-    <H action={<New onClick={() => setForm(!form)}>Person anlegen</New>}>Team & Skills</H>
+    <H action={<New onClick={() => setForm(!form)}>Person anlegen</New>}>{office ? 'Team & Skills' : `Team · ${studios.map(x => x.name).join(', ')}`}</H>
     {form && <Panel className="p-6 mb-8"><div className="grid grid-cols-3 gap-3">
       <Field label="Vorname"><input value={f.first_name} onChange={e => setF({ ...f, first_name: e.target.value })} className={inp} /></Field>
       <Field label="Nachname"><input value={f.last_name} onChange={e => setF({ ...f, last_name: e.target.value })} className={inp} /></Field>
       <Field label="Firmen-Mail"><input value={f.email} onChange={e => setF({ ...f, email: e.target.value })} placeholder="vorname@beautylounge.ch" className={inp} /></Field>
       <Field label="Funktion"><input value={f.job_title} onChange={e => setF({ ...f, job_title: e.target.value })} className={inp} /></Field>
-      <Field label="Rechte"><select value={f.app_role} onChange={e => setF({ ...f, app_role: e.target.value })} className={inp}><option value="mitarbeiterin">Mitarbeiterin</option><option value="filialleitung">Filialleitung</option><option value="buero">Büro</option></select></Field>
-      <Field label="Studio"><select value={f.branch_id} onChange={e => setF({ ...f, branch_id: e.target.value })} className={inp}>{branches.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}</select></Field>
-    </div><div className="mt-4 flex items-center gap-3"><button disabled={busy} onClick={create} className={btn}>Anlegen</button><Err m={err} /><p className="text-xs text-mute">Es geht keine Einladung raus.</p></div></Panel>}
-    <div className="flex gap-3 mb-4"><div className="h-10 flex-1 rounded-[10px] bg-sage-50 px-3 flex items-center gap-2"><Search size={16} className="text-mute" /><input value={q} onChange={e => setQ(e.target.value)} placeholder="Name, Rolle oder Skill" className="flex-1 outline-none text-[14px] bg-transparent" /></div>
-      <select value={b} onChange={e => setB(e.target.value)} className="h-10 rounded-[10px] bg-sage-50 px-3 text-[14px] outline-none">{['Alle', ...branches.map(x => x.name)].map(x => <option key={x}>{x}</option>)}</select></div>
-    <div className="grid grid-cols-[1fr_260px] gap-8">
-      <div><table className="tbl w-full text-[14px]"><thead><tr><Th>Name</Th><Th>Funktion</Th><Th>Studio</Th><Th>Skills</Th><Th> </Th></tr></thead>
-        <tbody className="divide-y divide-line">{list.map(s => <tr key={s.id} className={s.active ? '' : 'opacity-50'}><td className="px-4 py-2.5">{s.first} {s.last}</td><td className="px-4 text-mute">{s.role}</td><td className="px-4 text-mute">{s.branch}</td><td className="px-4 text-mute text-[13px]">{s.skills.join(', ')}</td>
-          <td className="px-2"><button onClick={async () => { if (confirm(s.active ? `${s.first} ${s.last} deaktivieren? Sie kann sich dann nicht mehr anmelden.` : `${s.first} ${s.last} wieder aktivieren?`)) { const r = await call({ action: 'set_active', employee_id: s.id, active: !s.active }); if (!r?.ok) alert(r?.error === 'self' ? 'Das eigene Konto lässt sich nicht deaktivieren.' : 'Das hat nicht geklappt.'); await reload() } }} className="text-[13px] text-mute hover:text-ink">{s.active ? 'Deaktivieren' : 'Aktivieren'}</button></td></tr>)}</tbody></table></div>
-      <Side><Sec>Skill-Katalog</Sec>
-        <div className="mt-3 flex flex-wrap gap-1.5">{skillCatalog.map(k => <span key={k} className="px-2.5 h-7 rounded-[6px] bg-sage-50 text-[12px] flex items-center gap-1.5">{k}<button onClick={async () => { const n = staff.filter(x => x.skills.includes(k)).length; if (!confirm(`Skill „${k}“ löschen?${n ? ` ${n} Personen verlieren ihn aus dem Profil.` : ''}`)) return; const { error } = await supabase!.rpc('delete_skill', { p_name: k }); if (error) alert('Löschen hat nicht geklappt.'); await reload() }} className="text-mute"><X size={11} /></button></span>)}</div>
-        <div className="mt-3 flex gap-2"><input value={skill} onChange={e => setSkill(e.target.value)} placeholder="Neuer Skill" className={inp} /><button onClick={async () => { if (skill.trim()) { await supabase!.from('skills').insert({ name: skill.trim(), sort: skillCatalog.length }); setSkill(''); await reload() } }} className="h-10 px-3 rounded-[10px] bg-olive-700 hover:bg-olive-800 text-white"><Plus size={15} /></button></div></Side>
+      {office && <Field label="Rechte"><select value={f.app_role} onChange={e => setF({ ...f, app_role: e.target.value })} className={inp}><option value="mitarbeiterin">Mitarbeiterin</option><option value="filialleitung">Filialleitung</option><option value="buero">Büro</option></select></Field>}
+      <Field label="Studio"><select value={f.branch_id} onChange={e => setF({ ...f, branch_id: e.target.value })} className={inp}>{studios.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}</select></Field>
+    </div><div className="mt-4 flex items-center gap-3"><button disabled={busy} onClick={create} className={btn}>Anlegen</button><Err m={err} /><p className="text-xs text-mute">Es geht keine Einladung raus. Sie meldet sich mit ihrer Firmen-Mail und dem Code an, den sie per E-Mail bekommt.</p></div></Panel>}
+    <div className="flex gap-3 mb-4"><div className="h-10 flex-1 rounded-[10px] bg-sage-50 px-3 flex items-center gap-2"><Search size={16} className="text-mute" /><input value={q} onChange={e => setQ(e.target.value)} placeholder="Name, Funktion oder Skill" className="flex-1 outline-none text-[14px] bg-transparent" /></div>
+      {studios.length > 1 && <select value={b} onChange={e => setB(e.target.value)} className="h-10 rounded-[10px] bg-sage-50 px-3 text-[14px] outline-none">{['Alle', ...studios.map(x => x.name)].map(x => <option key={x}>{x}</option>)}</select>}</div>
+    <div className="grid grid-cols-[1fr_320px] gap-8">
+      <div><table className="tbl w-full text-[14px]"><thead><tr><Th>Name</Th><Th>Funktion</Th><Th>Studio</Th><Th>Skills</Th></tr></thead>
+        <tbody className="divide-y divide-line">{list.map(s => <tr key={s.id} onClick={() => setSel(s.id)} className={`cursor-pointer ${sel === s.id ? 'bg-sage-50' : 'hover:bg-sage-50/60'} ${s.active ? '' : 'opacity-50'}`}>
+          <td className="px-4 py-2.5">{s.first} {s.last}{!real(s) && s.active && <span className="ml-2 text-xs text-mute">Test</span>}{!s.active && <span className="ml-2 text-xs text-mute">deaktiviert</span>}</td>
+          <td className="px-4 text-mute">{s.role}</td><td className="px-4 text-mute">{s.branch}</td>
+          <td className="px-4 text-mute text-[13px]">{s.skills.length ? s.skills.slice(0, 3).join(', ') + (s.skills.length > 3 ? ` +${s.skills.length - 3}` : '') : <span className="text-brass">noch keine</span>}</td></tr>)}</tbody></table></div>
+      {p ? <PersonPanel key={p.id} p={p} office={office} studios={studios} call={call} onClose={() => setSel(null)} />
+        : <Side>{office ? <><Sec>Skill-Katalog</Sec>
+          <div className="mt-3 flex flex-wrap gap-1.5">{skillCatalog.map(k => <span key={k} className="px-2.5 h-7 rounded-[6px] bg-sage-50 text-[12px] flex items-center gap-1.5">{k}<button onClick={async () => { const n = staff.filter(x => x.skills.includes(k)).length; if (!confirm(`Skill „${k}“ löschen?${n ? ` ${n} Personen verlieren ihn aus dem Profil.` : ''}`)) return; const { error } = await supabase!.rpc('delete_skill', { p_name: k }); if (error) toast('Löschen hat nicht geklappt', 'error'); else toast('Skill gelöscht'); await reload() }} className="text-mute hover:text-alert"><X size={12} /></button></span>)}</div>
+          <div className="mt-3 flex gap-2"><input value={skill} onChange={e => setSkill(e.target.value)} placeholder="Neuer Skill" className={inp} /><button onClick={async () => { if (skill.trim()) { const { error } = await supabase!.from('skills').insert({ name: skill.trim(), sort: skillCatalog.length }); setSkill(''); toast(error ? 'Gibt es schon' : 'Skill angelegt', error ? 'error' : 'ok'); await reload() } }} className={btn2}>Hinzufügen</button></div>
+          <p className="mt-6 text-xs text-mute">Eine Person anklicken, um Skills zu vergeben.</p></>
+          : <p className="text-[13px] text-mute">Eine Person anklicken, um ihre Skills zu vergeben oder sie zu deaktivieren.</p>}</Side>}
     </div>
   </>)
+}
+
+function PersonPanel({ p, office, studios, call, onClose }: { p: Staff; office: boolean; studios: { id: string; name: string }[]; call: (b: Record<string, unknown>) => Promise<any>; onClose: () => void }) {
+  const { skillCatalog, reload, me } = useApp()
+  const [skills, setSkills] = useState(p.skills)
+  const [d, setD] = useState({ job_title: p.role, app_role: p.app_role, branch_id: p.branch_id })
+  const dirty = d.job_title !== p.role || d.app_role !== p.app_role || d.branch_id !== p.branch_id
+  const tog = async (k: string) => {
+    const next = skills.includes(k) ? skills.filter(x => x !== k) : [...skills, k]
+    setSkills(next)
+    const { error } = await supabase!.from('employees').update({ skills: next, updated_at: new Date().toISOString() }).eq('id', p.id)
+    if (error) { setSkills(skills); toast('Speichern hat nicht geklappt', 'error') } else { toast('Skills gespeichert'); reload() }
+  }
+  const saveRole = async () => {
+    const { error } = await supabase!.from('employees').update({ ...d, updated_at: new Date().toISOString() }).eq('id', p.id)
+    toast(error ? 'Speichern hat nicht geklappt' : 'Gespeichert', error ? 'error' : 'ok'); if (!error) reload()
+  }
+  const self = p.id === me.id
+  return (
+    <Side>
+      <div className="flex items-start justify-between gap-3"><div><p className="font-medium text-[16px]">{p.first} {p.last}</p><p className="text-[13px] text-mute">{p.role} · {p.branch}</p></div><button onClick={onClose} className="text-mute hover:text-ink"><X size={16} /></button></div>
+      <div className="mt-4 space-y-1.5 text-[13px]">
+        <p className="flex items-center justify-between gap-2"><span className="text-mute">E-Mail</span><button onClick={() => { navigator.clipboard?.writeText(p.email).then(() => toast('Kopiert')) }} className="truncate hover:text-olive-700" title="Kopieren">{p.email}</button></p>
+        {p.phone && <p className="flex items-center justify-between gap-2"><span className="text-mute">Telefon</span><button onClick={() => { navigator.clipboard?.writeText(p.phone!).then(() => toast('Kopiert')) }} className="hover:text-olive-700" title="Kopieren">{p.phone}</button></p>}
+      </div>
+      <Sec>Skills</Sec>
+      <div className="mt-2 flex flex-wrap gap-1.5">{skillCatalog.map(k => <button key={k} onClick={() => tog(k)} className={`px-2.5 h-8 rounded-[8px] text-[13px] transition ${skills.includes(k) ? 'bg-olive-700 text-white' : 'bg-sage-50 text-ink hover:bg-sage-100'}`}>{k}</button>)}</div>
+      {office && <>
+        <Sec>Funktion und Rechte</Sec>
+        <div className="mt-2 space-y-2">
+          <input value={d.job_title} onChange={e => setD({ ...d, job_title: e.target.value })} className={inp} />
+          <div className="grid grid-cols-2 gap-2">
+            <select value={d.app_role} disabled={self} onChange={e => setD({ ...d, app_role: e.target.value })} className={inp}><option value="mitarbeiterin">Mitarbeiterin</option><option value="filialleitung">Filialleitung</option><option value="buero">Büro</option></select>
+            <select value={d.branch_id} onChange={e => setD({ ...d, branch_id: e.target.value })} className={inp}>{studios.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}</select>
+          </div>
+          {dirty && <button onClick={saveRole} className={`${btn} w-full`}>Speichern</button>}
+        </div>
+      </>}
+      {!self && (office || p.app_role !== 'buero') && <div className="mt-6 pt-4 border-t border-line flex flex-col gap-2 text-[13px]">
+        <button onClick={async () => { if (!confirm(p.active ? `${p.first} ${p.last} deaktivieren? Sie kann sich dann nicht mehr anmelden. Ihr Verlauf bleibt.` : `${p.first} ${p.last} wieder aktivieren?`)) return; const r = await call({ action: 'set_active', employee_id: p.id, active: !p.active }); toast(r?.ok ? (p.active ? 'Deaktiviert' : 'Aktiviert') : 'Das hat nicht geklappt', r?.ok ? 'ok' : 'error'); await reload() }} className="text-left text-mute hover:text-ink">{p.active ? 'Deaktivieren' : 'Wieder aktivieren'}</button>
+        {office && <button onClick={async () => { if (!confirm(`${p.first} ${p.last} endgültig löschen? Profil, Lesebestätigungen, Quiz-Ergebnisse und Login werden entfernt. Meldungen und Nachweise behalten ihren Namen. Das lässt sich nicht rückgängig machen.`)) return; const r = await call({ action: 'delete', employee_id: p.id }); toast(r?.ok ? 'Gelöscht' : 'Löschen hat nicht geklappt', r?.ok ? 'ok' : 'error'); if (r?.ok) { onClose(); await reload() } }} className="text-left text-alert/80 hover:text-alert">Endgültig löschen</button>}
+      </div>}
+    </Side>
+  )
 }
 
 /* ---------- Studios (nur Büro; RLS branches_write) ---------- */
@@ -752,33 +809,4 @@ function WikiAdmin() {
     <div><table className="tbl w-full text-[14px]"><thead><tr><Th>Artikel</Th><Th>Kategorie</Th><Th>Sichtbar für</Th><Th>Aktualisiert</Th><Th>Status</Th></tr></thead>
       <tbody className="divide-y divide-line">{list.map(a => <tr key={a.id} onClick={() => openEdit(a.id)} className="cursor-pointer hover:bg-sage-50/70"><td className="px-4 py-3">{a.title}</td><td className="px-4 text-mute">{a.cat}</td><td className="px-4 text-mute">{LEVEL[a.accessLevel]}</td><td className="px-4 text-mute">{a.updated}</td><td className="px-4 text-[13px]"><span className="inline-flex items-center gap-1.5 text-ink/80"><span className={`w-[7px] h-[7px] rounded-full ${a.published ? 'bg-ok' : 'bg-sage-400'}`} />{a.published ? 'Freigegeben' : 'Entwurf'}</span></td></tr>)}</tbody></table></div>
   </>)
-}
-
-/* ---------- KI im Backoffice ---------- */
-type M = { me: boolean; t: string; ticket?: { kind: 'Meldung' | 'Idee'; title: string } }
-function AdminChat({ onClose }: { onClose: () => void }) {
-  const { addTicket } = useApp()
-  const [msgs, setMsgs] = useState<M[]>([]), [v, setV] = useState(''), [busy, setBusy] = useState(false), [steps, setSteps] = useState<Step[]>([])
-  const end = useRef<HTMLDivElement>(null)
-  useEffect(() => { if (busy) end.current?.scrollIntoView({ behavior: 'smooth' }) }, [steps, busy])
-  const ideas = ['Wie lange wirkt das Desinfektionsmittel?', 'Wie entferne ich Shellac ohne Nagelschaden?']
-  const send = async (q = v) => {
-    if (!q.trim() || busy) return
-    setMsgs(m => [...m, { me: true, t: q }]); setV(''); setBusy(true); setSteps([{ step: 'think' }])
-    const data: BenniAnswer = await askBenni(q, msgs, st => setSteps(x => [...x, st])).catch(() => ({ ok: false }))
-    setMsgs(m => [...m, { me: false, t: !data.ok || !data.text ? 'Gerade nicht erreichbar.' : data.text, ticket: data.ticket }]); setBusy(false); setSteps([])
-    setTimeout(() => end.current?.scrollIntoView({ behavior: 'smooth' }), 50)
-  }
-  return (
-    <aside className="w-[380px] shrink-0 border-l border-line flex flex-col bg-white">
-      <div className="h-16 px-5 flex items-center justify-between border-b border-line"><p className="font-medium flex items-center gap-2"><BMark className="w-6 h-6 text-[11px]" />{ASSISTANT}</p><button onClick={onClose} className="w-8 h-8 rounded-lg hover:bg-sage-50 flex items-center justify-center"><X size={17} /></button></div>
-      <div className="flex-1 overflow-y-auto no-scrollbar p-5 space-y-3">
-        {msgs.length === 0 && <div className="border-t border-line">{ideas.map(i => <button key={i} onClick={() => send(i)} className="w-full text-left py-3 text-[14px] border-b border-line hover:text-olive-700">{i}</button>)}</div>}
-        {msgs.map((m, i) => <div key={i} className={m.me ? 'flex justify-end' : ''}><div className={`max-w-[92%] rounded-2xl px-4 py-3 text-[14px] leading-snug ${m.me ? 'bg-olive-700 text-white' : 'bg-sage-50'}`}>{m.me ? m.t : <BenniText text={m.t} />}{m.ticket && <TicketDraft kind={m.ticket.kind} title={m.ticket.title} onSend={() => addTicket({ kind: m.ticket!.kind, title: m.ticket!.title, viaAI: true })} />}</div></div>)}
-        {busy && <BenniWorking steps={steps} />}
-        <div ref={end} />
-      </div>
-      <div className="p-4 flex gap-2 border-t border-line"><input value={v} onChange={e => setV(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} placeholder={`Frag ${ASSISTANT} …`} className="flex-1 h-11 rounded-[10px] bg-sage-50 px-3 text-[14px] outline-none" /><button onClick={() => send()} className="w-11 h-11 rounded-[10px] bg-olive-700 text-white flex items-center justify-center"><Send size={16} /></button></div>
-    </aside>
-  )
 }

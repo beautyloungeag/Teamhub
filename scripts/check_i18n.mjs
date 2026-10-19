@@ -7,7 +7,7 @@ for (const f of readdirSync(dir).filter(f => f.endsWith('.ts') && f !== 'index.t
   for (const m of src.matchAll(/^\s*(?:'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)")\s*:/gm)) keys.add((m[1] ?? m[2]).replace(/\\(.)/g, '$1'))
   for (const m of src.matchAll(/[,{]\s*(?:'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)")\s*:\s*\[/g)) keys.add((m[1] ?? m[2]).replace(/\\(.)/g, '$1'))
 }
-const files = ['Mobile.tsx', 'Calendar.tsx', 'Login.tsx', 'store.tsx', 'App.tsx', 'QuizRunner.tsx', 'TicketParts.tsx', 'BenniChat.tsx'].map(f => new URL('../src/' + f, import.meta.url))
+const files = ['Mobile.tsx', 'Calendar.tsx', 'Login.tsx', 'store.tsx', 'App.tsx', 'QuizRunner.tsx', 'TicketParts.tsx', 'BenniChat.tsx', 'People.tsx'].map(f => new URL('../src/' + f, import.meta.url))
 let missing = 0
 for (const f of files) {
   const src = readFileSync(f, 'utf8')

@@ -3,6 +3,7 @@ import { useAuth, type Employee } from './lib/auth'
 import { supabase } from './lib/supabase'
 
 import { tr, setCurrentLang, savedLang, locale, type Lang } from './lib/i18n'
+import { toast } from './Toast'
 export type { Lang }
 
 /* ---------- Typen ---------- */
@@ -15,7 +16,7 @@ export type Ticket = { id: string; kind: 'Meldung' | 'Idee'; title: string; body
 export type Comment = { id: string; author: string; authorId: string | null; body: string; when: string }
 export type Ev = { id: string; title: string; kind: string; description: string; startsAt: string; endsAt: string | null; place: string; link: string | null; capacity: number | null; registerUntil: string | null; audienceBranches: string[]; audienceSkills: string[]; taken: number }
 export type WikiBlock = { t: 'h' | 'p' | 'ul' | 'ol' | 'quote' | 'img' | 'video' | 'file'; text?: string; items?: string[]; src?: string; url?: string; name?: string; level?: number }
-export type WikiArticle = { id: string; cat: string; title: string; minutes: number; updated: string; body: string[]; mediaKind: string; mediaUrl: string | null; published: boolean; fromNews?: boolean; intro: string; tags: string[]; accessLevel: 'alle' | 'filialleitung' | 'buero'; imported: boolean }
+export type WikiArticle = { id: string; cat: string; catKey: string; title: string; minutes: number; updated: string; body: string[]; mediaKind: string; mediaUrl: string | null; published: boolean; fromNews?: boolean; intro: string; tags: string[]; accessLevel: 'alle' | 'filialleitung' | 'buero'; imported: boolean }
 export type Step = { id: string; title: string; minutes: number; articleId: string | null; proposed: boolean }
 export type Branch = { id: string; name: string; is_office: boolean }
 export type Quiz = { id: string; newsId: string | null; articleId: string | null; title: string; passPct: number; sample: boolean }
@@ -61,7 +62,7 @@ type Ctx = {
   newsReads: { news_id: string; employee_id: string; confirmed_at: string | null }[]
   templates: Template[]; tasks: TaskItem[]; done: Map<string, Done>; toggle: (id: string, photo?: File) => Promise<void>
   completionsToday: { item_id: string; branch_id: string }[]
-  tickets: Ticket[]; addTicket: (t: { kind: 'Meldung' | 'Idee'; title: string; body?: string; photo?: File; viaAI?: boolean }) => Promise<boolean>
+  tickets: Ticket[]; addTicket: (t: { kind: 'Meldung' | 'Idee'; title: string; body?: string; photo?: File; viaAI?: boolean; branchId?: string }) => Promise<boolean>
   addComment: (ticketId: string, body: string) => Promise<boolean>; toggleVote: (ticketId: string) => Promise<void>
   assign: (id: string, a: string) => Promise<void>; setStatus: (id: string, s: Ticket['status']) => Promise<void>
   events: Ev[]; joined: Set<string>; declined: Set<string>; toggleEvent: (id: string) => Promise<string | null>; declineEvent: (id: string) => Promise<void>
@@ -244,13 +245,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const wiki = useMemo<WikiArticle[]>(() => {
     const arts: WikiArticle[] = wikiRows.filter((a: any) => demoData || !a.is_sample).map((a: any) => ({
-      id: a.id, cat: lang === 'EN' ? a.i18n_en?.category ?? a.category : lang === 'FR' ? a.i18n_fr?.category ?? a.category : a.category,
+      id: a.id, catKey: a.category, cat: lang === 'EN' ? a.i18n_en?.category ?? a.category : lang === 'FR' ? a.i18n_fr?.category ?? a.category : a.category,
       title: lang === 'EN' ? a.i18n_en?.title ?? a.title : lang === 'FR' ? a.i18n_fr?.title ?? a.title : a.title, minutes: a.minutes, updated: fmtDate(a.updated_at, { day: '2-digit', month: '2-digit', year: 'numeric' }),
       body: [], mediaKind: a.media_kind, mediaUrl: a.media_url, published: a.published, intro: (lang === 'EN' ? a.i18n_en?.intro : lang === 'FR' ? a.i18n_fr?.intro : null) || a.intro || '', tags: a.tags ?? [], accessLevel: a.access_level, imported: !!a.source_id,
     }))
     // News mit Wissens-Kategorie erscheinen auch im Wissen (BLTH-16 News-zu-Wiki)
     for (const n of newsForWiki.current) if (n.wiki_category && new Date(n.publish_at) <= new Date()) arts.push({
-      id: 'news-' + n.id, cat: n.wiki_category, title: n.title, minutes: Math.max(1, Math.round(String(n.body).split(/\s+/).length / 180)),
+      id: 'news-' + n.id, catKey: n.wiki_category, cat: arts.find(x => x.catKey === n.wiki_category)?.cat ?? n.wiki_category, title: n.title, minutes: Math.max(1, Math.round(String(n.body).split(/\s+/).length / 180)),
       updated: fmtDate(n.publish_at, { day: '2-digit', month: '2-digit', year: 'numeric' }), body: String(n.body).split(/\n\n+/), mediaKind: 'none', mediaUrl: null, published: true, fromNews: true,
       intro: n.teaser ?? '', tags: [], accessLevel: 'alle', imported: false,
     })
@@ -280,7 +281,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const value: Ctx = {
     me: meStaff, employee, lang, t, loading, reload,
-    setLang: (l) => { setLangState(l); sb.rpc('update_my_profile', { p_lang: l }).then(({ error }) => { if (error) console.warn('Sprache nicht gespeichert', error.message) }) },
+    setLang: (l) => { setLangState(l); sb.rpc('update_my_profile', { p_lang: l }).then(({ error }) => { if (error) toast(tr('Sprache nicht gespeichert', undefined, l), 'error'); else toast(tr('Sprache geändert', undefined, l)) }) },
     branches, staff, skillCatalog, news, read, opened, newsReads,
     openNews: (id) => { if (!opened.has(id)) sb.rpc('open_news', { p_news: id }).then(() => setNewsReads(r => [...r, { news_id: id, employee_id: employee.id, confirmed_at: null }])) },
     confirm: async (id) => {
@@ -299,11 +300,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       await reload()
     },
     tickets,
-    addTicket: async ({ kind, title, body = '', photo, viaAI = false }) => {
+    addTicket: async ({ kind, title, body = '', photo, viaAI = false, branchId }) => {
       const path = photo ? await upload('ticket-photos', photo, `${Date.now()}`) : null
       if (photo && !path) return false
-      const { error } = await sb.from('tickets').insert({ kind, title, body, branch_id: myBranch, created_by: employee.id, created_by_name: name, via_ai: viaAI, photo_path: path, media_kind: photo?.type.startsWith('video') ? 'video' : 'photo' })
-      if (!error) await reload()
+      const { error } = await sb.from('tickets').insert({ kind, title, body, branch_id: branchId ?? myBranch, created_by: employee.id, created_by_name: name, via_ai: viaAI, photo_path: path, media_kind: photo?.type.startsWith('video') ? 'video' : 'photo' })
+      if (!error) { await reload(); toast(tr(kind === 'Idee' ? 'Idee gesendet' : 'Meldung gesendet')) } else toast(tr('Senden hat nicht geklappt'), 'error')
       return !error
     },
     addComment: async (ticketId, body) => {
@@ -336,14 +337,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
         ? await sb.from('event_registrations').delete().match({ event_id: id, employee_id: employee.id })
         : await sb.rpc('register_event', { p_event: id })
       await reload()
-      if (!error) return null
+      if (!error) { toast(joined.has(id) ? tr('Abgemeldet') : tr('Angemeldet')); return null }
       return /full/.test(error.message) ? 'Leider ausgebucht.' : /deadline/.test(error.message) ? 'Die Anmeldefrist ist vorbei.' : 'Das hat nicht geklappt.'
     },
-    declineEvent: async (id) => { await sb.rpc('decline_event', { p_event: id }); await reload() },
+    declineEvent: async (id) => { const { error } = await sb.rpc('decline_event', { p_event: id }); await reload(); toast(error ? tr('Das hat nicht geklappt') : tr('Abgesagt'), error ? 'error' : 'ok') },
     toggleStandby: async (day) => {
-      if (standby.some(x => x.employee_id === employee.id && x.day === day)) await sb.from('standby_days').delete().match({ employee_id: employee.id, day })
-      else await sb.from('standby_days').insert({ employee_id: employee.id, day })
+      const had = standby.some(x => x.employee_id === employee.id && x.day === day)
+      const { error } = had ? await sb.from('standby_days').delete().match({ employee_id: employee.id, day }) : await sb.from('standby_days').insert({ employee_id: employee.id, day })
       await reload()
+      toast(error ? tr('Das hat nicht geklappt') : had ? tr('Aushilfe-Tag entfernt') : tr('Aushilfe-Tag eingetragen'), error ? 'error' : 'ok')
     },
     setDemoData: async (on) => { await sb.from('app_settings').upsert({ key: 'demo_data', value: on, updated_at: new Date().toISOString() }); await reload(); await reloadWiki() },
     wiki, reloadWiki, steps, allSteps, obDone,
@@ -359,7 +361,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       sb.rpc('update_my_profile', { p_skills: s }).then(({ error }) => { if (error) setStaff(list => list.map(x => x.id === employee.id ? { ...x, skills: before } : x)) })
     },
     photo: meStaff.photo,
-    setPhotoFile: async (f) => { const p = await upload('profile-photos', f, 'avatar'); if (p) { await sb.rpc('update_my_profile', { p_photo_path: p }); await reload() } },
+    setPhotoFile: async (f) => { const p = await upload('profile-photos', f, `avatar-${Date.now()}`); if (p) { await sb.rpc('update_my_profile', { p_photo_path: p }); await reload(); toast(tr('Profilbild gespeichert')) } else toast(tr('Das Bild liess sich nicht hochladen'), 'error') },
     myPhorest, signedUrl,
   }
   return <C.Provider value={value}>{children}</C.Provider>

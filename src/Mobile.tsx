@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { motion } from 'motion/react'
 import {
   Home, ListChecks, BookOpen, LayoutGrid, Sparkles, ChevronLeft, ChevronRight, Check, Camera, MapPin, Users,
-  Search, Lightbulb, AlertTriangle, CalendarDays, Inbox, Send, Newspaper, Plane, Play, Video,
-  ArrowUpRight, LogOut, Phone, ThumbsUp, GraduationCap, Link2, Lock, FileText, Smartphone, Share, PlusSquare, MoreVertical, ExternalLink, Monitor,
+  Search, Lightbulb, AlertTriangle, CalendarDays, Send, Newspaper, Plane, Play, Video,
+  ArrowUpRight, LogOut, Phone, ArrowBigUp, GraduationCap, Link2, Lock, FileText, Smartphone, Share, PlusSquare, MoreVertical, ExternalLink, Monitor,
 } from 'lucide-react'
 import { useAuth } from './lib/auth'
 import { supabase } from './lib/supabase'
@@ -13,18 +13,20 @@ import { useApp, isoDay, type Lang, type News, type WikiArticle, type WikiBlock,
 import { Terminbuch, EventCalendar } from './Calendar'
 import { tr, locale } from './lib/i18n'
 import { Logo, BMark } from './Logo'
-import { Comments, Media, TicketDraft } from './TicketParts'
+import { Comments, Media } from './TicketParts'
 import { QuizRunner } from './QuizRunner'
-import { askBenni, BenniWorking, BenniText, type Step } from './BenniChat'
+import { BenniChat, openNewBenniChat } from './BenniChat'
+import { Avatar, ContactRow } from './People'
+export { Avatar }
+import { toast } from './Toast'
 
 // Name des KI-Reiters (im Vertrag „Marc Beau“, im abgestimmten Prototyp „Benni“)
 export const ASSISTANT = 'Benni'
 
 type Tab = 'home' | 'tasks' | 'ai' | 'wiki' | 'menu'
-type Sub = null | { k: 'news-list' } | { k: 'news'; item: News } | { k: 'wiki'; item: WikiArticle } | { k: 'onboarding' } | { k: 'team' } | { k: 'profile'; item: Staff }
-  | { k: 'me' } | { k: 'conn' } | { k: 'book' } | { k: 'tickets' } | { k: 'ticket'; id: string } | { k: 'clients' } | { k: 'events' } | { k: 'inbox' } | { k: 'time' } | { k: 'install' }
+type Sub = null | { k: 'news-list' } | { k: 'news'; item: News } | { k: 'wiki'; item: WikiArticle } | { k: 'wiki-cat'; key: string; name: string; cover: string | null } | { k: 'onboarding' } | { k: 'team' } | { k: 'profile'; item: Staff }
+  | { k: 'me' } | { k: 'conn' } | { k: 'book' } | { k: 'tickets' } | { k: 'ticket'; id: string } | { k: 'clients'; cid?: string } | { k: 'events' } | { k: 'inbox' } | { k: 'time' } | { k: 'install' }
 
-const ini = (s: { first: string; last: string }) => ((s.first[0] ?? '') + (s.last[0] ?? '')).toUpperCase()
 
 export default function Mobile({ onSwitch }: { onSwitch?: () => void }) {
   const { signOut } = useAuth()
@@ -68,7 +70,7 @@ const live = (ns: News[]) => ns.filter(n => new Date(n.publishAt).getTime() <= D
 
 /* ---------- Shell ---------- */
 function Shell({ onLogout, onSwitch }: { onLogout: () => void; onSwitch?: () => void }) {
-  const { t, read, news: allNews, loading, reload } = useApp()
+  const { t, read, news: allNews, loading, reload, me, photo } = useApp()
   const news = live(allNews)
   const [tab, setTab] = useState<Tab>('home')
   const [stack, setStack] = useState<Sub[]>([])
@@ -106,13 +108,14 @@ function Shell({ onLogout, onSwitch }: { onLogout: () => void; onSwitch?: () => 
     case 'news-list': screen = <NewsList open={open} />; break
     case 'news': screen = <NewsDetail n={sub.item} />; break
     case 'wiki': screen = <WikiDetail a={sub.item} />; break
+    case 'wiki-cat': screen = <WikiCategory k={sub.key} name={sub.name} cover={sub.cover} open={open} />; break
     case 'onboarding': screen = <Onboarding open={open} />; break
     case 'team': screen = <Team open={open} />; break
     case 'profile': screen = <Profile s={sub.item} />; break
     case 'me': screen = <MyProfile />; break
     case 'tickets': screen = <Tickets open={open} />; break
     case 'ticket': screen = <TicketDetail id={sub.id} />; break
-    case 'clients': screen = <ClientHistoryView />; break
+    case 'clients': screen = <ClientHistoryView cid={sub.cid} />; break
     case 'events': screen = <Events />; break
     case 'conn': screen = <Connections />; break
     case 'book': screen = <div className="px-5 pb-4 h-[calc(100dvh-150px)] md:h-[calc(100dvh-110px)]"><h1 className="text-[26px] font-medium tracking-tight mb-3">{t('Kundentermine')}</h1><Terminbuch compact /></div>; break
@@ -141,11 +144,17 @@ function Shell({ onLogout, onSwitch }: { onLogout: () => void; onSwitch?: () => 
             )
           })}
         </nav>
-        {onSwitch && <button onClick={onSwitch} className="mt-auto h-10 px-3 rounded-[10px] flex items-center gap-3 text-[14px] text-sage-200 hover:bg-white/5"><Monitor size={18} strokeWidth={1.6} />{t('Büro-Backoffice')}</button>}
+        <div className="mt-auto space-y-0.5">
+          {onSwitch && <button onClick={onSwitch} className="w-full h-10 px-3 rounded-[10px] flex items-center gap-3 text-[14px] text-sage-200 hover:bg-white/5"><Monitor size={18} strokeWidth={1.6} />{t('Büro-Backoffice')}</button>}
+          <button onClick={() => open({ k: 'me' })} className={`w-full px-2 py-2 rounded-[12px] flex items-center gap-3 text-left transition ${sub?.k === 'me' ? 'bg-white/10' : 'hover:bg-white/5'}`}>
+            <Avatar s={me} photo={photo} size="w-9 h-9 text-[13px]" />
+            <span className="min-w-0"><span className="block text-[14px] text-white truncate">{me.first} {me.last}</span><span className="block text-[12px] text-sage-200/80 truncate">{me.role} · {me.branch}</span></span>
+          </button>
+        </div>
       </aside>
       <div className="relative flex-1 min-w-0 flex flex-col">
         <div ref={scroller} className="flex-1 overflow-y-auto no-scrollbar bg-sage-50">
-          <div className="w-full md:max-w-[760px] md:mx-auto h-full">
+          <div className={`w-full md:mx-auto h-full ${tab === 'ai' && !sub ? 'md:max-w-[1080px] md:px-6' : 'md:max-w-[760px]'}`}>
             <div className="h-11 md:h-8" />
             {sub && <button onClick={back} className="px-4 pb-1 flex items-center gap-0.5 text-sage-800 text-[15px]"><ChevronLeft size={20} />{t('Zurück')}</button>}
             {loading ? <p className="px-5 pt-10 text-mute">{t('Lädt …')}</p> :
@@ -186,7 +195,7 @@ function weekDays() {
   return Array.from({ length: 7 }, (_, i) => { const d = new Date(now.getTime() + (i - dow) * 864e5); return { d: ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'][i], n: d.getUTCDate(), today: i === dow } })
 }
 function Today({ open, go }: { open: (s: Sub) => void; go: (t: Tab) => void }) {
-  const { me, t, done, read, tasks, news: allNews, quizzes, branches } = useApp()
+  const { me, t, done, read, tasks, news: allNews, quizzes, branches, photo } = useApp()
   const news = live(allNews)
   const day = useMyDay()
   const [team, setTeam] = useState<TeamToday | null>(null)
@@ -201,8 +210,9 @@ function Today({ open, go }: { open: (s: Sub) => void; go: (t: Tab) => void }) {
   const dateLabel = new Intl.DateTimeFormat(locale(), { timeZone: 'Europe/Zurich', weekday: 'long', day: 'numeric', month: 'long' }).format(new Date())
   return (
     <div className="px-5 pb-10">
-      <div className="pt-3 pb-5">
-        <p className="text-[13px] text-mute">{dateLabel}</p><h1 className="text-[30px] leading-tight mt-0.5">{t('Hallo')} {me.first}</h1>
+      <div className="pt-3 pb-5 flex items-end justify-between gap-3">
+        <div><p className="text-[13px] text-mute">{dateLabel}</p><h1 className="text-[30px] leading-tight mt-0.5">{t('Hallo')} {me.first}</h1></div>
+        <button onClick={() => open({ k: 'me' })} aria-label={t('Mein Profil')} className="md:hidden rounded-full"><Avatar s={me} photo={photo} size="w-11 h-11 text-[14px]" /></button>
       </div>
 
       <div className="rounded-[16px] bg-olive-800 text-white p-5">
@@ -393,80 +403,80 @@ function Sheet({ children, onClose }: { children: ReactNode; onClose: () => void
 }
 
 /* ---------- KI ---------- */
-type Msg = { me: boolean; t: string; sources?: { id: string; title: string }[]; ticket?: { kind: 'Meldung' | 'Idee'; title: string } }
-// Gespräch mit Benni bleibt erhalten, wenn man eine Quelle öffnet oder den Reiter wechselt
-let benniCache: Msg[] = []
 function AI({ open }: { open: (s: Sub) => void }) {
-  const { addTicket, wiki, t, reload } = useApp()
-  const [msgs, setMsgsState] = useState<Msg[]>(benniCache)
-  const setMsgs = (f: (m: Msg[]) => Msg[]) => setMsgsState(m => { const n = f(m); benniCache = n; return n })
-  const [v, setV] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [steps, setSteps] = useState<Step[]>([])
-  const end = useRef<HTMLDivElement>(null)
-  useEffect(() => { if (busy) end.current?.scrollIntoView({ behavior: 'smooth' }) }, [steps, busy])
-  const ideas = ['Was steht heute bei mir an?', 'Lass uns mit dem Onboarding weiterlernen.', 'Wie entferne ich Shellac ohne Nagelschaden?', 'Das Wachsgerät in Kabine 3 ist kaputt']
-  useEffect(() => { let q: string | null = null; try { q = sessionStorage.getItem('th-benni-ask'); sessionStorage.removeItem('th-benni-ask') } catch { /* privat */ } if (q) send(q) }, []) // eslint-disable-line react-hooks/exhaustive-deps
-  const send = async (q = v) => {
-    if (!q.trim() || busy || !supabase) return
-    const history = msgs
-    setMsgs(m => [...m, { me: true, t: q }]); setV(''); setBusy(true); setSteps([{ step: 'think' }])
-    const data = await askBenni(q, history, st => setSteps(x => [...x, st])).catch(() => ({ ok: false } as { ok: false; text?: string; sources?: undefined; ticket?: undefined }))
-    setMsgs(m => [...m, !data.ok || !data.text ? { me: false, t: t('Ich bin gerade nicht erreichbar. Bitte versuche es gleich noch einmal.') } : { me: false, t: data.text, sources: data.sources, ticket: data.ticket }])
-    setBusy(false); setSteps([]); setTimeout(() => end.current?.scrollIntoView({ behavior: 'smooth' }), 50)
-    reload() // z. B. Onboarding-Schritt, den Benni abgehakt hat
-  }
-  return (
-    <div className="flex flex-col h-full">
-      <div className="flex-1 px-5">
-        {msgs.length === 0 ? (
-          <div className="pt-6">
-            <BMark className="w-12 h-12 text-[18px]" />
-            <h1 className="mt-5 text-[28px] leading-tight">{t('Frag {name}', { name: ASSISTANT })}</h1>
-            <div className="mt-6"><List>{ideas.map(i => <button key={i} onClick={() => send(t(i))} className="w-full text-left px-4 py-3.5 text-[15px] flex items-center gap-3"><span className="flex-1">{t(i)}</span><ArrowUpRight size={16} className="text-sage-400 shrink-0" /></button>)}</List></div>
-          </div>
-        ) : (
-          <div className="pt-3 space-y-3 pb-4">
-            {msgs.map((m, i) => (
-              <div key={i} className={m.me ? 'flex justify-end' : ''}>
-                <div className={`max-w-[88%] rounded-[16px] px-4 py-3 text-[15px] leading-snug ${m.me ? 'bg-olive-700 text-white' : 'bg-white'}`}>{m.me ? m.t : <BenniText text={m.t} />}
-                  {m.sources?.map(s => { const a = wiki.find(x => x.id === s.id); return a && <button key={s.id} onClick={() => open({ k: 'wiki', item: a })} className="mt-2 text-[13px] text-sage-800 flex items-center gap-1"><BookOpen size={14} />{s.title}<ArrowUpRight size={13} /></button> })}
-                  {m.ticket && <TicketDraft kind={m.ticket.kind} title={m.ticket.title} onSend={() => addTicket({ kind: m.ticket!.kind, title: m.ticket!.title, viaAI: true })} />}
-                </div>
-              </div>
-            ))}
-            {busy && <BenniWorking steps={steps} />}
-            <div ref={end} />
-          </div>
-        )}
-      </div>
-      <div className="sticky bottom-0 px-4 py-3 bg-sage-50/95 flex gap-2">
-        <input value={v} onChange={e => setV(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} placeholder={t('Frag {name} …', { name: ASSISTANT })} className="flex-1 h-12 rounded-2xl bg-white px-4 text-[15px] outline-none placeholder:text-mute" />
-        <button onClick={() => send()} className="w-12 h-12 rounded-2xl bg-olive-700 text-white flex items-center justify-center"><Send size={18} /></button>
-      </div>
-    </div>
-  )
+  const { wiki } = useApp()
+  return <BenniChat variant="app" onOpenArticle={id => { const a = wiki.find(x => x.id === id); if (a) open({ k: 'wiki', item: a }) }} onOpenClient={cid => open({ k: 'clients', cid })} />
 }
 /* ---------- Wissen ---------- */
+// Titelbilder der Kategorien (erstes Foto aus ihren Artikeln), einmal je Sitzung signiert
+let coverCache: Record<string, string> | null = null
+function useCovers() {
+  const [covers, setCovers] = useState<Record<string, string>>(coverCache ?? {})
+  useEffect(() => {
+    if (coverCache || !supabase) return
+    supabase.rpc('wiki_category_covers').then(async ({ data }) => {
+      const rows = (data ?? []) as { category: string; cover: string }[]
+      if (!rows.length) { coverCache = {}; return }
+      const { data: signed } = await supabase!.storage.from('media').createSignedUrls(rows.map(r => r.cover), 3600)
+      const map: Record<string, string> = {}
+      rows.forEach((r, i) => { const u = signed?.[i]?.signedUrl; if (u) map[r.category] = u })
+      coverCache = map; setCovers(map)
+    })
+  }, [])
+  return covers
+}
+const articleIcon = (a: WikiArticle) => a.mediaKind === 'video' || a.mediaKind === 'youtube' ? <Video size={17} /> : a.fromNews ? <Newspaper size={17} /> : <BookOpen size={17} />
+
 function Wiki({ open }: { open: (s: Sub) => void }) {
   const { t, wiki: allWiki, steps, obDone } = useApp()
   const wiki = allWiki.filter(a => a.published)
   const [q, setQ] = useState('')
-  const cats = [...new Set(wiki.map(a => a.cat))]
+  const covers = useCovers()
+  const cats = [...wiki.reduce((m, a) => { const c = m.get(a.catKey) ?? { key: a.catKey, name: a.cat, n: 0 }; c.n++; return m.set(a.catKey, c) }, new Map<string, { key: string; name: string; n: number }>()).values()]
+    .sort((x, y) => y.n - x.n || x.name.localeCompare(y.name))
   const hits = wiki.filter(a => [a.title, a.cat, a.intro, ...a.tags, ...a.body].join(' ').toLowerCase().includes(q.toLowerCase()))
   return (
     <div className="pb-10"><Title>{t('Wissen')}</Title>
       <div className="px-5">
         <SearchBox value={q} onChange={setQ} placeholder={t('Suchen, z. B. Wachs')} />
         {!q && steps.length > 0 && <Card onClick={() => open({ k: 'onboarding' })} className="mt-4 p-4 flex items-center gap-3">
-          <span className="w-11 h-11 rounded-xl bg-sage-400 text-white flex items-center justify-center"><GraduationCap size={22} /></span>
+          <span className="w-11 h-11 rounded-xl bg-olive-700 text-white flex items-center justify-center"><GraduationCap size={21} /></span>
           <span className="flex-1"><span className="block text-[15px] font-medium">{t('Onboarding für Neue')}</span><span className="block text-xs text-mute mt-0.5">{t('{n} Schritte · {d} von {n} erledigt', { n: steps.length, d: steps.filter(s => obDone.has(s.id)).length })}</span></span>
           <ChevronRight size={18} className="text-sage-400" />
         </Card>}
-        {cats.map(c => { const items = hits.filter(a => a.cat === c); if (!items.length) return null
-          return <div key={c}><Label>{c}</Label><List>{items.map(a => <Row key={a.id} icon={a.mediaKind === 'video' || a.mediaKind === 'youtube' ? <Video size={17} /> : a.fromNews ? <Newspaper size={17} /> : <BookOpen size={17} />} title={a.title} sub={t('{n} Min. · aktualisiert {date}', { n: a.minutes, date: a.updated })} onClick={() => open({ k: 'wiki', item: a })} />)}</List></div>
-        })}
-        {q && hits.length === 0 && <p className="mt-6 text-[14px] text-mute">{t('Nichts gefunden. Frag {name} oder schick eine Idee ans Büro.', { name: ASSISTANT })}</p>}
+        {!q && <>
+          <Label>{t('Themen')}</Label>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">{cats.map(c => { const cover = covers[c.key] ?? null
+            return <button key={c.key} onClick={() => open({ k: 'wiki-cat', key: c.key, name: c.name, cover })} className="group text-left">
+              <span className="relative block aspect-[4/3] rounded-[16px] overflow-hidden bg-olive-800">
+                {cover ? <img src={cover} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover transition duration-500 group-hover:scale-[1.04]" />
+                  : <span className="absolute inset-0 flex items-center justify-center font-display text-[44px] text-white/20">{c.name.slice(0, 1).toUpperCase()}</span>}
+                <span className="absolute inset-0 bg-gradient-to-t from-[#1D221C]/75 via-[#1D221C]/10 to-transparent" />
+                <span className="absolute left-3 right-3 bottom-2.5 text-white"><span className="block font-display text-[17px] leading-tight capitalize">{c.name}</span><span className="block text-[12px] text-white/75 mt-0.5">{c.n === 1 ? t('1 Thema') : t('{n} Themen', { n: c.n })}</span></span>
+              </span>
+            </button> })}</div>
+        </>}
+        {q && <><Label>{t('{n} Treffer', { n: hits.length })}</Label>
+          {hits.length > 0 && <List>{hits.slice(0, 60).map(a => <Row key={a.id} icon={articleIcon(a)} title={a.title} sub={`${a.cat} · ${t('{n} Min.', { n: a.minutes })}`} onClick={() => open({ k: 'wiki', item: a })} />)}</List>}
+          {hits.length === 0 && <p className="text-[14px] text-mute">{t('Nichts gefunden. Frag {name} oder schick eine Idee ans Büro.', { name: ASSISTANT })}</p>}
+        </>}
+      </div>
+    </div>
+  )
+}
+
+function WikiCategory({ k, name, cover, open }: { k: string; name: string; cover: string | null; open: (s: Sub) => void }) {
+  const { t, wiki } = useApp()
+  const items = wiki.filter(a => a.published && a.catKey === k).sort((x, y) => x.title.localeCompare(y.title))
+  return (
+    <div className="pb-10">
+      <div className="px-5">
+        <div className="relative mt-2 h-36 md:h-44 rounded-[18px] overflow-hidden bg-olive-800">
+          {cover && <img src={cover} alt="" className="absolute inset-0 w-full h-full object-cover" />}
+          <div className="absolute inset-0 bg-gradient-to-t from-[#1D221C]/80 via-[#1D221C]/20 to-transparent" />
+          <div className="absolute left-4 bottom-3 text-white"><h1 className="font-display text-[28px] leading-tight capitalize">{name}</h1><p className="text-[13px] text-white/75">{items.length === 1 ? t('1 Thema') : t('{n} Themen', { n: items.length })}</p></div>
+        </div>
+        <div className="mt-4"><List>{items.map(a => <Row key={a.id} icon={articleIcon(a)} title={a.title} sub={t('{n} Min. · aktualisiert {date}', { n: a.minutes, date: a.updated })} onClick={() => open({ k: 'wiki', item: a })} />)}</List></div>
       </div>
     </div>
   )
@@ -547,7 +557,7 @@ function Onboarding({ open }: { open: (s: Sub) => void }) {
     <div className="px-5 pb-10"><h1 className="mt-3 text-[26px] font-medium tracking-tight">{t('Onboarding')}</h1>
       <p className="mt-1 text-[14px] text-mute">{t('Alles für deine ersten Tage. Deine Respo sieht, wie weit du bist.')}</p>
       <Card onClick={() => open({ k: 'install' })} className="mt-4 p-4 flex items-center gap-3"><span className="w-10 h-10 rounded-xl bg-olive-700 text-white flex items-center justify-center"><Smartphone size={19} /></span><span className="flex-1"><span className="block text-[15px] font-medium">{t('Zuerst: TeamHub aufs Handy')}</span><span className="block text-xs text-mute">{t('Auf den Home-Bildschirm legen und Mitteilungen einschalten')}</span></span><ChevronRight size={18} className="text-sage-400" /></Card>
-      <button onClick={() => { try { sessionStorage.setItem('th-benni-ask', t('Lass uns mit dem Onboarding weiterlernen.')) } catch { /* privat */ } window.dispatchEvent(new Event('th-benni')) }} className="mt-3 w-full rounded-[16px] bg-white p-4 flex items-center gap-3 text-left"><BMark className="w-10 h-10 text-[15px]" /><span className="flex-1"><span className="block text-[15px] font-medium">{t('Mit Benni lernen')}</span><span className="block text-xs text-mute">{t('Schritt für Schritt, mit kurzer Kontrollfrage')}</span></span><ChevronRight size={18} className="text-sage-400" /></button>
+      <button onClick={() => openNewBenniChat(t('Lass uns mit dem Onboarding weiterlernen.'))} className="mt-3 w-full rounded-[16px] bg-white p-4 flex items-center gap-3 text-left"><BMark className="w-10 h-10 text-[15px]" /><span className="flex-1"><span className="block text-[15px] font-medium">{t('Mit Benni lernen')}</span><span className="block text-xs text-mute">{t('Schritt für Schritt, mit kurzer Kontrollfrage')}</span></span><ChevronRight size={18} className="text-sage-400" /></button>
       <div className="mt-4 h-[3px] rounded-full bg-sage-100 overflow-hidden"><div className="h-full bg-olive-700 transition-all" style={{ width: (steps.length ? steps.filter(s => obDone.has(s.id)).length / steps.length * 100 : 0) + '%' }} /></div>
       <div className="mt-5 space-y-2">
         {steps.map((s, i) => { const art = wiki.find(w => w.id === s.articleId)
@@ -567,7 +577,7 @@ function MenuView({ open, onLogout }: { open: (s: Sub) => void; onLogout: () => 
   const tiles: [string, string, typeof Users, Sub][] = [
     ['News', unread ? t('{n} ungelesen', { n: unread }) : t('alles gelesen'), Newspaper, { k: 'news-list' }], ['Kalender', t('Termine, Schulungen und Events'), CalendarDays, { k: 'events' }],
     ['Team', t('{n} Personen', { n: staff.filter(s => s.active).length }), Users, { k: 'team' }], ['Melden & Ideen', t('{n} offen', { n: tickets.filter(x => x.status !== 'Erledigt').length }), Lightbulb, { k: 'tickets' }],
-    ['Posteingang', t('Webmail'), Inbox, { k: 'inbox' }], ['Zeit & Ferien', 'Timebutler', Plane, { k: 'time' }],
+    ['Zeit & Ferien', 'Timebutler', Plane, { k: 'time' }],
   ]
   return (
     <div className="pb-10"><Title>{t('Menü')}</Title>
@@ -588,8 +598,6 @@ function MenuView({ open, onLogout }: { open: (s: Sub) => void; onLogout: () => 
     </div>
   )
 }
-export const Avatar = ({ s, photo, size = 'w-10 h-10' }: { s: { first: string; last: string }; photo?: string | null; size?: string }) =>
-  photo ? <img src={photo} alt="" className={`${size} rounded-full object-cover shrink-0`} /> : <span className={`${size} rounded-full bg-sage-200 flex items-center justify-center text-sm font-medium text-sage-800 shrink-0`}>{ini(s)}</span>
 
 function Team({ open }: { open: (s: Sub) => void }) {
   const { staff, branches, t } = useApp()
@@ -606,7 +614,7 @@ function Team({ open }: { open: (s: Sub) => void }) {
 }
 
 /* ---------- Kundenhistorie aus Phorest (Zusammenfassung durch Benni) ---------- */
-function ClientHistoryView() {
+function ClientHistoryView({ cid }: { cid?: string }) {
   const { t } = useApp()
   const [q, setQ] = useState(''), [hits, setHits] = useState<ClientHit[] | null>(null), [h, setH] = useState<ClientHistory | null>(null)
   const [busy, setBusy] = useState(false), [err, setErr] = useState('')
@@ -625,6 +633,8 @@ function ClientHistoryView() {
     if (!r.ok) { setErr(t('Phorest ist gerade nicht erreichbar. Bitte später noch einmal öffnen.')); return }
     setH(r)
   }
+  // Aus Bennis Kundenkarte: direkt die Historie dieser Kundin
+  useEffect(() => { if (cid) pick({ client_id: cid } as ClientHit) }, [cid]) // eslint-disable-line react-hooks/exhaustive-deps
   const fmt = (d: string) => d ? new Intl.DateTimeFormat(locale(), { timeZone: 'UTC', day: 'numeric', month: 'numeric', year: '2-digit' }).format(new Date(d + 'T12:00:00Z')) : ''
   return (
     <div className="pb-10"><Title>{t('Kundenhistorie')}</Title>
@@ -695,16 +705,18 @@ function Profile({ s }: { s: Staff }) {
       <h1 className="mt-4 text-[24px] font-medium tracking-tight">{s.first} {s.last}</h1><p className="text-mute">{s.role} · {t('Studio {name}', { name: s.branch })}</p>
       <div className="mt-6 text-left"><Label>{t('Skills')}</Label>{s.skills.length ? <div className="flex flex-wrap gap-2">{s.skills.map(k => <span key={k} className="px-3 h-8 rounded-full bg-white text-[13px] flex items-center">{k}</span>)}</div> : <p className="text-[14px] text-mute">{t('Noch keine Skills eingetragen.')}</p>}
         <Label>{t('Arbeitszeiten diese Woche')}</Label><WeekShifts id={s.id} />
-        <div className="mt-6 grid gap-2">{s.phone && <a href={`tel:${s.phone.replace(/\s/g, '')}`} className="w-full h-12 rounded-[10px] font-medium flex items-center justify-center gap-2 bg-olive-700 text-white"><Phone size={16} />{t('Anrufen')}</a>}
-          <a href={`mailto:${s.email}`} className="w-full h-12 rounded-[10px] font-medium flex items-center justify-center gap-2 bg-white text-ink"><Send size={16} />{t('E-Mail schreiben')}</a></div></div>
+        <Label>{t('Kontakt')}</Label>
+        <List>
+          {s.phone && <ContactRow label={t('Telefon')} value={s.phone} href={`tel:${s.phone.replace(/\s/g, '')}`} icon={<Phone size={15} />} action={t('Anrufen')} />}
+          <ContactRow label={t('E-Mail')} value={s.email} href={`mailto:${s.email}`} icon={<Send size={15} />} action={t('E-Mail schreiben')} />
+        </List></div>
     </div>
   )
 }
 function MyProfile() {
-  const { me, skills, setSkills, photo, setPhotoFile, lang, setLang, skillCatalog, t } = useApp()
+  const { me, skills, photo, setPhotoFile, lang, setLang, t } = useApp()
   const file = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
-  const tog = (k: string) => setSkills(skills.includes(k) ? skills.filter(x => x !== k) : [...skills, k])
   return (
     <div className="px-5 pb-10">
       <div className="mt-3 flex flex-col items-center">
@@ -714,8 +726,9 @@ function MyProfile() {
         <h1 className="mt-4 text-[24px] font-medium tracking-tight">{me.first} {me.last}</h1><p className="text-mute">{me.role} · {t('Studio {name}', { name: me.branch })}</p>
       </div>
       <Label>{t('Meine Skills')}</Label>
-      <div className="flex flex-wrap gap-2">{skillCatalog.map(k => <button key={k} onClick={() => tog(k)} className={`px-3 h-8 rounded-full text-[13px] ${skills.includes(k) ? 'bg-olive-700 text-white' : 'bg-white'}`}>{k}</button>)}</div>
-      <p className="mt-3 text-xs text-mute">{t('Die Skill-Liste gibt das Büro vor. Kolleginnen finden dich darüber.')}</p>
+      {skills.length ? <div className="flex flex-wrap gap-2">{skills.map(k => <span key={k} className="px-3 h-8 rounded-full bg-white text-[13px] flex items-center">{k}</span>)}</div>
+        : <p className="text-[14px] text-mute">{t('Noch keine Skills hinterlegt.')}</p>}
+      <p className="mt-3 text-xs text-mute">{t('Skills pflegt deine Filialleitung oder das Büro. Kolleginnen finden dich darüber, zum Beispiel wenn jemand Aushilfe sucht.')}</p>
       <Label>{t('Arbeitszeiten · nächste 7 Tage')}</Label>
       <WeekShifts />
       <Label>{t('Ich kann aushelfen an')}</Label>
@@ -729,19 +742,23 @@ function MyProfile() {
 }
 
 function Tickets({ open }: { open: (s: Sub) => void }) {
-  const { tickets, addTicket, toggleVote, me, t } = useApp()
+  const { tickets, addTicket, toggleVote, me, t, branches } = useApp()
   const [kind, setKind] = useState<'Meldung' | 'Idee'>('Meldung'), [text, setText] = useState(''), [ok, setOk] = useState(''), [photo, setPhoto] = useState<File | null>(null), [busy, setBusy] = useState(false)
+  // Wer woanders aushilft, meldet für das Studio, in dem sie gerade ist
+  const studios = branches.filter(b => !b.is_office)
+  const [branchId, setBranchId] = useState(studios.some(b => b.id === me.branch_id) ? me.branch_id : studios[0]?.id ?? me.branch_id)
+  const [pickB, setPickB] = useState(false)
   const [view, setView] = useState<'offen' | 'erledigt'>('offen')
   const file = useRef<HTMLInputElement>(null)
   const submit = async () => {
     if (!text.trim() || busy) return
-    setBusy(true); const good = await addTicket({ kind, title: text.trim(), photo: photo ?? undefined }); setBusy(false)
+    setBusy(true); const good = await addTicket({ kind, title: text.trim(), photo: photo ?? undefined, branchId }); setBusy(false)
     if (good) { setText(''); setPhoto(null); setOk(t('Gesendet. Du siehst hier, was daraus wird.')) } else setOk(t('Das hat nicht geklappt. Bitte versuche es noch einmal.'))
     setTimeout(() => setOk(''), 3000)
   }
   // Die Datenbank liefert nur, was diese Person sehen darf: eigene Meldungen, Ideen des Teams, als Leitung das Studio
   const list = tickets.filter(x => view === 'offen' ? x.status !== 'Erledigt' : x.status === 'Erledigt')
-    .sort((a, b) => (b.kind === 'Idee' ? b.votes : 0) - (a.kind === 'Idee' ? a.votes : 0))
+    .sort((a, b) => b.votes - a.votes)
   const isVideo = photo?.type.startsWith('video')
   return (
     <div className="pb-10"><Title>{t('Melden & Ideen')}</Title>
@@ -752,13 +769,15 @@ function Tickets({ open }: { open: (s: Sub) => void }) {
         <Card className="mt-3 p-4">
           <textarea value={text} onChange={e => setText(e.target.value)} rows={3} placeholder={kind === 'Meldung' ? t('Was ist kaputt oder fehlt?') : t('Was könnten wir besser machen?')} className="w-full resize-none outline-none text-[15px] placeholder:text-mute bg-transparent" />
           <div className="mt-2 flex items-center justify-between text-[13px] text-mute">
-            <span className="flex items-center gap-3"><button onClick={() => file.current?.click()} className={`flex items-center gap-1 ${photo ? 'text-olive-700' : ''}`}>{isVideo ? <Video size={15} /> : <Camera size={15} />}{photo ? (isVideo ? t('Video dabei') : t('Foto dabei')) : t('Foto oder Video')}</button><span className="flex items-center gap-1"><MapPin size={15} />{me.branch}</span></span>
+            <span className="flex items-center gap-3"><button onClick={() => file.current?.click()} className={`flex items-center gap-1 ${photo ? 'text-olive-700' : ''}`}>{isVideo ? <Video size={15} /> : <Camera size={15} />}{photo ? (isVideo ? t('Video dabei') : t('Foto dabei')) : t('Foto oder Video')}</button><span className="relative"><button onClick={() => setPickB(!pickB)} className="flex items-center gap-1 hover:text-ink"><MapPin size={15} />{branches.find(b => b.id === branchId)?.name ?? me.branch}<ChevronRight size={13} className={`transition ${pickB ? 'rotate-90' : ''}`} /></button>
+              {pickB && <span className="absolute z-20 left-0 bottom-7 w-48 rounded-[12px] bg-white shadow-[0_12px_32px_-12px_rgba(29,34,28,.45)] p-1 flex flex-col">{studios.map(b => <button key={b.id} onClick={() => { setBranchId(b.id); setPickB(false) }} className={`h-9 px-3 rounded-[8px] text-left text-[14px] flex items-center justify-between ${b.id === branchId ? 'bg-sage-50 text-ink' : 'text-ink/80 hover:bg-sage-50'}`}>{b.name}{b.id === branchId && <Check size={14} />}</button>)}</span>}
+            </span></span>
             <button disabled={busy} onClick={submit} className="h-9 px-4 rounded-[10px] bg-olive-700 text-white flex items-center gap-1.5 disabled:opacity-60"><Send size={13} />{t('Senden')}</button>
           </div>
           <input ref={file} type="file" accept="image/*,video/*" className="hidden" onChange={e => setPhoto(e.target.files?.[0] ?? null)} />
         </Card>
         {ok && <p className="mt-2 text-xs text-mute">{ok}</p>}
-        <div className="mt-8 mb-2.5 px-1 flex items-center justify-between"><h2 className="rubric text-ink/70">{t('Verlauf')}</h2>
+        <div className="mt-8 mb-2.5 px-1 flex items-center justify-between"><div><h2 className="rubric text-ink/70">{t('Verlauf')}</h2><p className="text-[12px] text-mute mt-1">{t('Schon gemeldet? Dann einfach upvoten.')}</p></div>
           <div className="flex gap-1 p-0.5 rounded-[8px] bg-white">{(['offen', 'erledigt'] as const).map(k => <button key={k} onClick={() => setView(k)} className={`h-7 px-2.5 rounded-[6px] text-[12px] transition ${view === k ? 'bg-olive-700 text-white' : 'text-ink/60'}`}>{t(k === 'offen' ? 'Offen' : 'Erledigt')}</button>)}</div></div>
         <List>{list.length === 0 && <Empty>{view === 'offen' ? t('Nichts offen.') : t('Noch nichts erledigt.')}</Empty>}{list.map(x => (
           <div key={x.id} className="px-4 py-3 flex gap-3 items-start">
@@ -767,7 +786,7 @@ function Tickets({ open }: { open: (s: Sub) => void }) {
               <p className="text-[15px] mt-1">{x.title}</p>
               <p className="text-xs mt-1 flex items-center gap-2"><Status s={x.status} />{x.assignee && <span className="text-mute">· {x.assignee}</span>}{x.comments.length > 0 && <span className="text-mute">· {t('{n} Kommentare', { n: x.comments.length })}</span>}</p>
             </button>
-            {x.kind === 'Idee' && <button onClick={() => toggleVote(x.id)} aria-pressed={x.voted} className={`shrink-0 w-11 py-1.5 rounded-[10px] flex flex-col items-center text-[12px] transition ${x.voted ? 'bg-olive-700 text-white' : 'bg-sage-50 text-ink/70'}`}><ThumbsUp size={14} />{x.votes}</button>}
+            <button onClick={() => toggleVote(x.id)} aria-pressed={x.voted} title={t('Upvote')} className={`shrink-0 w-11 py-1.5 rounded-[10px] flex flex-col items-center text-[12px] transition ${x.voted ? 'bg-olive-700 text-white' : 'bg-sage-50 text-ink/70 hover:bg-sage-100'}`}><ArrowBigUp size={16} strokeWidth={1.8} />{x.votes}</button>
           </div>
         ))}</List>
       </div>
@@ -785,7 +804,7 @@ function TicketDetail({ id }: { id: string }) {
       {x.body && <p className="mt-2 text-[15px] whitespace-pre-wrap">{x.body}</p>}
       <p className="mt-2 text-[13px] text-mute flex items-center gap-2"><Status s={x.status} />{x.assignee && <span>· {x.assignee}</span>}<span>· {x.who}, {x.when}</span></p>
       {x.photo && <div className="mt-4"><Media tk={x} /></div>}
-      {x.kind === 'Idee' && <button onClick={() => toggleVote(x.id)} className={`mt-4 h-10 px-4 rounded-[10px] text-[14px] flex items-center gap-2 transition ${x.voted ? 'bg-olive-700 text-white' : 'bg-white'}`}><ThumbsUp size={15} />{x.voted ? t('Du unterstützt das') : t('Unterstützen')} · {x.votes}</button>}
+      <button onClick={() => toggleVote(x.id)} className={`mt-4 h-10 px-4 rounded-[10px] text-[14px] flex items-center gap-2 transition ${x.voted ? 'bg-olive-700 text-white' : 'bg-white'}`}><ArrowBigUp size={17} strokeWidth={1.8} />{x.voted ? t('Upvoted') : t('Upvote')} · {x.votes}</button>
       <Label>{t('Verlauf')}</Label>
       <div className="rounded-[16px] bg-white px-4 py-2"><Comments tk={x} compact /></div>
     </div>
@@ -893,9 +912,9 @@ function PushToggle() {
     <Card className="p-4">
       <p className="text-[14px]">{info[st]}</p>
       <div className="mt-3 flex gap-2">
-        {st === 'off' && <button disabled={busy} onClick={async () => { setBusy(true); const r = await enablePush(me.id); setBusy(false); refresh(); if (r === 'denied') setMsg(t('Du hast Mitteilungen abgelehnt.')) }} className="h-10 px-4 rounded-full bg-olive-700 text-white text-[14px] disabled:opacity-60">{t('Einschalten')}</button>}
+        {st === 'off' && <button disabled={busy} onClick={async () => { setBusy(true); const r = await enablePush(me.id); setBusy(false); refresh(); if (r === 'on') toast(t('Mitteilungen eingeschaltet')); if (r === 'denied') setMsg(t('Du hast Mitteilungen abgelehnt.')) }} className="h-10 px-4 rounded-full bg-olive-700 text-white text-[14px] disabled:opacity-60">{t('Einschalten')}</button>}
         {st === 'on' && <><button disabled={busy} onClick={async () => { setBusy(true); const ok = await testPush(); setBusy(false); setMsg(ok ? t('Probe-Mitteilung ist unterwegs.') : t('Konnte keine Probe senden.')) }} className="h-10 px-4 rounded-full bg-white border border-sage-200 text-[14px]">{t('Probe senden')}</button>
-          <button onClick={async () => { await disablePush(); refresh() }} className="h-10 px-4 rounded-full text-[14px] text-mute">{t('Ausschalten')}</button></>}
+          <button onClick={async () => { await disablePush(); refresh(); toast(t('Mitteilungen ausgeschaltet')) }} className="h-10 px-4 rounded-full text-[14px] text-mute">{t('Ausschalten')}</button></>}
       </div>
       {msg && <p className="mt-2 text-[13px] text-mute">{msg}</p>}
     </Card>

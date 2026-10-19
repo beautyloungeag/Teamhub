@@ -1,7 +1,7 @@
 import { supabase } from './supabase'
 
 // Lesender Zugriff auf Phorest über die Function `phorest` (Rechte prüft der Server).
-export type Appt = { start: string; end: string; service: string; client: string; branch_id?: string; staff_id?: string }
+export type Appt = { start: string; end: string; service: string; client: string; branch_id?: string; staff_id?: string; client_id?: string | null; notes?: string; price?: number | null; confirmed?: boolean }
 export type MyDay = { ok: boolean; mapped: boolean; date: string; shifts: { branch_id: string; start: string; end: string }[]; appointments: Appt[]; error?: string }
 export type BranchDay = { ok: boolean; date: string; columns: { staff_id: string; name: string; shift: { start: string; end: string } | null }[]; appointments: Appt[]; error?: string }
 export type StaffWeek = { ok: boolean; mapped: boolean; days: { date: string; branch_id: string; start: string; end: string }[]; error?: string }
