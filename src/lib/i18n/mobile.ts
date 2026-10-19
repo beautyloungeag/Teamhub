@@ -1,5 +1,10 @@
 // Schlüssel = deutscher Text, Werte [Englisch, Französisch].
 export default {
+  "Diktat beenden und Text bearbeiten": ["Stop dictation and edit the text", "Arrêter la dictée et modifier le texte"],
+  "Stopp": ["Stop", "Stop"],
+  "Diktat beenden und senden": ["Stop dictation and send", "Arrêter la dictée et envoyer"],
+  "Einklappen": ["Collapse", "Réduire"],
+  "Seitenleiste ausklappen": ["Expand sidebar", "Déplier la barre latérale"],
   "Anderes Datum": ["Other date", "Autre date"],
   "Für dich": ["For you", "Pour toi"],
   "bis {when}": ["by {when}", "avant {when}"],

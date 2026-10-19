@@ -12,12 +12,13 @@ import { pushState, enablePush, disablePush, testPush, reportDevice, isStandalon
 import { useApp, isoDay, addDays, type Lang, type News, type WikiArticle, type WikiBlock, type Staff } from './store'
 import { Terminbuch, EventCalendar } from './Calendar'
 import { tr, locale } from './lib/i18n'
-import { Logo, BMark } from './Logo'
+import { BMark } from './Logo'
 import { Comments, Media } from './TicketParts'
 import { QuizRunner } from './QuizRunner'
 import { BenniChat, openNewBenniChat, askBenniOnce, BenniWorking, BenniText, type Step } from './BenniChat'
 import { MyTodos, useTodos, isForMe, isLate, useDue, reloadTodos } from './Todos'
 import { Avatar, ContactRow } from './People'
+import { SideNav } from './Nav'
 export { Avatar }
 import { toast } from './Toast'
 
@@ -71,7 +72,7 @@ const live = (ns: News[]) => ns.filter(n => new Date(n.publishAt).getTime() <= D
 
 /* ---------- Shell ---------- */
 function Shell({ onLogout, onSwitch }: { onLogout: () => void; onSwitch?: () => void }) {
-  const { t, read, news: allNews, loading, reload, me, photo } = useApp()
+  const { t, read, news: allNews, loading, reload } = useApp()
   const news = live(allNews)
   const [tab, setTab] = useState<Tab>('home')
   const [stack, setStack] = useState<Sub[]>([])
@@ -132,28 +133,14 @@ function Shell({ onLogout, onSwitch }: { onLogout: () => void; onSwitch?: () => 
   const nav: [Tab, string, typeof Home][] = [['home', 'Heute', Home], ['tasks', 'Aufgaben', ListChecks], ['ai', 'Benni', Sparkles], ['wiki', 'Wissen', BookOpen], ['menu', 'Menü', LayoutGrid]]
   return (
     <div className="flex-1 min-h-0 flex">
-      {/* Desktop: Navigation als Seitenleiste wie im Backoffice */}
-      <aside className="hidden md:flex w-60 shrink-0 bg-olive-800 p-4 flex-col">
-        <Logo className="w-32 text-white mx-2 mt-1" />
-        <nav className="mt-6 space-y-0.5">
-          {nav.map(([x, label, Icon]) => {
-            const on = tab === x && !sub
-            return (
-              <button key={x} onClick={() => go(x)} className={`relative w-full h-10 px-3 rounded-[10px] flex items-center gap-3 text-[14px] ${on ? 'bg-white/10 text-white' : 'text-sage-200 hover:bg-white/5'}`}>
-                {x === 'ai' ? <BMark className="w-[18px] h-[18px] text-[10px]" inverse /> : <Icon size={18} strokeWidth={1.6} />}{x === 'ai' ? label : t(label)}
-                {x === 'home' && mustOpen > 0 && <span className="ml-auto w-2 h-2 rounded-full bg-brass" />}
-              </button>
-            )
-          })}
-        </nav>
-        <div className="mt-auto space-y-0.5">
-          {onSwitch && <button onClick={onSwitch} className="w-full h-10 px-3 rounded-[10px] flex items-center gap-3 text-[14px] text-sage-200 hover:bg-white/5"><Monitor size={18} strokeWidth={1.6} />{t('Büro-Backoffice')}</button>}
-          <button onClick={() => open({ k: 'me' })} className={`w-full px-2 py-2 rounded-[12px] flex items-center gap-3 text-left transition ${sub?.k === 'me' ? 'bg-white/10' : 'hover:bg-white/5'}`}>
-            <Avatar s={me} photo={photo} size="w-9 h-9 text-[13px]" />
-            <span className="min-w-0"><span className="block text-[14px] text-white truncate">{me.first} {me.last}</span><span className="block text-[12px] text-sage-200/80 truncate">{me.role} · {me.branch}</span></span>
-          </button>
-        </div>
-      </aside>
+      {/* Desktop: Navigation als Seitenleiste wie im Backoffice, zuklappbar */}
+      <div className="hidden md:flex">
+        <SideNav
+          items={nav.map(([x, label, Icon]) => ({ key: x, label: x === 'ai' ? label : t(label), active: tab === x && !sub, dot: x === 'home' && mustOpen > 0, onClick: () => go(x),
+            icon: x === 'ai' ? <BMark className="w-[18px] h-[18px]" /> : <Icon size={18} strokeWidth={1.6} /> }))}
+          extra={onSwitch ? [{ key: 'switch', label: t('Büro-Backoffice'), icon: <Monitor size={18} strokeWidth={1.6} />, onClick: onSwitch }] : []}
+          onProfile={() => open({ k: 'me' })} profileActive={sub?.k === 'me'} onLogout={onLogout} />
+      </div>
       <div className="relative flex-1 min-w-0 flex flex-col">
         {/* Benni füllt die ganze Fläche und scrollt selbst (Chatliste links, Eingabe unten) */}
         <div ref={scroller} className={`flex-1 no-scrollbar bg-sage-50 ${tab === 'ai' && !sub && !loading ? 'overflow-hidden' : 'overflow-y-auto'}`}>
@@ -834,6 +821,7 @@ function Profile({ s }: { s: Staff }) {
 }
 function MyProfile() {
   const { me, skills, photo, setPhotoFile, lang, setLang, t } = useApp()
+  const { signOut } = useAuth()
   const file = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
   return (
@@ -856,6 +844,7 @@ function MyProfile() {
       <PushToggle />
       <Label>{t('Sprache')}</Label>
       <div className="grid grid-cols-3 gap-2 p-1 rounded-2xl bg-white">{([['DE', 'Deutsch'], ['EN', 'English'], ['FR', 'Français']] as [Lang, string][]).map(([k, l]) => <button key={k} onClick={() => setLang(k)} className={`h-10 rounded-xl text-[14px] ${lang === k ? 'bg-olive-700 text-white' : ''}`}>{l}</button>)}</div>
+      <button onClick={signOut} className="mt-8 w-full h-12 rounded-[14px] bg-white text-[15px] text-ink/80 hover:text-alert flex items-center justify-center gap-2"><LogOut size={17} />{t('Abmelden')}</button>
     </div>
   )
 }

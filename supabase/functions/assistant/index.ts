@@ -167,6 +167,9 @@ Deno.serve(async (req) => {
       db.from('todos').select('id, title, due_at, assignee_id, branch_id, created_by, created_by_name').is('done_at', null).order('due_at', { ascending: true, nullsFirst: false }).limit(60),
     ])
     const demo = (flagsR.data as any)?.demo_data !== false
+    // Kontrollfragen je Lektion und Mindestzahl richtiger Antworten (Backoffice → Lernen)
+    const qN = Math.min(5, Math.max(1, Number((flagsR.data as any)?.learn_questions) || 3))
+    const qMin = Math.min(qN, Math.max(1, Number((flagsR.data as any)?.learn_min_correct) || qN))
     const keep = (x: any) => demo || !x.is_sample
     const branches = (branchR.data ?? []) as any[]
     const studio = branches.find((b) => b.id === me.branch_id)?.name ?? me.branch_id
@@ -224,8 +227,8 @@ Deno.serve(async (req) => {
       '- Lernmodus (Onboarding, „lass uns lernen“, „Nächste Lektion“): onboarding_status, ersten offenen Schritt nehmen, Artikel mit read_article lesen. Dann so:',
       '  1. Erklär den Schritt in Lernkarten: cards mit 1 bis 3 Karten, je {"title": kurzer Titel, "body": 2 bis 4 Sätze oder eine kurze Liste mit „- “}. Eine Karte, ein Gedanke, nur aus dem Artikel. Der text ist dann nur die Überleitung („Bereit für eine Kontrollfrage?“) mit choices ["Ja, frag mich", "Erst weiterlernen"].',
       '  2. „Erst weiterlernen“: weitere Karten zum selben Schritt (vertiefen, Beispiele aus dem Artikel), danach wieder dieselbe Überleitung.',
-      '  3. „Ja, frag mich“: genau eine Kontrollfrage in quiz {"question": string, "options": 3 kurze Antworten, davon eine richtig, gemischt; oder [] für eine freie Antwort}. text nur „Frage 1 von 2“. Die Lernkarten sind dabei verdeckt, also nichts verraten.',
-      '  4. Nach jeder Antwort sagst du kurz, ob sie stimmt und warum (ein bis zwei Sätze). Je Schritt stellst du 2 Fragen nacheinander, jede in einer eigenen Antwort mit quiz. Nach der letzten Frage: reveal true (die Karten werden aufgedeckt), bei mindestens einer richtigen Antwort mark_step_done, dann choices ["Nächste Lektion", "Pause"]. Bei zwei falschen Antworten: Karte noch einmal anders erklären statt abhaken.',
+      `  3. „Ja, frag mich“ oder „Nochmal versuchen“: Kontrollfragen, genau ${qN} je Schritt, jede in einer eigenen Antwort mit quiz {"question": string, "options": 3 kurze Antworten, davon eine richtig; oder [] für eine freie Antwort}. text nur „Frage k von ${qN}“ (bei Antworten auf eine Frage davor die kurze Rückmeldung). Jede Frage prüft etwas anderes aus den Karten. Die Lernkarten sind dabei verdeckt, also nichts verraten.`,
+      `  4. Nach jeder Antwort sagst du kurz, ob sie stimmt und warum (ein bis zwei Sätze), und setzt graded auf true (richtig) oder false (falsch). Nach der ${qN}. Antwort: reveal true. Bestanden ist der Schritt ab ${qMin} richtigen von ${qN}: dann mark_step_done mit letzte_richtig für die eben bewertete Antwort und choices ["Nächste Lektion", "Pause"]. Nicht bestanden (oder mark_step_done meldet nicht_bestanden): sag freundlich, wie viele richtig waren und was fehlte, erklär die Lücke in einer Karte (cards) und biete choices ["Nochmal versuchen", "Erst weiterlernen"]. Dann nicht abhaken.`,
       '  5. Sind alle Schritte erledigt, gratulier kurz.',
       '- choices sonst nur, wenn es wenige klare Antwortmöglichkeiten gibt (z. B. welche von zwei Kundinnen), höchstens 3, je höchstens 4 Wörter.',
       '- Kannst du ein Anliegen nicht lösen (etwas ist kaputt, Personal- oder Betriebsanliegen), schlag eine Meldung vor. Verbesserungsvorschläge sind eine Idee.',
@@ -236,7 +239,7 @@ Deno.serve(async (req) => {
       ...(files.length ? [`- Die Person hat Dateien angehängt (${files.map((f) => f.name).join(', ')}). Lies sie und beziehe dich konkret darauf.`] : []),
       `\n## App-Leitfaden\n${APP_GUIDE}`,
       '\n## Ausgabe',
-      'Gib am Ende ausschliesslich JSON zurück: {"text": string, "source_ids": string[], "ticket": null | {"kind": "Meldung"|"Idee", "title": string}, "client_card": null | string, "cards": [{"title": string, "body": string}], "quiz": null | {"question": string, "options": string[]}, "choices": string[], "reveal": boolean}. source_ids sind die IDs der Wissensartikel, auf die sich die Antwort stützt. Nicht genutzte Felder: null, [] oder false.',
+      'Gib am Ende ausschliesslich JSON zurück: {"text": string, "source_ids": string[], "ticket": null | {"kind": "Meldung"|"Idee", "title": string}, "client_card": null | string, "cards": [{"title": string, "body": string}], "quiz": null | {"question": string, "options": string[]}, "choices": string[], "reveal": boolean, "graded": null | boolean}. graded nur, wenn du gerade eine Antwort auf eine Kontrollfrage bewertest. source_ids sind die IDs der Wissensartikel, auf die sich die Antwort stützt. Nicht genutzte Felder: null, [] oder false.',
       `\n## Passende Wissensartikel (Vorauswahl)\n${context || '(keine passenden Artikel)'}`,
     ].join('\n')
 
@@ -253,7 +256,7 @@ Deno.serve(async (req) => {
       ['read_article', 'Liest einen Wissensartikel ganz (nur freigegebene, die diese Person sehen darf).', { id: { type: 'string' } }, ['id']],
       ['news', 'Liest eine News ganz (mit id) oder listet die aktuellen News (ohne id).', { id: { type: 'string' } }, []],
       ['onboarding_status', 'Onboarding-Schritte dieser Person mit erledigt/offen und Artikel-ID.', {}, []],
-      ['mark_step_done', 'Markiert einen eigenen Onboarding-Schritt als erledigt, nachdem die Kontrollfrage richtig beantwortet wurde.', { step_id: { type: 'string' } }, ['step_id']],
+      ['mark_step_done', `Markiert einen eigenen Onboarding-Schritt als erledigt, wenn von ${qN} Kontrollfragen mindestens ${qMin} richtig waren. Prüft das selbst anhand der bewerteten Antworten.`, { step_id: { type: 'string' }, letzte_richtig: { type: 'boolean', description: 'War die eben bewertete letzte Antwort richtig?' } }, ['step_id', 'letzte_richtig']],
       ['add_todo', 'Legt ein eigenes To-do für diese Person an (erscheint unter Aufgaben → Für mich). Nur auf ausdrücklichen Wunsch („erinnere mich“, „schreib mir auf“).', { title: { type: 'string' }, due: { type: 'string', description: 'Frist als YYYY-MM-DD oder YYYY-MM-DDTHH:MM (Schweizer Zeit), leer = ohne Frist' }, note: { type: 'string' } }, ['title']],
     ]
     const params = (p: Record<string, unknown>, r: string[]) => ({ type: 'object', properties: p, required: r })
@@ -362,6 +365,14 @@ Deno.serve(async (req) => {
         return error ? { error: 'nicht_gespeichert' } : { ok: true, frist: due_at }
       }
       if (name === 'mark_step_done') {
+        // Bestanden? Richtige Antworten seit dem letzten Aufdecken in diesem Chat zählen, plus die eben bewertete
+        if (chat) {
+          const { data: rows } = await db.from('benni_messages').select('role, data').eq('chat_id', chat.id).order('created_at')
+          let ok = 0
+          for (const r of (rows ?? []) as any[]) if (r.role === 'assistant') { if (r.data?.reveal) ok = 0; else if (r.data?.graded === true) ok++ }
+          if (args.letzte_richtig === true) ok++
+          if (ok < qMin) return { error: 'nicht_bestanden', richtig: ok, noetig: qMin, fragen: qN }
+        }
         emit({ step: 'step_done' })
         const { error } = await db.from('onboarding_progress').insert({ step_id: String(args.step_id ?? ''), employee_id: me.id })
         return error && !/duplicate/.test(error.message) ? { error: 'nicht_gespeichert' } : { ok: true }
@@ -395,6 +406,7 @@ Deno.serve(async (req) => {
         ...(quiz ? { quiz } : {}),
         ...(Array.isArray(o.choices) && o.choices.length && !quiz?.options.length ? { choices: o.choices.slice(0, 3).map((x: unknown) => str(x, 40)).filter(Boolean) } : {}),
         ...(o.reveal === true ? { reveal: true } : {}),
+        ...(typeof o.graded === 'boolean' ? { graded: o.graded } : {}),
         ...(links.size ? { links: [...links].slice(0, 5).map(([url, title]) => ({ url, title })) } : {}),
       }
       return { ok: true, mode: 'ki', ...answer, response_id: responseId, model: model }
@@ -497,7 +509,7 @@ Deno.serve(async (req) => {
     if (!chat) return {}
     const text = r.ok && r.text ? String(r.text) : 'Ich bin gerade nicht erreichbar. Bitte versuche es gleich noch einmal.'
     const data: Record<string, unknown> = {}
-    for (const k of ['sources', 'ticket', 'card', 'cards', 'quiz', 'choices', 'reveal', 'links', 'response_id', 'model']) if (r[k] != null && !(Array.isArray(r[k]) && !r[k].length)) data[k] = r[k]
+    for (const k of ['sources', 'ticket', 'card', 'cards', 'quiz', 'choices', 'reveal', 'graded', 'links', 'response_id', 'model']) if (r[k] != null && !(Array.isArray(r[k]) && !r[k].length)) data[k] = r[k]
     const { data: row } = await db.from('benni_messages').insert({ chat_id: chat.id, role: 'assistant', text, data }).select('id, created_at').single()
     await db.from('benni_chats').update({ updated_at: new Date().toISOString() }).eq('id', chat.id)
     return { message_id: row?.id ?? null, chat_id: chat.id }

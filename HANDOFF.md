@@ -2,6 +2,12 @@
 
 Interne Mitarbeiter-App (PWA + Desktop-Backoffice) der Beautylounge AG. Kundin: Renée Baumann. PM-Projekt: `projekt.aleksa.ai`, Key **BLTH** (`d4ee5d5c-4553-436c-bba7-137a03a2b704`). ⚠️ Das Repo `beautyloungeag/Teamhub` ist **öffentlich** — nie Personendaten committen.
 
+### Nachtrag 2026-10-20 früh — Seitenleiste zuklappbar, Abmelden, Diktat-Stopp, Kontrollfragen einstellbar
+
+- **Seitenleiste** (`src/Nav.tsx`, `SideNav`) für App am Desktop und Backoffice: „Einklappen“ unten zeigt nur noch Symbole (oben das „B“ aus dem Logo, `LogoMark`), gilt auf allen Seiten und bleibt im Browser gespeichert (`th-nav-mini`). Unten Profil und **Abmelden**; Abmelden zusätzlich im eigenen Profil.
+- **Diktat:** während der Aufnahme „Stopp“ (Text kommt zum Bearbeiten ins Feld) und der Pfeil (sofort senden), dazu Abbrechen.
+- **Kontrollfragen einstellbar:** Backoffice → Lernen → „Lernen mit Benni“: Fragen je Lektion (1–5, Standard 3) und „Bestanden ab … richtigen“ (Standard 2). Ändern kann das Büro, die Filialleitung sieht die Werte. Gespeichert in `app_settings` (`learn_questions`, `learn_min_correct`), gelesen über `app_flags()` (Migration `0019`). Benni bewertet jede Antwort (`graded`), `mark_step_done` zählt die richtigen seit dem letzten Aufdecken im Chat und lehnt ab, wenn es zu wenige sind; dann „Nochmal versuchen“ mit neuer Zählung. Getestet: 0/3 und 1/3 nicht bestanden, 3/3 bestanden.
+
 ### Nachtrag 2026-10-20 nachts — Aufgaben mit Frist, Kundenhistorie, Wissen-Karten, Benni-Layout
 
 - **Aufgaben, zwei Bereiche:** „Für mich“ (neu, Tabelle `todos`, Migration `0018`) und „Studio-Checklisten“ (die bisherigen Vorlagen, jetzt mit „bis“-Zeit je Liste). Einzelne Aufgaben: eigene To-dos (Frist Heute/Morgen/Datum, optional Uhrzeit) oder von Filialleitung/Büro im Backoffice unter Aufgaben → „Aufgabe zuweisen“ an eine Person oder ein ganzes Studio. Abhaken per RPC `todo_done` (zuständige Person, bei Studio-Aufgaben jede im Studio). RLS über `leads_todo()`. Push über `notify` (Schritt 4, nur wenn jemand anderes zuweist, öffnet `/?open=todos`). Auf „Heute“ steht „Für dich“, sobald etwas offen ist. Benni kennt die offenen Aufgaben und legt auf Wunsch eigene To-dos an (`add_todo`). Testkonten heissen in der Auswahl „(Testkonto)“, weil sie Namen echter Kolleginnen tragen.

@@ -5,7 +5,9 @@ import { useApp, isoDay, addDays, appliesOn, fmtDate, fmtTime, zurichHour, inNew
 import { supabase } from './lib/supabase'
 import { Status, ASSISTANT } from './Mobile'
 import { notifyNow } from './lib/push'
-import { Logo, BMark } from './Logo'
+import { BMark } from './Logo'
+import { SideNav } from './Nav'
+import { useAuth } from './lib/auth'
 import { BenniChat } from './BenniChat'
 import { TodosAdmin } from './Todos'
 import { toast } from './Toast'
@@ -16,6 +18,7 @@ const NAV: [View, string, typeof Users][] = [['overview', 'Übersicht', LayoutDa
 
 export default function Backoffice({ onSwitch }: { onSwitch?: () => void }) {
   const { me } = useApp()
+  const { signOut } = useAuth()
   const [v, setV] = useState<View>('overview')
   const [ai, setAi] = useState(false)
   // Filialleitung verwaltet nur ihre Filiale; Inhalte (News, Wissen, Vorlagen, Team) pflegt das Büro.
@@ -24,14 +27,11 @@ export default function Backoffice({ onSwitch }: { onSwitch?: () => void }) {
   const go = (k: View) => { if (allowed.has(k)) setV(k) }
   return (
     <div className="flex h-full bg-white overflow-hidden">
-      <aside className="w-60 shrink-0 bg-olive-800 p-4 flex flex-col">
-        <Logo className="w-32 text-white mx-2 mt-1" />
-        <nav className="mt-6 space-y-0.5">
-          {nav.map(([k, l, I]) => <button key={k} onClick={() => setV(k)} className={`w-full h-10 px-3 rounded-[10px] flex items-center gap-3 text-[14px] ${v === k ? 'bg-white/10 text-white' : 'text-sage-200 hover:bg-white/5'}`}><I size={18} strokeWidth={1.6} />{l}</button>)}
-        </nav>
-        {onSwitch && <button onClick={onSwitch} className="mt-auto mb-1 h-10 px-3 rounded-[10px] flex items-center gap-3 text-[14px] text-sage-200 hover:bg-white/5"><Smartphone size={18} strokeWidth={1.6} />Mitarbeiterin-App</button>}
-        <button onClick={() => setAi(!ai)} className={`${onSwitch ? '' : 'mt-auto '}h-10 px-3 rounded-[10px] flex items-center gap-3 text-[14px] ${ai ? 'bg-white/10 text-white' : 'text-sage-200 hover:bg-white/5'}`}><BMark className="w-[18px] h-[18px] text-[10px]" inverse />Frag {ASSISTANT}</button>
-      </aside>
+      <SideNav
+        items={nav.map(([k, l, I]) => ({ key: k, label: l, active: v === k, onClick: () => setV(k), icon: <I size={18} strokeWidth={1.6} /> }))}
+        extra={[...(onSwitch ? [{ key: 'switch', label: 'Mitarbeiterin-App', icon: <Smartphone size={18} strokeWidth={1.6} />, onClick: onSwitch }] : []),
+          { key: 'ai', label: `Frag ${ASSISTANT}`, active: ai, icon: <BMark className="w-[18px] h-[18px]" />, onClick: () => setAi(!ai) }]}
+        onLogout={signOut} />
       <main className={`flex-1 no-scrollbar p-8 ${v === 'book' ? 'flex flex-col overflow-hidden' : 'overflow-y-auto'}`}>
         {v === 'book' && <><H>Kundentermine</H><div className="flex-1 min-h-0"><Terminbuch /></div></>}
         {v === 'overview' && <Overview go={go} can={k => allowed.has(k)} />}{allowed.has('news') && v === 'news' && <NewsAdmin />}{v === 'tasks' && <TasksAdmin />}
@@ -431,6 +431,32 @@ function StandbyAdmin() {
 type QEdit = { kind: 'single' | 'multi' | 'text'; prompt: string; options: string[]; correct: number[]; rubric: string }
 type QuizEdit = { id?: string; target: 'news' | 'article'; newsId: string; articleId: string; title: string; passPct: number; qs: QEdit[] }
 const emptyQ = (): QEdit => ({ kind: 'single', prompt: '', options: ['', ''], correct: [], rubric: '' })
+/** Wie streng Benni beim Onboarding prüft: Anzahl Kontrollfragen je Lektion und Mindestzahl richtiger Antworten. */
+function LearnSettings() {
+  const { me } = useApp()
+  const isBuero = me.app_role === 'buero'
+  const [n, setN] = useState<number | null>(null), [m, setM] = useState(2)
+  useEffect(() => { supabase!.rpc('app_flags').then(({ data }) => { const d = data as any; setN(Number(d?.learn_questions) || 3); setM(Number(d?.learn_min_correct) || 2) }) }, [])
+  const save = async (nn: number, mm: number) => {
+    const min = Math.min(mm, nn); setN(nn); setM(min)
+    const at = new Date().toISOString()
+    const r = await supabase!.from('app_settings').upsert([{ key: 'learn_questions', value: nn, updated_at: at }, { key: 'learn_min_correct', value: min, updated_at: at }])
+    toast(r.error ? 'Speichern hat nicht geklappt' : 'Gespeichert', r.error ? 'error' : 'ok')
+  }
+  if (n === null) return null
+  const seg = (on: boolean) => `w-9 h-8 rounded-[8px] text-[13px] tabular-nums transition ${on ? 'bg-olive-700 text-white' : 'text-ink/70 hover:bg-white'} disabled:hover:bg-transparent disabled:cursor-default`
+  return (
+    <div className="mb-8 rounded-[16px] bg-sage-50 px-6 py-5 grid grid-cols-[1fr_auto_auto] gap-8 items-center">
+      <div><p className="rubric text-ink/70">Lernen mit Benni (Onboarding)</p>
+        <p className="text-[13px] text-mute mt-1.5 leading-relaxed">Nach den Lernkarten stellt Benni Kontrollfragen. Erst wenn genug richtig sind, gilt der Schritt als erledigt, sonst erklärt er die Lücke und fragt neu.{!isBuero && ' Einstellen kann das Büro.'}</p></div>
+      <div><p className="text-xs text-mute mb-1.5">Kontrollfragen je Lektion</p>
+        <div className="flex gap-1 p-1 rounded-[10px] bg-white/60">{[1, 2, 3, 4, 5].map(k => <button key={k} disabled={!isBuero} onClick={() => save(k, m)} className={seg(n === k)}>{k}</button>)}</div></div>
+      <div><p className="text-xs text-mute mb-1.5">Bestanden ab … richtigen</p>
+        <div className="flex gap-1 p-1 rounded-[10px] bg-white/60">{Array.from({ length: n }, (_, i) => i + 1).map(k => <button key={k} disabled={!isBuero} onClick={() => save(n, k)} className={seg(m === k)}>{k}</button>)}</div></div>
+    </div>
+  )
+}
+
 function LearnAdmin() {
   const { quizzes, attempts, news, wiki, staff, me, reload } = useApp()
   const audience = useAudience()
@@ -487,6 +513,7 @@ function LearnAdmin() {
   const seg = (on: boolean) => `h-8 px-3 rounded-[8px] text-[13px] transition ${on ? 'bg-white text-ink shadow-[0_1px_2px_rgba(29,34,28,.08)]' : 'text-ink/60'}`
   return (<>
     <H action={isBuero && <New onClick={() => openEdit()}>Neues Quiz</New>}>Lernen</H>
+    <LearnSettings />
     {edit && <Panel className="p-6 mb-8">
       <div className="grid grid-cols-[1fr_280px] gap-8">
         <div className="space-y-4">

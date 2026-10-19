@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type ClipboardEvent, type DragEvent, type ReactNode } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
-import { ArrowUp, ArrowUpRight, BookOpen, Check, ChevronDown, ExternalLink, FileSpreadsheet, FileText, Globe, Mail, MessagesSquare, Mic, Paperclip, Phone, Sparkles, SquarePen, Trash2, X } from 'lucide-react'
+import { ArrowUp, ArrowUpRight, BookOpen, Check, ChevronDown, ExternalLink, FileSpreadsheet, FileText, Globe, Mail, MessagesSquare, Mic, Paperclip, Phone, Sparkles, Square, SquarePen, Trash2, X } from 'lucide-react'
 import { supabase, SUPABASE_URL, SUPABASE_ANON } from './lib/supabase'
 import { locale } from './lib/i18n'
 import { useApp, isoDay, addDays } from './store'
@@ -425,7 +425,14 @@ function Composer({ busy, variant, onSend }: { busy: boolean; variant: 'app' | '
   const { t, lang } = useApp()
   const [v, setV] = useState(''), [files, setFiles] = useState<Attach[]>([]), [tier, setTier] = useState<Tier>(tierPref), [web, setWeb] = useState(false), [menu, setMenu] = useState(false)
   const area = useRef<HTMLTextAreaElement>(null), pick = useRef<HTMLInputElement>(null)
-  const dict = useDictation(lang.toLowerCase(), text => { setV(x => (x.trim() ? x.trimEnd() + ' ' : '') + text); setTimeout(() => area.current?.focus(), 30) }, k => toast(t(k), 'error'))
+  // Nach dem Diktat: Text zum Bearbeiten ins Feld (Stopp) oder direkt senden (Pfeil)
+  const after = useRef<'edit' | 'send'>('edit'), live = useRef({ v, files, tier, web })
+  live.current = { v, files, tier, web }
+  const dict = useDictation(lang.toLowerCase(), text => {
+    const cur = live.current, full = (cur.v.trim() ? cur.v.trimEnd() + ' ' : '') + text
+    if (after.current === 'send' && !busy) { onSend(full.trim(), cur.files, { model: cur.tier, web: cur.web }); setV(''); setFiles([]) }
+    else { setV(full); setTimeout(() => { const a = area.current; if (a) { a.focus(); a.setSelectionRange(a.value.length, a.value.length) } }, 30) }
+  }, k => toast(t(k), 'error'))
   useEffect(() => { const a = area.current; if (!a) return; a.style.height = 'auto'; a.style.height = Math.min(a.scrollHeight, 168) + 'px' }, [v, dict.state])
   const add = async (list: FileList | File[]) => {
     for (const f of [...list].slice(0, 4 - files.length)) {
@@ -482,7 +489,7 @@ function Composer({ busy, variant, onSend }: { busy: boolean; variant: 'app' | '
           </div>
           <button onClick={() => setWeb(!web)} aria-pressed={web} title={t('Websuche')} className={`${chip} ${web ? 'bg-sage-100 text-olive-800' : 'text-ink/75 hover:bg-sage-50'}`}><Globe size={14} />{t('Web')}</button>
           <span className="flex-1" />
-          <button onClick={dict.start} title={t('Diktieren')} aria-label={t('Diktieren')} className="w-8 h-8 rounded-full text-mute hover:text-ink hover:bg-sage-50 flex items-center justify-center"><Mic size={17} /></button>
+          <button onClick={() => { after.current = 'edit'; dict.start() }} title={t('Diktieren')} aria-label={t('Diktieren')} className="w-8 h-8 rounded-full text-mute hover:text-ink hover:bg-sage-50 flex items-center justify-center"><Mic size={17} /></button>
           <button onClick={send} disabled={busy || (!v.trim() && !files.length)} aria-label={t('Senden')} className="w-8 h-8 rounded-full bg-olive-700 text-white flex items-center justify-center disabled:bg-sage-200 transition"><ArrowUp size={17} strokeWidth={2.2} /></button>
         </> : <>
           <button onClick={() => dict.stop(true)} disabled={dict.state !== 'rec'} title={t('Abbrechen')} aria-label={t('Abbrechen')} className="w-8 h-8 rounded-full text-mute hover:text-ink hover:bg-sage-50 flex items-center justify-center disabled:opacity-40"><X size={17} /></button>
@@ -490,7 +497,8 @@ function Composer({ busy, variant, onSend }: { busy: boolean; variant: 'app' | '
             {dict.levels.map((l, i) => <span key={i} className="w-[3px] rounded-full bg-olive-700/70 transition-[height] duration-75" style={{ height: `${Math.max(3, l * 26)}px` }} />)}
           </div>
           <span className="text-[12px] text-mute tabular-nums w-9 text-right">{Math.floor(dict.secs / 60)}:{String(dict.secs % 60).padStart(2, '0')}</span>
-          <button onClick={() => dict.stop()} disabled={dict.state !== 'rec'} title={t('Fertig')} aria-label={t('Fertig')} className="w-8 h-8 rounded-full bg-olive-700 text-white flex items-center justify-center disabled:opacity-50"><Check size={17} strokeWidth={2.4} /></button>
+          <button onClick={() => { after.current = 'edit'; dict.stop() }} disabled={dict.state !== 'rec'} title={t('Diktat beenden und Text bearbeiten')} className="h-8 pl-2.5 pr-3 rounded-full bg-sage-50 hover:bg-sage-100 text-[13px] text-ink/80 flex items-center gap-1.5 disabled:opacity-50 transition"><Square size={11} fill="currentColor" strokeWidth={0} />{t('Stopp')}</button>
+          <button onClick={() => { after.current = 'send'; dict.stop() }} disabled={dict.state !== 'rec' || busy} title={t('Diktat beenden und senden')} aria-label={t('Diktat beenden und senden')} className="w-8 h-8 rounded-full bg-olive-700 text-white flex items-center justify-center disabled:opacity-50"><ArrowUp size={17} strokeWidth={2.2} /></button>
         </>}
       </div>
     </div>
