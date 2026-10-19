@@ -84,7 +84,7 @@ Deno.serve(async (req) => {
   for (const t of tev ?? []) {
     await admin.from('ticket_events').update({ notified_at: now }).eq('id', t.id)
     const tk: any = Array.isArray(t.tickets) ? t.tickets[0] : t.tickets
-    if (tk?.created_by) add(await sendByLang(admin, staff, [tk.created_by], (l) => ({ title: L[l].ticket, body: `${tk.title}: ${t.what}`, url: '/?open=tickets', tag: `ticket-${t.ticket_id}` })))
+    if (tk?.created_by) add(await sendByLang(admin, staff, [tk.created_by], (l) => ({ title: L[l].ticket, body: `${tk.title}: ${t.what}`, url: `/?open=ticket:${t.ticket_id}`, tag: `ticket-${t.ticket_id}` })))
   }
   await admin.from('ticket_events').update({ notified_at: now }).is('notified_at', null).eq('what', 'Erfasst')
   return json({ ok: true, sent, failed, removed })

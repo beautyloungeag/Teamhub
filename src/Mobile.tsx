@@ -3,7 +3,7 @@ import { motion } from 'motion/react'
 import {
   Home, ListChecks, BookOpen, LayoutGrid, Sparkles, ChevronLeft, ChevronRight, Check, Camera, MapPin, Users,
   Search, Lightbulb, AlertTriangle, CalendarDays, Inbox, Send, Newspaper, Plane, Play, Video,
-  ArrowUpRight, LogOut, Phone, ThumbsUp, GraduationCap, Link2, Lock, FileText, Smartphone, Share, PlusSquare, MoreVertical, ExternalLink, Monitor, Bell, X,
+  ArrowUpRight, LogOut, Phone, ThumbsUp, GraduationCap, Link2, Lock, FileText, Smartphone, Share, PlusSquare, MoreVertical, ExternalLink, Monitor,
 } from 'lucide-react'
 import { useAuth } from './lib/auth'
 import { supabase } from './lib/supabase'
@@ -13,7 +13,7 @@ import { useApp, isoDay, type Lang, type News, type WikiArticle, type WikiBlock,
 import { Terminbuch, EventCalendar } from './Calendar'
 import { tr, locale } from './lib/i18n'
 import { Logo, BMark } from './Logo'
-import { Comments, Media } from './TicketParts'
+import { Comments, Media, TicketDraft } from './TicketParts'
 import { QuizRunner } from './QuizRunner'
 import { askBenni, BenniWorking, BenniText, type Step } from './BenniChat'
 
@@ -64,22 +64,32 @@ const SearchBox = ({ value, onChange, placeholder }: { value: string; onChange: 
 )
 const Empty = ({ children }: { children: ReactNode }) => <p className="px-4 py-4 text-[14px] text-mute">{children}</p>
 
+const live = (ns: News[]) => ns.filter(n => new Date(n.publishAt).getTime() <= Date.now())
+
 /* ---------- Shell ---------- */
 function Shell({ onLogout, onSwitch }: { onLogout: () => void; onSwitch?: () => void }) {
-  const { t, read, news, loading } = useApp()
+  const { t, read, news: allNews, loading, reload } = useApp()
+  const news = live(allNews)
   const [tab, setTab] = useState<Tab>('home')
   const [stack, setStack] = useState<Sub[]>([])
   const sub = stack[stack.length - 1] ?? null
-  const open = (s: Sub) => setStack(st => [...st, s])
-  const back = () => setStack(st => st.slice(0, -1))
-  const go = (x: Tab) => { setStack([]); setTab(x) }
   const scroller = useRef<HTMLDivElement>(null)
+  const top = () => requestAnimationFrame(() => scroller.current?.scrollTo({ top: 0 }))
+  // Jeder Unterbildschirm ist ein Eintrag im Browser-Verlauf: so führt die Zurück-Geste (Android) eine Ebene zurück
+  const open = (s: Sub) => { setStack(st => [...st, s]); history.pushState({ th: 1 }, ''); top() }
+  const back = () => history.back()
+  const go = (x: Tab) => { const n = stack.length; setStack([]); setTab(x); top(); if (n) history.go(-n) }
+  useEffect(() => { const onPop = () => { setStack(st => st.slice(0, -1)); top() }; window.addEventListener('popstate', onPop); return () => window.removeEventListener('popstate', onPop) }, []) // eslint-disable-line react-hooks/exhaustive-deps
   const mustOpen = news.filter(n => n.mustRead && !read.has(n.id)).length
-  // Tipp auf eine Mitteilung: ?open=news:<id> | events | tickets
+  // Tipp auf eine Mitteilung: ?open=news:<id> | ticket:<id> | events | tickets. Unbekannte News: erst neu laden.
+  const newsRef = useRef(allNews); newsRef.current = allNews
+  const [pendingNews, setPendingNews] = useState<string | null>(null)
+  useEffect(() => { if (!pendingNews) return; const n = allNews.find(x => x.id === pendingNews); if (n) { setPendingNews(null); open({ k: 'news', item: n }) } }, [allNews, pendingNews]) // eslint-disable-line react-hooks/exhaustive-deps
   const openUrl = (u: string) => {
     const o = new URL(u, location.origin).searchParams.get('open') ?? ''
-    if (o.startsWith('news:')) { const n = news.find(x => x.id === o.slice(5)); if (n) open({ k: 'news', item: n }) }
-    else if (o === 'events') open({ k: 'events' }); else if (o === 'tickets') open({ k: 'tickets' })
+    if (o.startsWith('news:')) { const n = newsRef.current.find(x => x.id === o.slice(5)); if (n) open({ k: 'news', item: n }); else { setPendingNews(o.slice(5)); reload() } }
+    else if (o.startsWith('ticket:')) { reload(); open({ k: 'ticket', id: o.slice(7) }) }
+    else if (o.startsWith('events')) open({ k: 'events' }); else if (o === 'tickets') open({ k: 'tickets' })
   }
   // „Mit Benni lernen“ aus dem Onboarding: in den Benni-Reiter wechseln, die Frage stellt der Reiter selbst
   useEffect(() => { const f = () => go('ai'); window.addEventListener('th-benni', f); return () => window.removeEventListener('th-benni', f) }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -175,79 +185,9 @@ function weekDays() {
   const now = new Date(isoDay() + 'T12:00:00Z'), dow = (now.getUTCDay() + 6) % 7
   return Array.from({ length: 7 }, (_, i) => { const d = new Date(now.getTime() + (i - dow) * 864e5); return { d: ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'][i], n: d.getUTCDate(), today: i === dow } })
 }
-/* ---------- Glocke: alles, was neu ist oder auf eine Antwort wartet ---------- */
-type BellItem = { id: string; icon: typeof Bell; title: string; sub: string; must?: boolean; count: boolean; go: () => void }
-const BELL_KEY = 'th-bell-v1'
-function useBell(open: (s: Sub) => void, go: (t: Tab) => void) {
-  const { t, news, read, opened, events, joined, declined, tickets, steps, obDone, tasks, done, quizzes } = useApp()
-  const [seen, setSeen] = useState<Record<string, string>>(() => { try { return JSON.parse(localStorage.getItem(BELL_KEY) || '{}') } catch { return {} } })
-  const now = Date.now(), nowHM = new Intl.DateTimeFormat('de-CH', { timeZone: 'Europe/Zurich', hour: '2-digit', minute: '2-digit' }).format(new Date())
-  const items: BellItem[] = []
-  for (const n of news.filter(n => n.mustRead && !read.has(n.id)))
-    items.push({ id: 'must:' + n.id, icon: Newspaper, title: n.title, sub: quizzes.some(q => q.newsId === n.id) ? t('Pflicht · lesen, bestätigen und Quiz') : t('Pflicht · lesen und bestätigen'), must: true, count: true, go: () => open({ k: 'news', item: n }) })
-  const late = tasks.filter(x => !done.has(x.id) && x.time && x.time < nowHM)
-  if (late.length) items.push({ id: 'late', icon: ListChecks, title: t('{n} Aufgaben überfällig', { n: late.length }), sub: late.slice(0, 2).map(x => x.title).join(', '), count: true, go: () => go('tasks') })
-  for (const e of events.filter(e => new Date(e.startsAt).getTime() > now && !joined.has(e.id) && !declined.has(e.id) && (!e.registerUntil || new Date(e.registerUntil).getTime() > now)))
-    items.push({ id: 'ev:' + e.id, icon: CalendarDays, title: e.title, sub: t('Einladung · {date}', { date: new Intl.DateTimeFormat(locale(), { timeZone: 'Europe/Zurich', weekday: 'short', day: 'numeric', month: 'short' }).format(new Date(e.startsAt)) }), count: true, go: () => open({ k: 'events' }) })
-  for (const tk of tickets.filter(x => x.mine)) {
-    const sig = `${tk.status}|${tk.comments.length}`
-    if (seen['tk:' + tk.id] && seen['tk:' + tk.id] !== sig) items.push({ id: 'tk:' + tk.id, icon: Lightbulb, title: tk.title, sub: t('{kind} · jetzt {status}', { kind: t(tk.kind), status: t(tk.status) }), count: true, go: () => open({ k: 'ticket', id: tk.id }) })
-  }
-  for (const n of news.filter(n => !n.mustRead && !opened.has(n.id) && now - new Date(n.publishAt).getTime() < 14 * 864e5))
-    items.push({ id: 'news:' + n.id, icon: Newspaper, title: n.title, sub: t('Neue News'), count: !seen['news:' + n.id], go: () => open({ k: 'news', item: n }) })
-  if (steps.length && steps.some(s => !obDone.has(s.id)))
-    items.push({ id: 'ob', icon: GraduationCap, title: t('Onboarding'), sub: t('{n} von {m} Schritten erledigt', { n: steps.filter(s => obDone.has(s.id)).length, m: steps.length }), count: false, go: () => open({ k: 'onboarding' }) })
-  // Beim Öffnen gilt alles Gesehene als gelesen; Meldungen merken sich Status und Kommentare
-  const markSeen = () => {
-    const next = { ...seen }
-    for (const tk of tickets.filter(x => x.mine)) next['tk:' + tk.id] = `${tk.status}|${tk.comments.length}`
-    for (const i of items) if (i.id.startsWith('news:')) next[i.id] = '1'
-    setSeen(next); try { localStorage.setItem(BELL_KEY, JSON.stringify(next)) } catch { /* privat */ }
-  }
-  // Erstes Mal: aktuellen Stand der eigenen Meldungen merken, damit nur Änderungen auftauchen
-  useEffect(() => {
-    const missing = tickets.filter(x => x.mine && !seen['tk:' + x.id])
-    if (!missing.length) return
-    const next = { ...seen }; for (const tk of missing) next['tk:' + tk.id] = `${tk.status}|${tk.comments.length}`
-    setSeen(next); try { localStorage.setItem(BELL_KEY, JSON.stringify(next)) } catch { /* privat */ }
-  }, [tickets]) // eslint-disable-line react-hooks/exhaustive-deps
-  return { items, badge: items.filter(i => i.count).length, markSeen }
-}
-
-function BellButton({ open, go }: { open: (s: Sub) => void; go: (t: Tab) => void }) {
-  const { t } = useApp()
-  const { items, badge, markSeen } = useBell(open, go)
-  const [show, setShow] = useState(false)
-  return (
-    <>
-      <button onClick={() => setShow(true)} aria-label={t('Mitteilungen')} className="relative w-11 h-11 rounded-full bg-white flex items-center justify-center text-ink hover:bg-white/70 transition">
-        <Bell size={19} strokeWidth={1.7} />
-        {badge > 0 && <span className="absolute -top-0.5 -right-0.5 min-w-[19px] h-[19px] px-1 rounded-full bg-brass text-white text-[11px] font-medium leading-[19px] text-center tabular-nums ring-2 ring-sage-50">{badge > 9 ? '9+' : badge}</span>}
-      </button>
-      {show && (
-        <div className="absolute inset-0 z-30" onClick={() => { markSeen(); setShow(false) }}>
-          <div className="absolute inset-0 bg-ink/20" />
-          <motion.div initial={{ y: -8, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ duration: 0.18 }} onClick={e => e.stopPropagation()}
-            className="absolute left-3 right-3 top-3 md:left-auto md:right-6 md:top-6 md:w-[380px] bg-paper rounded-[20px] shadow-[0_18px_50px_-12px_rgba(29,34,28,.35)] overflow-hidden">
-            <div className="px-5 pt-4 pb-3 flex items-center justify-between"><p className="font-display text-[19px]">{t('Mitteilungen')}</p><button onClick={() => { markSeen(); setShow(false) }} aria-label={t('Schliessen')} className="w-8 h-8 rounded-full hover:bg-sage-50 flex items-center justify-center text-mute"><X size={17} /></button></div>
-            {items.length === 0 ? <p className="px-5 pb-6 text-[14px] text-mute">{t('Alles erledigt. Gerade gibt es nichts Neues.')}</p> : (
-              <div className="max-h-[70vh] overflow-y-auto no-scrollbar pb-2">{items.map(i => (
-                <button key={i.id} onClick={() => { markSeen(); setShow(false); i.go() }} className="w-full text-left px-5 py-3 flex items-start gap-3 hover:bg-sage-50/70">
-                  <span className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${i.must ? 'bg-brass text-white' : 'bg-sage-50 text-olive-700'}`}><i.icon size={16} strokeWidth={1.8} /></span>
-                  <span className="flex-1 min-w-0"><span className="block text-[15px] leading-snug truncate">{i.title}</span><span className={`block text-[12px] mt-0.5 truncate ${i.must ? 'text-brass' : 'text-mute'}`}>{i.sub}</span></span>
-                  {i.count && <span className="mt-2 w-2 h-2 rounded-full bg-brass shrink-0" />}
-                </button>
-              ))}</div>
-            )}
-          </motion.div>
-        </div>
-      )}
-    </>
-  )
-}
-
 function Today({ open, go }: { open: (s: Sub) => void; go: (t: Tab) => void }) {
-  const { me, t, done, read, tasks, news, quizzes } = useApp()
+  const { me, t, done, read, tasks, news: allNews, quizzes, branches } = useApp()
+  const news = live(allNews)
   const day = useMyDay()
   const [team, setTeam] = useState<TeamToday | null>(null)
   const isLead = me.app_role === 'filialleitung'
@@ -256,34 +196,34 @@ function Today({ open, go }: { open: (s: Sub) => void; go: (t: Tab) => void }) {
   const next = tasks.find(x => !done.has(x.id))
   const must = news.filter(n => n.mustRead && !read.has(n.id))
   const shift = day?.shifts?.[0]
+  const shiftText = day?.shifts?.length ? day.shifts.map(s => `${s.start} – ${s.end}`).join(' · ') : ''
+  const shiftStudio = [...new Set((day?.shifts ?? []).map(s => branches.find(b => b.id === s.branch_id)?.name ?? me.branch))].join(', ') || me.branch
   const dateLabel = new Intl.DateTimeFormat(locale(), { timeZone: 'Europe/Zurich', weekday: 'long', day: 'numeric', month: 'long' }).format(new Date())
   return (
     <div className="px-5 pb-10">
-      <div className="pt-3 pb-5 flex items-end justify-between gap-3">
-        <div><p className="text-[13px] text-mute">{dateLabel}</p><h1 className="text-[30px] leading-tight mt-0.5">{t('Hallo')} {me.first}</h1></div>
-        <BellButton open={open} go={go} />
+      <div className="pt-3 pb-5">
+        <p className="text-[13px] text-mute">{dateLabel}</p><h1 className="text-[30px] leading-tight mt-0.5">{t('Hallo')} {me.first}</h1>
       </div>
 
       <div className="rounded-[16px] bg-olive-800 text-white p-5">
-        <p className="font-display text-[40px] leading-none tracking-tight">{!day ? '…' : shift ? `${shift.start} – ${shift.end}` : day.mapped ? t('Frei') : '–'}</p>
-        <p className="text-[14px] text-sage-200 mt-2">{t('Studio {name}', { name: me.branch })}{day?.appointments ? ` · ${day.appointments.length} ${t('Termine')}` : ''}</p>
+        <p className="font-display text-[40px] leading-none tracking-tight">{!day ? '…' : shift ? shiftText : day.mapped ? t('Frei') : '–'}</p>
+        <p className="text-[14px] text-sage-200 mt-2">{t('Studio {name}', { name: shiftStudio })}{day?.appointments ? ` · ${day.appointments.length} ${t('Termine')}` : ''}</p>
         <div className="mt-5 grid grid-cols-7 gap-1">
           {weekDays().map(d => <div key={d.n} className={`rounded-[10px] py-2 text-center ${d.today ? 'bg-white text-olive-800' : 'text-sage-400'}`}><p className="text-[11px]">{t(d.d)}</p><p className={`font-display text-[16px] mt-0.5 ${d.today ? '' : 'text-white'}`}>{d.n}</p></div>)}
         </div>
       </div>
 
       <ReadyCard open={open} />
-      {must.length > 0 && <div className="mt-3 space-y-2">{must.map(n => (
-        <button key={n.id} onClick={() => open({ k: 'news', item: n })} className="w-full text-left rounded-[16px] bg-brass/10 ring-1 ring-inset ring-brass/30 px-4 py-3.5 flex items-center gap-3 hover:bg-brass/15 transition">
-          <span className="relative w-10 h-10 rounded-full bg-brass text-white flex items-center justify-center shrink-0"><Newspaper size={17} strokeWidth={1.8} /><span className="absolute inset-0 rounded-full ring-2 ring-brass/40 animate-ping [animation-duration:2.4s] motion-reduce:hidden" /></span>
-          <span className="flex-1 min-w-0">
-            <span className="block text-[11px] font-medium uppercase tracking-[.12em] text-brass">{t('Pflicht · bitte lesen')}</span>
-            <span className="block text-[15px] font-medium mt-0.5 truncate">{n.title}</span>
-            <span className="block text-[12px] text-mute mt-0.5">{quizzes.some(q => q.newsId === n.id) ? t('Lesen, bestätigen und kurzes Quiz') : t('Lesen und bestätigen')}</span>
-          </span>
-          <span className="h-8 px-3.5 rounded-full bg-brass text-white text-[13px] font-medium flex items-center shrink-0">{t('Lesen')}</span>
-        </button>
-      ))}</div>}
+      {must.length > 0 && <>
+        <div className="flex items-baseline justify-between mt-8 mb-2.5 px-1"><h2 className="rubric text-brass">{t('Bitte lesen')}</h2><span className="text-[12px] text-mute tabular-nums">{t('{n} offen', { n: must.length })}</span></div>
+        <List>{must.map(n => (
+          <button key={n.id} onClick={() => open({ k: 'news', item: n })} className="w-full text-left px-4 py-3.5 flex items-center gap-3">
+            <span className="w-[7px] h-[7px] rounded-full bg-brass shrink-0" />
+            <span className="flex-1 min-w-0"><span className="block text-[15px] font-medium truncate">{n.title}</span><span className="block text-[12px] text-mute mt-0.5">{quizzes.some(q => q.newsId === n.id) ? t('Lesen, bestätigen und kurzes Quiz') : t('Lesen und bestätigen')}</span></span>
+            <ChevronRight size={18} className="text-sage-400 shrink-0" />
+          </button>
+        ))}</List>
+      </>}
 
       <Label action={<button onClick={() => go('tasks')} className="text-[13px] text-sage-800">{t('Alle')}</button>}>{t('Tagesaufgaben')}</Label>
       <Card onClick={() => go('tasks')} className="p-4">
@@ -317,7 +257,7 @@ function Today({ open, go }: { open: (s: Sub) => void; go: (t: Tab) => void }) {
       </>}
 
       <Label action={<button onClick={() => open({ k: 'news-list' })} className="text-[13px] text-sage-800">{t('Alle')}</button>}>{t('News')}</Label>
-      <List>{news.filter(n => !n.mustRead).slice(0, 2).map(n => <Row key={n.id} title={n.title} sub={`${n.tag} · ${n.date}`} onClick={() => open({ k: 'news', item: n })} />)}
+      <List>{news.filter(n => !n.mustRead).slice(0, 2).map(n => <Row key={n.id} title={n.title} sub={`${t(n.tag)} · ${n.date}`} onClick={() => open({ k: 'news', item: n })} />)}
         {news.filter(n => !n.mustRead).length === 0 && <Empty>{t('Keine News.')}</Empty>}</List>
     </div>
   )
@@ -325,7 +265,8 @@ function Today({ open, go }: { open: (s: Sub) => void; go: (t: Tab) => void }) {
 
 /* ---------- News ---------- */
 function NewsList({ open }: { open: (s: Sub) => void }) {
-  const { read, t, news } = useApp()
+  const { read, t, news: allNews } = useApp()
+  const news = live(allNews)
   const [f, setF] = useState('Alle')
   const tags = ['Alle', ...new Set(news.map(n => n.tag))]
   return (
@@ -335,7 +276,7 @@ function NewsList({ open }: { open: (s: Sub) => void }) {
           {news.filter(n => f === 'Alle' || n.tag === f).map(n => (
             <Card key={n.id} onClick={() => open({ k: 'news', item: n })} className="p-4">
               <div className="flex items-center gap-2 text-xs text-mute">
-                <span className={n.mustRead ? 'text-brass font-medium' : 'text-sage-800'}>{n.tag}</span>·<span>{n.date}</span>·<span className="truncate">{n.audience}</span>
+                <span className={n.mustRead ? 'text-brass font-medium' : 'text-sage-800'}>{t(n.tag)}</span>·<span>{n.date}</span>·<span className="truncate">{n.audience}</span>
                 {n.mustRead && (read.has(n.id) ? <span className="ml-auto flex items-center gap-1 text-sage-800"><Check size={12} />{t('bestätigt')}</span> : <span className="ml-auto w-2 h-2 rounded-full bg-brass" />)}
               </div>
               <p className="mt-1.5 text-[16px] font-medium leading-snug">{n.title}</p><p className="mt-1 text-[14px] text-mute leading-snug">{n.teaser}</p>
@@ -409,11 +350,11 @@ function Tasks({ open }: { open: (s: Sub) => void }) {
                 <span className={`text-[12px] tabular-nums shrink-0 ${k === items.length ? 'text-ok' : 'text-mute'}`}>{k === items.length ? <span className="inline-flex items-center gap-1"><Check size={13} strokeWidth={2.6} />{t('fertig')}</span> : `${k} / ${items.length}`}</span>
               </div>
               <List>{items.map(x => {
-                const d = done.get(x.id), late = !d && x.time && x.time < nowHM
-                const doIt = () => x.proof && !d ? setPhotoFor(x.id) : run(x.id)
+                const d = done.get(x.id), late = !d && x.time && x.time < nowHM, locked = !!d && !!d.byId && d.byId !== me.id
+                const doIt = () => { if (locked) return; if (x.proof && !d) setPhotoFor(x.id); else run(x.id) }
                 return (
                   <div key={x.id} className="flex items-center gap-3 px-4 py-3.5">
-                    <button aria-label={d ? t('Rückgängig') : t('Erledigt')} disabled={busy === x.id} onClick={doIt} className={`w-[26px] h-[26px] rounded-full flex items-center justify-center shrink-0 transition ${d ? 'bg-olive-700 text-white' : 'shadow-[inset_0_0_0_1.5px_#979E92] hover:shadow-[inset_0_0_0_1.5px_#495940]'} ${busy === x.id ? 'opacity-50' : ''}`}>{d && <Check size={15} strokeWidth={3} />}</button>
+                    <button aria-label={d ? t('Rückgängig') : t('Erledigt')} title={locked ? t('Nur {name} kann das rückgängig machen', { name: d!.by }) : undefined} disabled={busy === x.id || locked} onClick={doIt} className={`w-[26px] h-[26px] rounded-full flex items-center justify-center shrink-0 transition ${d ? 'bg-olive-700 text-white' : 'shadow-[inset_0_0_0_1.5px_#979E92] hover:shadow-[inset_0_0_0_1.5px_#495940]'} ${busy === x.id ? 'opacity-50' : ''}`}>{d && <Check size={15} strokeWidth={3} />}</button>
                     <div className="flex-1 min-w-0">
                       <p className={`text-[15px] leading-snug ${d ? 'text-mute line-through decoration-sage-400' : ''}`}>{x.title}</p>
                       <p className="text-[12px] text-mute mt-0.5 flex flex-wrap items-center gap-x-2">
@@ -453,9 +394,12 @@ function Sheet({ children, onClose }: { children: ReactNode; onClose: () => void
 
 /* ---------- KI ---------- */
 type Msg = { me: boolean; t: string; sources?: { id: string; title: string }[]; ticket?: { kind: 'Meldung' | 'Idee'; title: string } }
+// Gespräch mit Benni bleibt erhalten, wenn man eine Quelle öffnet oder den Reiter wechselt
+let benniCache: Msg[] = []
 function AI({ open }: { open: (s: Sub) => void }) {
-  const { addTicket, wiki, t } = useApp()
-  const [msgs, setMsgs] = useState<Msg[]>([])
+  const { addTicket, wiki, t, reload } = useApp()
+  const [msgs, setMsgsState] = useState<Msg[]>(benniCache)
+  const setMsgs = (f: (m: Msg[]) => Msg[]) => setMsgsState(m => { const n = f(m); benniCache = n; return n })
   const [v, setV] = useState('')
   const [busy, setBusy] = useState(false)
   const [steps, setSteps] = useState<Step[]>([])
@@ -470,6 +414,7 @@ function AI({ open }: { open: (s: Sub) => void }) {
     const data = await askBenni(q, history, st => setSteps(x => [...x, st])).catch(() => ({ ok: false } as { ok: false; text?: string; sources?: undefined; ticket?: undefined }))
     setMsgs(m => [...m, !data.ok || !data.text ? { me: false, t: t('Ich bin gerade nicht erreichbar. Bitte versuche es gleich noch einmal.') } : { me: false, t: data.text, sources: data.sources, ticket: data.ticket }])
     setBusy(false); setSteps([]); setTimeout(() => end.current?.scrollIntoView({ behavior: 'smooth' }), 50)
+    reload() // z. B. Onboarding-Schritt, den Benni abgehakt hat
   }
   return (
     <div className="flex flex-col h-full">
@@ -502,21 +447,10 @@ function AI({ open }: { open: (s: Sub) => void }) {
     </div>
   )
 }
-function TicketDraft({ kind, title, onSend }: { kind: 'Meldung' | 'Idee'; title: string; onSend: () => Promise<boolean> }) {
-  const { t } = useApp()
-  const [state, setState] = useState<'draft' | 'busy' | 'sent' | 'error'>('draft')
-  return (
-    <div className="mt-3 rounded-xl bg-sage-50 p-3">
-      <p className="text-xs text-mute">{kind === 'Meldung' ? t('Meldung · Facility') : t('Idee · Büro')}</p><p className="text-[14px] font-medium mt-0.5">{title}</p>
-      {state === 'sent' ? <p className="mt-2 text-[13px] text-sage-800 flex items-center gap-1"><Check size={14} />{t('Gesendet, du siehst den Stand unter Melden & Ideen')}</p>
-        : <button disabled={state === 'busy'} onClick={async () => { setState('busy'); setState(await onSend() ? 'sent' : 'error') }} className="mt-2.5 h-9 px-4 rounded-full bg-olive-700 text-white text-[13px] disabled:opacity-60">{state === 'error' ? t('Nochmal senden') : kind === 'Meldung' ? t('Meldung senden') : t('Idee senden')}</button>}
-    </div>
-  )
-}
-
 /* ---------- Wissen ---------- */
 function Wiki({ open }: { open: (s: Sub) => void }) {
-  const { t, wiki, steps, obDone } = useApp()
+  const { t, wiki: allWiki, steps, obDone } = useApp()
+  const wiki = allWiki.filter(a => a.published)
   const [q, setQ] = useState('')
   const cats = [...new Set(wiki.map(a => a.cat))]
   const hits = wiki.filter(a => [a.title, a.cat, a.intro, ...a.tags, ...a.body].join(' ').toLowerCase().includes(q.toLowerCase()))
@@ -628,11 +562,10 @@ function Onboarding({ open }: { open: (s: Sub) => void }) {
 
 /* ---------- Menü ---------- */
 function MenuView({ open, onLogout }: { open: (s: Sub) => void; onLogout: () => void }) {
-  const { me, t, tickets, news, read, staff, events, joined } = useApp()
-  const unread = news.filter(n => n.mustRead && !read.has(n.id)).length
-  const upcoming = events.filter(e => new Date(e.startsAt) > new Date()).length
+  const { me, t, tickets, news, read, staff } = useApp()
+  const unread = live(news).filter(n => n.mustRead && !read.has(n.id)).length
   const tiles: [string, string, typeof Users, Sub][] = [
-    ['News', unread ? t('{n} ungelesen', { n: unread }) : t('alles gelesen'), Newspaper, { k: 'news-list' }], ['Kalender', t('{n} Termine · {m} angemeldet', { n: upcoming, m: joined.size }), CalendarDays, { k: 'events' }],
+    ['News', unread ? t('{n} ungelesen', { n: unread }) : t('alles gelesen'), Newspaper, { k: 'news-list' }], ['Kalender', t('Termine, Schulungen und Events'), CalendarDays, { k: 'events' }],
     ['Team', t('{n} Personen', { n: staff.filter(s => s.active).length }), Users, { k: 'team' }], ['Melden & Ideen', t('{n} offen', { n: tickets.filter(x => x.status !== 'Erledigt').length }), Lightbulb, { k: 'tickets' }],
     ['Posteingang', t('Webmail'), Inbox, { k: 'inbox' }], ['Zeit & Ferien', 'Timebutler', Plane, { k: 'time' }],
   ]
@@ -710,6 +643,8 @@ function ClientHistoryView() {
           <p className="text-[13px] text-mute mt-1">{[h.client.since && t('Kundin seit {d}', { d: fmt(h.client.since) }), h.client.last_visit && t('zuletzt {d}', { d: fmt(h.client.last_visit) }), h.client.preferred && t('bevorzugt {n}', { n: h.client.preferred })].filter(Boolean).join(' · ')}</p>
           {h.summary && <div className="mt-5 rounded-[16px] bg-white px-4 py-4"><p className="rubric text-olive-700 flex items-center gap-2"><BMark className="w-5 h-5 text-[10px]" />{t('Zusammenfassung')}</p>
             <div className="mt-2 text-[15px] leading-relaxed space-y-1">{h.summary.split('\n').filter(Boolean).map((l, i) => <p key={i}>{l}</p>)}</div></div>}
+          {(h.upcoming?.length ?? 0) > 0 && <><Label>{t('Kommende Termine')}</Label>
+            <List>{h.upcoming!.map((v, i) => <div key={i} className="px-4 py-3 flex justify-between gap-3 text-[14px]"><span>{v.service}<span className="block text-xs text-mute mt-0.5">{[v.branch, v.staff].filter(Boolean).join(' · ')}</span></span><span className="text-mute shrink-0 text-right">{fmt(v.date)}<span className="block text-xs">{v.time}</span></span></div>)}</List></>}
           <Label>{t('Besuche der letzten {n} Monate', { n: h.months })}</Label>
           <List>{h.visits.length === 0 && <Empty>{t('Keine Besuche in diesem Zeitraum.')}</Empty>}{h.visits.map((v, i) => (
             <div key={i} className="px-4 py-3">
@@ -781,7 +716,7 @@ function MyProfile() {
       <Label>{t('Meine Skills')}</Label>
       <div className="flex flex-wrap gap-2">{skillCatalog.map(k => <button key={k} onClick={() => tog(k)} className={`px-3 h-8 rounded-full text-[13px] ${skills.includes(k) ? 'bg-olive-700 text-white' : 'bg-white'}`}>{k}</button>)}</div>
       <p className="mt-3 text-xs text-mute">{t('Die Skill-Liste gibt das Büro vor. Kolleginnen finden dich darüber.')}</p>
-      <Label>{t('Meine Arbeitszeiten')}</Label>
+      <Label>{t('Arbeitszeiten · nächste 7 Tage')}</Label>
       <WeekShifts />
       <Label>{t('Ich kann aushelfen an')}</Label>
       <StandbyPicker />
@@ -933,7 +868,7 @@ function ReadyCard({ open }: { open: (s: Sub) => void }) {
   const { t } = useApp()
   const [st] = usePush()
   const [hide, setHide] = useState(() => { try { return localStorage.getItem('th-ready-hide') === '1' } catch { return false } })
-  if (hide || st === null || (isStandalone() && (st === 'on' || st === 'unsupported'))) return null
+  if (hide || st === null || matchMedia('(min-width: 768px)').matches || (isStandalone() && (st === 'on' || st === 'unsupported'))) return null
   const label = !isStandalone() ? t('Auf den Home-Bildschirm legen') : t('Mitteilungen einschalten')
   return (
     <div className="mt-3 rounded-[16px] bg-white px-4 py-3.5 flex gap-3 items-center">

@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './lib/auth'
 import Mobile from './Mobile'
 import Backoffice from './Backoffice'
 import Login from './Login'
+import { tr } from './lib/i18n'
 
 export default function App() {
   return (
@@ -38,10 +39,16 @@ const LoginFrame = ({ children }: { children: React.ReactNode }) => (
 )
 
 function Gate() {
-  const { ready, employee, orphan, signOut } = useAuth()
+  const { ready, employee, orphan, offline, retry, signOut } = useAuth()
   const desktop = useDesktop()
   const [mode, setMode] = useState<'app' | 'office' | null>(null)
   if (!ready) return <div className="min-h-full flex items-center justify-center text-mute">…</div>
+  if (!employee && offline) return (
+    <div className="min-h-full flex flex-col items-center justify-center gap-3 p-6 text-center">
+      <p className="text-[15px]">{tr('Keine Verbindung zum TeamHub.')}</p>
+      <button onClick={retry} className="h-11 px-5 rounded-[10px] bg-olive-700 text-white font-medium">{tr('Erneut versuchen')}</button>
+    </div>
+  )
   if (!employee) {
     // Angemeldet, aber nicht (mehr) freigeschaltet: sofort wieder abmelden.
     if (orphan) signOut()

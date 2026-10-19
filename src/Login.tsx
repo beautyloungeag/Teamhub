@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Logo } from './Logo'
 import { supabase } from './lib/supabase'
 import { tr, savedLang, setCurrentLang, type Lang } from './lib/i18n'
@@ -18,6 +18,8 @@ export default function Login({ notice }: { notice?: string }) {
   const [code, setCode] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState(notice ?? '')
+  // Hinweis auch zeigen, wenn die Seite schon offen war (z. B. Zugang nach dem Code deaktiviert)
+  useEffect(() => { if (notice) setErr(notice) }, [notice])
 
   const send = async () => {
     const e = email.trim().toLowerCase()

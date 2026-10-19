@@ -29,10 +29,12 @@ Deno.serve(async (req) => {
     if (error) return json({ ok: false, error: /duplicate/.test(error.message) ? 'exists' : error.message }, 400)
     // Trigger link_auth_user verknüpft das Konto per E-Mail
     const { error: ae } = await admin.auth.admin.createUser({ email, email_confirm: true })
-    if (ae && !/already/i.test(ae.message)) return json({ ok: false, error: 'auth_failed', detail: ae.message, employee_id: emp.id }, 500)
+    // Ohne Login-Konto keine halbe Person zurücklassen: Zeile wieder entfernen, damit ein neuer Versuch klappt
+    if (ae && !/already/i.test(ae.message)) { await admin.from('employees').delete().eq('id', emp.id); return json({ ok: false, error: 'auth_failed', detail: ae.message }, 500) }
     return json({ ok: true, employee_id: emp.id })
   }
   if (b.action === 'set_active') {
+    if (b.employee_id === me.id && !b.active) return json({ ok: false, error: 'self' }, 400)
     const { error } = await admin.from('employees').update({ active: !!b.active, updated_at: new Date().toISOString() }).eq('id', b.employee_id)
     return error ? json({ ok: false, error: error.message }, 400) : json({ ok: true })
   }

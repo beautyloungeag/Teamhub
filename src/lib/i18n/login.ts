@@ -1,5 +1,7 @@
 // Schlüssel = deutscher Text, Werte [Englisch, Französisch].
 export default {
+  "Keine Verbindung zum TeamHub.": ["No connection to TeamHub.", "Pas de connexion au TeamHub."],
+  "Erneut versuchen": ["Try again", "Réessayer"],
   'Anmelden': ['Sign in', 'Se connecter'],
   'Anmeldecode senden': ['Send sign-in code', 'Envoyer le code'],
   'intern': ['internal', 'interne'],

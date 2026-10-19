@@ -2,6 +2,7 @@
 // Secrets: PHOREST_AUTH (Basic-Header), PHOREST_BUSINESS_ID.
 // Aktionen:
 //   my_day      {date?}          eigene Schichten + Termine (alle eigenen Phorest-Spalten)
+//   my_month    {from, to}       Anzahl eigener Termine je Tag (Kalender)
 //   branch_day  {branch, date?}  Filialkalender: nur eigene Filiale(n), Büro alle
 //   team_today  {branch}         wer arbeitet heute: nur Filialleitung der Filiale oder Büro
 //   staff_week  {employee_id?}   Schichten der nächsten 7 Tage einer Person (ohne Kundendaten; für Profil)
@@ -90,6 +91,21 @@ Deno.serve(async (req) => {
       return json({ ok: true, mapped: true, date, shifts, appointments: appts.sort((a, b) => a.startTime.localeCompare(b.startTime)).map((a) => ({
         start: hhmm(a.startTime), end: hhmm(a.endTime), service: a.serviceName ?? '', client: names.get(a.clientId) ?? 'Kundin', client_id: a.clientId ?? null, branch_id: a._branch, state: a.state,
       })) })
+    }
+
+    // Anzahl eigener Termine je Tag für einen Monat (Kalender-Punkte), höchstens 31 Tage
+    if (body.action === 'my_month') {
+      const ok = (d: unknown) => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d)
+      if (!ok(body.from) || !ok(body.to) || (Date.parse(body.to) - Date.parse(body.from)) / 864e5 > 31) return json({ ok: false, error: 'bad_range' }, 400)
+      const { data: maps } = await admin.from('employee_phorest').select('branch_id, staff_id').eq('employee_id', me.id)
+      if (!maps?.length) return json({ ok: true, mapped: false, days: {} })
+      const days: Record<string, number> = {}
+      for (const m of maps) {
+        const pbid = pb(m.branch_id); if (!pbid) continue
+        const r = await ph(`/branch/${pbid}/appointment?from_date=${body.from}&to_date=${body.to}&staff_id=${encodeURIComponent(m.staff_id)}&fetch_canceled=false&size=500`)
+        for (const a of r?._embedded?.appointments ?? []) if (!a.deleted && a.activationState !== 'CANCELED' && a.staffId === m.staff_id) days[a.appointmentDate] = (days[a.appointmentDate] ?? 0) + 1
+      }
+      return json({ ok: true, mapped: true, days })
     }
 
     if (body.action === 'branch_day' || body.action === 'team_today') {

@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { LayoutDashboard, LifeBuoy, Phone, GraduationCap, Smartphone, Store, ArrowUp, ArrowDown, Newspaper, ListChecks, Lightbulb, CalendarDays, Users, BookOpen, Plus, Check, Search, CalendarClock, Send, X, Trash2 } from 'lucide-react'
+import { LayoutDashboard, LifeBuoy, Phone, GraduationCap, Smartphone, Store, ArrowUp, ArrowDown, Newspaper, ListChecks, Lightbulb, CalendarDays, Users, BookOpen, Plus, Check, Search, CalendarClock, Send, X, Trash2, Pencil } from 'lucide-react'
 import { Terminbuch } from './Calendar'
-import { useApp, isoDay, appliesOn, fmtDate, fmtTime, zurichHour, inNewsAudience, GROUPS, type Ticket, type News, type Quiz } from './store'
+import { useApp, isoDay, appliesOn, fmtDate, fmtTime, zurichHour, inNewsAudience, GROUPS, type Ticket, type News, type Quiz, type Staff } from './store'
 import { supabase } from './lib/supabase'
 import { Status, ASSISTANT } from './Mobile'
 import { notifyNow } from './lib/push'
 import { Logo, BMark } from './Logo'
-import { askBenni, BenniWorking, BenniText, type Step } from './BenniChat'
+import { askBenni, BenniWorking, BenniText, type Step, type BenniAnswer } from './BenniChat'
+import { TicketDraft } from './TicketParts'
 import { Comments, Media } from './TicketParts'
 
 type View = 'overview' | 'book' | 'news' | 'tasks' | 'tickets' | 'events' | 'standby' | 'learn' | 'team' | 'studios' | 'wiki'
@@ -18,6 +19,8 @@ export default function Backoffice({ onSwitch }: { onSwitch?: () => void }) {
   const [ai, setAi] = useState(false)
   // Filialleitung verwaltet nur ihre Filiale; Inhalte (News, Wissen, Vorlagen, Team) pflegt das Büro.
   const nav = me.app_role === 'buero' ? NAV : NAV.filter(([k]) => ['overview', 'book', 'tasks', 'tickets', 'events', 'standby', 'learn'].includes(k))
+  const allowed = new Set(nav.map(([k]) => k))
+  const go = (k: View) => { if (allowed.has(k)) setV(k) }
   return (
     <div className="flex h-full bg-white overflow-hidden">
       <aside className="w-60 shrink-0 bg-olive-800 p-4 flex flex-col">
@@ -30,8 +33,8 @@ export default function Backoffice({ onSwitch }: { onSwitch?: () => void }) {
       </aside>
       <main className={`flex-1 no-scrollbar p-8 ${v === 'book' ? 'flex flex-col overflow-hidden' : 'overflow-y-auto'}`}>
         {v === 'book' && <><H>Kundentermine</H><div className="flex-1 min-h-0"><Terminbuch /></div></>}
-        {v === 'overview' && <Overview go={setV} />}{v === 'news' && <NewsAdmin />}{v === 'tasks' && <TasksAdmin />}
-        {v === 'tickets' && <TicketsAdmin />}{v === 'standby' && <StandbyAdmin />}{v === 'learn' && <LearnAdmin />}{v === 'events' && <EventsAdmin />}{v === 'team' && <TeamAdmin />}{v === 'studios' && <StudiosAdmin />}{v === 'wiki' && <WikiAdmin />}
+        {v === 'overview' && <Overview go={go} can={k => allowed.has(k)} />}{allowed.has('news') && v === 'news' && <NewsAdmin />}{v === 'tasks' && <TasksAdmin />}
+        {v === 'tickets' && <TicketsAdmin />}{v === 'standby' && <StandbyAdmin />}{v === 'learn' && <LearnAdmin />}{v === 'events' && <EventsAdmin />}{allowed.has('team') && v === 'team' && <TeamAdmin />}{allowed.has('studios') && v === 'studios' && <StudiosAdmin />}{allowed.has('wiki') && v === 'wiki' && <WikiAdmin />}
       </main>
       {ai && <AdminChat onClose={() => setAi(false)} />}
     </div>
@@ -53,13 +56,16 @@ const btn = 'h-10 px-4 rounded-[10px] bg-olive-700 hover:bg-olive-800 transition
 const btn2 = 'h-10 px-4 rounded-[10px] bg-sage-50 hover:bg-sage-100 transition text-[14px]'
 // Neue oder geänderte Inhalte sofort übersetzen lassen (sonst übernimmt der 10-Minuten-Takt)
 const retranslate = () => { supabase?.functions.invoke('translate', { body: { action: 'sync' } }) }
+// Testkonten der Entwicklung zählen in Zielgruppen, Quoten und Ranglisten nicht mit
+const real = (s: Staff) => s.active && !/@aleksa\.ai$/i.test(s.email)
+const inBranch = (s: Staff, b: string) => s.branch_id === b || (s.extra ?? []).includes(b)
 const Err = ({ m }: { m: string }) => m ? <p className="text-[13px] text-alert">{m}</p> : null
 
 /* Wer gehört zur Zielgruppe (leer = alle aktiven)? */
 function useAudience() {
   const { staff } = useApp()
   return (n: Pick<News, 'audienceBranches' | 'audienceGroups' | 'audienceSkills' | 'audiencePeople'>) =>
-    staff.filter(s => s.active && (n.audiencePeople.length ? true : s.branch_id !== 'buero') && inNewsAudience(s, n))
+    staff.filter(s => real(s) && (n.audiencePeople.length || n.audienceGroups.includes('Büro') ? true : s.branch_id !== 'buero') && inNewsAudience(s, n))
 }
 /* Fortschritt der Tagesaufgaben je Studio heute */
 function useTaskProgress() {
@@ -72,27 +78,29 @@ function useTaskProgress() {
   })
 }
 
-function Overview({ go }: { go: (v: View) => void }) {
+function Overview({ go, can }: { go: (v: View) => void; can: (v: View) => boolean }) {
   const { tickets, news, newsReads, events, me } = useApp()
   const audience = useAudience(), progress = useTaskProgress()
   const must = news.find(n => n.mustRead && new Date(n.publishAt) <= new Date())
-  const mustPeople = must ? audience(must) : []
+  // Filialleitung: Kennzahlen nur für das eigene Studio
+  const mine = (bid: string) => me.app_role === 'buero' || bid === me.branch_id || (me.extra ?? []).includes(bid)
+  const mustPeople = must ? audience(must).filter(p => mine(p.branch_id)) : []
   const mustPct = must && mustPeople.length ? Math.round(mustPeople.filter(p => newsReads.some(r => r.news_id === must.id && r.employee_id === p.id && r.confirmed_at)).length / mustPeople.length * 100) : 0
-  const open = tickets.filter(t => t.status !== 'Erledigt')
-  const tot = progress.reduce((a, b) => a + b.total, 0), dn = progress.reduce((a, b) => a + b.done, 0)
+  const open = tickets.filter(t => t.status !== 'Erledigt' && (me.app_role === 'buero' || t.branchId === me.branch_id || (me.extra ?? []).includes(t.branchId)))
+  const rows = progress.filter(b => mine(b.id))
+  const tot = rows.reduce((a, b) => a + b.total, 0), dn = rows.reduce((a, b) => a + b.done, 0)
   const nextEv = events.find(e => new Date(e.startsAt) > new Date())
   const kpis: [string, string, string, View][] = [
     ['Pflicht-News gelesen', must ? mustPct + ' %' : '–', must?.title ?? 'keine Pflicht-News', 'news'],
-    ['Tagesaufgaben', tot ? Math.round(dn / tot * 100) + ' %' : '–', 'alle Studios heute', 'tasks'],
-    ['Offene Meldungen', String(open.length), `${open.filter(t => t.status === 'Neu').length} ohne Zuweisung`, 'tickets'],
+    ['Tagesaufgaben', tot ? Math.round(dn / tot * 100) + ' %' : '–', me.app_role === 'buero' ? 'alle Studios heute' : `${rows[0]?.branch ?? ''} heute`, 'tasks'],
+    ['Offene Meldungen', String(open.length), `${open.filter(t => !t.assignee).length} ohne Zuweisung`, 'tickets'],
     ['Nächster Termin', nextEv ? fmtDate(nextEv.startsAt, { day: '2-digit', month: '2-digit' }) : '–', nextEv ? `${nextEv.title.slice(0, 26)}${nextEv.capacity ? ` · ${nextEv.taken}/${nextEv.capacity}` : ''}` : 'nichts geplant', 'events'],
   ]
   const hour = zurichHour()
-  const rows = me.app_role === 'buero' ? progress : progress.filter(b => b.id === me.branch_id)
   return (<>
     <p className="rubric text-olive-700">{fmtDate(new Date().toISOString(), { weekday: 'long', day: 'numeric', month: 'long' })}</p>
     <h1 className="text-[28px] mt-2 mb-7">{hour < 11 ? 'Guten Morgen' : hour < 17 ? 'Hallo' : 'Guten Abend'}, {me.first}</h1>
-    <div className="grid grid-cols-4 border-t border-line">{kpis.map(([l, n, s2, to], i) => <button key={l} onClick={() => go(to)} className={`text-left pt-4 pb-2 pr-4 group ${i ? 'pl-5 border-l border-line' : ''}`}><p className="font-display text-[30px] leading-tight group-hover:text-olive-700 transition">{n}</p><p className="text-[13px] text-ink/80 mt-1">{l}</p><p className="text-xs text-mute truncate">{s2}</p></button>)}</div>
+    <div className="grid grid-cols-4 border-t border-line">{kpis.map(([l, n, s2, to], i) => <button key={l} disabled={!can(to)} onClick={() => go(to)} className={`text-left pt-4 pb-2 pr-4 group disabled:cursor-default ${i ? 'pl-5 border-l border-line' : ''}`}><p className="font-display text-[30px] leading-tight group-hover:text-olive-700 transition">{n}</p><p className="text-[13px] text-ink/80 mt-1">{l}</p><p className="text-xs text-mute truncate">{s2}</p></button>)}</div>
     <div className="grid grid-cols-[1.2fr_1fr] gap-10 mt-10">
       <div><p className="rubric text-ink/70 mb-2">Tagesaufgaben {rows.length > 1 ? 'je Studio' : rows[0]?.branch ?? ''}</p>{rows.map(b => <div key={b.id} className="grid grid-cols-[90px_1fr_44px] items-center gap-3 text-[14px] py-2.5 border-b border-line"><span>{b.branch}</span><Bar p={b.total ? b.done / b.total * 100 : 0} /><span className="text-right text-mute tabular-nums text-[13px]">{b.done}/{b.total}</span></div>)}</div>
       <div><div className="flex justify-between items-baseline mb-2"><p className="rubric text-ink/70">Neueste Meldungen</p><button onClick={() => go('tickets')} className="text-[13px] text-olive-700">Alle</button></div>{tickets.length === 0 && <p className="text-[14px] text-mute py-2.5">Keine Meldungen.</p>}{tickets.slice(0, 5).map(t => <div key={t.id} className="py-2.5 flex justify-between gap-3 text-[14px] border-b border-line"><span className="truncate">{t.title}{t.viaAI && <span className="text-mute"> · über {ASSISTANT}</span>}</span><span className="text-[13px] shrink-0"><Status s={t.status} /></span></div>)}</div>
@@ -105,8 +113,8 @@ function Overview({ go }: { go: (v: View) => void }) {
 function Readiness() {
   const { staff, branches, me } = useApp()
   const [open, setOpen] = useState<string | null>(null)
-  const rows = branches.filter(b => !b.is_office && (me.app_role === 'buero' || b.id === me.branch_id)).map(b => {
-    const p = staff.filter(s => s.active && s.branch_id === b.id)
+  const rows = branches.filter(b => !b.is_office && (me.app_role === 'buero' || b.id === me.branch_id || (me.extra ?? []).includes(b.id))).map(b => {
+    const p = staff.filter(s => real(s) && inBranch(s, b.id))
     return { b, p, inst: p.filter(s => s.appInstalled).length, push: p.filter(s => s.pushEnabled).length }
   })
   return <div><div className="grid grid-cols-[90px_1fr_1fr_24px] gap-3 items-baseline mb-2"><p className="rubric text-ink/70 col-span-2">Startbereitschaft</p></div>
@@ -121,7 +129,7 @@ function Readiness() {
 
 /* ---------- News ---------- */
 function NewsAdmin() {
-  const { news, newsReads, branches, me, reload, skillCatalog, staff } = useApp()
+  const { news, newsReads, branches, me, reload, skillCatalog, staff, quizzes } = useApp()
   const audience = useAudience()
   const [sel, setSel] = useState<string | null>(news[0]?.id ?? null), [compose, setCompose] = useState(false)
   const blank = { title: '', teaser: '', body: '', tag: 'Studio', must: false, branches: [] as string[], groups: [] as string[], skills: [] as string[], people: [] as string[], when: '', wiki: '', image: '' }
@@ -209,7 +217,7 @@ function NewsAdmin() {
       {n && <Side><p className="font-medium">{n.title}</p><p className="text-xs text-mute mt-1">{n.mustRead ? `${people.filter(s => newsReads.some(r => r.news_id === n.id && r.employee_id === s.id && r.confirmed_at)).length} von ${people.length} bestätigt` : 'Ohne Lesebestätigung'}</p>
         {n.mustRead && <div className="mt-3 max-h-[420px] overflow-y-auto no-scrollbar divide-y divide-line">{people.map(s => { const r = newsReads.find(x => x.news_id === n.id && x.employee_id === s.id)
           return <div key={s.id} className="py-2 flex items-center justify-between text-[13px]"><span>{s.first} {s.last} <span className="text-mute">· {s.branch}</span></span>{r?.confirmed_at ? <Check size={15} className="text-ok" /> : <span className="text-xs text-mute">{r ? 'geöffnet' : 'offen'}</span>}</div> })}</div>}
-        <button onClick={async () => { if (confirm('Diese News löschen?')) { await supabase!.from('news').delete().eq('id', n.id); setSel(null); await reload() } }} className="mt-4 text-[13px] text-mute flex items-center gap-1"><Trash2 size={13} />Löschen</button>
+        <button onClick={async () => { if (confirm(`„${n.title}“ löschen?${quizzes.some(q => q.newsId === n.id) ? ' Das Quiz dazu und alle Ergebnisse werden mit gelöscht.' : ''} Lesebestätigungen gehen verloren.`)) { const { error } = await supabase!.from('news').delete().eq('id', n.id); if (error) { alert('Löschen hat nicht geklappt.'); return } setSel(null); await reload() } }} className="mt-4 text-[13px] text-mute flex items-center gap-1"><Trash2 size={13} />Löschen</button>
       </Side>}
     </div>
   </>)
@@ -221,24 +229,48 @@ const WD = ['', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Sams
 function TasksAdmin() {
   const { templates, branches, me, reload } = useApp()
   const progress = useTaskProgress().filter(b => me.app_role === 'buero' || b.id === me.branch_id)
-  const [form, setForm] = useState(false)
-  const [f, setF] = useState({ name: '', repeat: 'daily' as 'daily' | 'weekly' | 'monthly', weekday: 1, monthday: 1, branches: [] as string[], items: '' })
+  const [form, setForm] = useState(false), [editId, setEditId] = useState<string | null>(null)
+  const EMPTY = { name: '', repeat: 'daily' as 'daily' | 'weekly' | 'monthly', weekday: 1, monthday: 1, branches: [] as string[], items: '' }
+  const [f, setF] = useState(EMPTY)
   const [err, setErr] = useState('')
+  const openEdit = (t: (typeof templates)[number]) => {
+    setF({ name: t.name, repeat: t.repeat, weekday: t.weekday ?? 1, monthday: t.monthday ?? 1, branches: t.branchIds,
+      items: t.items.map(i => `${i.time ? i.time + ' ' : ''}${i.title}${i.proof ? ' !foto' : ''}${i.prio ? ' !wichtig' : ''}`).join('\n') })
+    setEditId(t.id); setForm(true); setErr(''); document.querySelector('main')?.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+  const reactivate = async (id: string) => { await supabase!.from('task_templates').update({ active: true }).eq('id', id); await reload() }
   const proposals = templates.filter(t => t.proposed)
   const approve = async () => { if (confirm('Vorschläge freigeben? Die Beispielvorlagen aus dem Prototyp werden dabei abgeschaltet.')) { await supabase!.rpc('approve_wiki_proposals', { p_kind: 'tasks' }); await reload(); retranslate() } }
   const save = async () => {
     const lines = f.items.split('\n').map(l => l.trim()).filter(Boolean)
     if (!f.name.trim() || !lines.length) { setErr('Name und mindestens ein Punkt sind nötig.'); return }
+    const parse = (l: string) => { const m = l.match(/^(\d{1,2}:\d{2})\s+(.*)$/); const text = (m ? m[2] : l)
+      return { title: text.replace(/!foto|!wichtig/gi, '').trim(), due_time: m ? m[1] : null, proof_photo: /!foto/i.test(text), prio: /!wichtig/i.test(text) } }
+    if (editId) {
+      // Bearbeiten: Punkte der Reihe nach aktualisieren, neue anhängen, überzählige entfernen (deren Nachweise gehen mit)
+      const tpl = templates.find(x => x.id === editId)!
+      const removed = tpl.items.slice(lines.length)
+      if (removed.length && !confirm(`${removed.length} Punkt(e) werden entfernt, ihre bisherigen Nachweise auch. Fortfahren?`)) return
+      const { error } = await supabase!.from('task_templates').update({ name: f.name.trim(), repeat: f.repeat, weekday: f.repeat === 'weekly' ? f.weekday : null, monthday: f.repeat === 'monthly' ? f.monthday : null, branch_ids: f.branches }).eq('id', editId)
+      if (error) { setErr('Speichern hat nicht geklappt.'); return }
+      const results = await Promise.all([
+        ...lines.map((l, i) => tpl.items[i] ? supabase!.from('task_items').update({ ...parse(l), sort: i }).eq('id', tpl.items[i].id) : supabase!.from('task_items').insert({ template_id: editId, ...parse(l), sort: i })),
+        ...removed.map(r => supabase!.from('task_items').delete().eq('id', r.id)),
+      ])
+      if (results.some(r => r.error)) { setErr('Nicht alle Punkte liessen sich speichern. Bitte noch einmal speichern.'); return }
+      setForm(false); setEditId(null); setErr(''); setF(EMPTY); await reload(); retranslate(); return
+    }
     const { data, error } = await supabase!.from('task_templates').insert({ name: f.name.trim(), repeat: f.repeat, weekday: f.repeat === 'weekly' ? f.weekday : null, monthday: f.repeat === 'monthly' ? f.monthday : null, branch_ids: f.branches, sort: templates.length }).select('id').single()
     if (error || !data) { setErr('Speichern hat nicht geklappt.'); return }
     // Zeile: "07:45 Kabinen desinfizieren !foto !wichtig"
     const rows = lines.map((l, i) => { const m = l.match(/^(\d{1,2}:\d{2})\s+(.*)$/); const text = (m ? m[2] : l)
       return { template_id: data.id, title: text.replace(/!foto|!wichtig/gi, '').trim(), due_time: m ? m[1] : null, proof_photo: /!foto/i.test(text), prio: /!wichtig/i.test(text), sort: i } })
-    await supabase!.from('task_items').insert(rows)
-    setForm(false); setErr(''); setF({ name: '', repeat: 'daily', weekday: 1, monthday: 1, branches: [], items: '' }); await reload(); retranslate()
+    const { error: ie } = await supabase!.from('task_items').insert(rows)
+    if (ie) { await supabase!.from('task_templates').delete().eq('id', data.id); setErr('Die Punkte liessen sich nicht speichern.'); return }
+    setForm(false); setErr(''); setF(EMPTY); await reload(); retranslate()
   }
   return (<>
-    <H action={me.app_role === 'buero' && <New onClick={() => setForm(!form)}>Neue Vorlage</New>}>Aufgaben</H>
+    <H action={me.app_role === 'buero' && <New onClick={() => { setEditId(null); setF(EMPTY); setErr(''); setForm(!form || !!editId) }}>Neue Vorlage</New>}>Aufgaben</H>
     {form && <Panel className="p-6 mb-8 grid grid-cols-[1fr_260px] gap-6">
       <div className="space-y-3"><input value={f.name} onChange={e => setF({ ...f, name: e.target.value })} placeholder="Name der Vorlage, z. B. Öffnung" className="w-full text-[18px] font-medium outline-none" />
         <textarea value={f.items} onChange={e => setF({ ...f, items: e.target.value })} rows={7} placeholder={'Ein Punkt pro Zeile, optional mit Uhrzeit:\n07:45 Studio aufschliessen\n07:50 Kabinen desinfizieren !foto !wichtig'} className="w-full resize-none outline-none text-[14px] font-mono" /></div>
@@ -247,18 +279,20 @@ function TasksAdmin() {
         {f.repeat === 'weekly' && <Field label="Wochentag"><select value={f.weekday} onChange={e => setF({ ...f, weekday: Number(e.target.value) })} className={inp}>{WD.slice(1).map((d, i) => <option key={d} value={i + 1}>{d}</option>)}</select></Field>}
         {f.repeat === 'monthly' && <Field label="Tag im Monat"><input type="number" min={1} max={31} value={f.monthday} onChange={e => setF({ ...f, monthday: Number(e.target.value) })} className={inp} /></Field>}
         <Field label="Gilt für"><div className="flex flex-wrap gap-1.5">{branches.filter(b => !b.is_office).map(b => <button key={b.id} onClick={() => setF({ ...f, branches: f.branches.includes(b.id) ? f.branches.filter(x => x !== b.id) : [...f.branches, b.id] })} className={`px-2.5 h-8 rounded-[8px] text-[13px] ${f.branches.includes(b.id) ? 'bg-olive-700 text-white' : 'bg-white text-ink/80'}`}>{b.name}</button>)}</div><span className="text-[11px] text-mute">{f.branches.length ? '' : 'Keine Auswahl = alle Studios'}</span></Field>
-        <Err m={err} /><button onClick={save} className={`${btn} w-full`}>Speichern</button>
+        <Err m={err} /><button onClick={save} className={`${btn} w-full`}>{editId ? 'Änderungen speichern' : 'Speichern'}</button>
+        {editId && <button onClick={() => { setForm(false); setEditId(null); setF(EMPTY) }} className="w-full h-9 text-[13px] text-mute hover:text-ink">Abbrechen</button>}
       </div>
     </Panel>}
     {me.app_role === 'buero' && proposals.length > 0 && <Panel className="p-6 mb-8">
       <div className="flex items-start justify-between gap-4"><div><p className="rubric text-brass">Vorschlag aus dem Wiki</p><p className="font-medium mt-2">{proposals.length} Vorlagen, {proposals.reduce((a, t) => a + t.items.length, 0)} Punkte</p></div>
         <button onClick={approve} className={`${btn} shrink-0`}>Freigeben</button></div>
-      <div className="mt-4 grid grid-cols-2 gap-4">{proposals.map(t => <div key={t.id}><p className="text-[14px] font-medium">{t.name} <span className="text-xs text-mute font-normal">· {REP[t.repeat]}{t.repeat === 'weekly' && t.weekday ? `, ${WD[t.weekday]}` : ''}</span></p><ul className="mt-1 text-[13px] text-mute list-disc pl-4 space-y-0.5">{t.items.map(i => <li key={i.id}>{i.title}{i.prio && <span className="text-brass"> · wichtig</span>}</li>)}</ul></div>)}</div>
+      <div className="mt-4 grid grid-cols-2 gap-4">{proposals.map(t => <div key={t.id}><p className="text-[14px] font-medium">{t.name} <span className="text-xs text-mute font-normal">· {REP[t.repeat]}{t.repeat === 'weekly' && t.weekday ? `, ${WD[t.weekday]}` : ''}</span> <button onClick={() => openEdit(t)} className="ml-1 text-xs text-olive-700 font-normal">Bearbeiten</button></p><ul className="mt-1 text-[13px] text-mute list-disc pl-4 space-y-0.5">{t.items.map(i => <li key={i.id}>{i.title}{i.prio && <span className="text-brass"> · wichtig</span>}</li>)}</ul></div>)}</div>
     </Panel>}
     <div className="grid grid-cols-[1.4fr_1fr] gap-8">
       <div><Sec>Vorlagen</Sec><table className="tbl w-full text-[14px]"><thead><tr><Th>Name</Th><Th>Punkte</Th><Th>Wiederholung</Th><Th>Gilt für</Th><Th> </Th></tr></thead>
         <tbody className="divide-y divide-line">{templates.filter(t => t.active).map(t => <tr key={t.id}><td className="px-4 py-3">{t.name}{t.sample && <span className="ml-2 text-xs text-mute">Beispiel</span>}</td><td className="px-4 text-mute">{t.items.length}</td><td className="px-4 text-mute">{REP[t.repeat]}{t.repeat === 'weekly' && t.weekday ? `, ${WD[t.weekday]}` : ''}{t.repeat === 'monthly' && t.monthday ? `, ${t.monthday}.` : ''}</td><td className="px-4 text-mute">{t.branchIds.length ? t.branchIds.map(id => branches.find(b => b.id === id)?.name).join(', ') : 'Alle Studios'}</td>
-          <td className="px-2">{me.app_role === 'buero' && <button title="Deaktivieren" onClick={async () => { if (confirm(`Vorlage „${t.name}“ deaktivieren? Alte Nachweise bleiben.`)) { await supabase!.from('task_templates').update({ active: false }).eq('id', t.id); await reload() } }} className="text-mute"><Trash2 size={14} /></button>}</td></tr>)}</tbody></table></div>
+          <td className="px-2 whitespace-nowrap">{me.app_role === 'buero' && <button title="Bearbeiten" onClick={() => openEdit(t)} className="text-mute hover:text-ink mr-2"><Pencil size={14} /></button>}{me.app_role === 'buero' && <button title="Deaktivieren" onClick={async () => { if (confirm(`Vorlage „${t.name}“ deaktivieren? Alte Nachweise bleiben.`)) { await supabase!.from('task_templates').update({ active: false }).eq('id', t.id); await reload() } }} className="text-mute"><Trash2 size={14} /></button>}</td></tr>)}</tbody></table></div>
+        {me.app_role === 'buero' && templates.some(t => !t.active && !t.proposed) && <div className="mt-8"><Sec>Ausgeschaltet</Sec><div className="divide-y divide-line">{templates.filter(t => !t.active && !t.proposed).map(t => <div key={t.id} className="py-2.5 flex items-center justify-between text-[14px]"><span className="text-mute">{t.name} · {t.items.length} Punkte</span><button onClick={() => reactivate(t.id)} className="text-[13px] text-olive-700">Wieder einschalten</button></div>)}</div></div>}
       <Side><Sec>Heute je Studio</Sec><div>{progress.map(b => <div key={b.id} className="grid grid-cols-[90px_1fr_44px] items-center gap-3 text-[14px] py-2.5 border-b border-line"><span>{b.branch}</span><Bar p={b.total ? b.done / b.total * 100 : 0} /><span className="text-right text-mute tabular-nums text-[13px]">{b.done}/{b.total}</span></div>)}</div></Side>
     </div>
   </>)
@@ -268,8 +302,8 @@ function TasksAdmin() {
 function TicketsAdmin() {
   const { tickets, assign, setStatus, staff, me } = useApp()
   const [f, setF] = useState<'Alle' | 'Meldung' | 'Idee'>('Alle'), [st, setSt] = useState<'offen' | 'erledigt'>('offen'), [sel, setSel] = useState<string | null>(null)
-  const assignees = ['Facility', ...staff.filter(s => s.active && s.app_role !== 'mitarbeiterin').map(s => `${s.first} ${s.last}`)]
-  const canEdit = (tk: Ticket) => me.app_role === 'buero' || (me.app_role === 'filialleitung' && tk.branchId === me.branch_id)
+  const assignees = ['Facility', ...new Set(staff.filter(s => real(s) && s.app_role !== 'mitarbeiterin').map(s => `${s.first} ${s.last}`))]
+  const canEdit = (tk: Ticket) => me.app_role === 'buero' || (me.app_role === 'filialleitung' && tk.branchId !== 'buero' && (tk.branchId === me.branch_id || (me.extra ?? []).includes(tk.branchId)))
   const list = tickets.filter(t => (f === 'Alle' || t.kind === f) && (st === 'offen' ? t.status !== 'Erledigt' : t.status === 'Erledigt'))
     .sort((a, b) => (f === 'Idee' ? b.votes - a.votes : 0))
   const tk = tickets.find(x => x.id === sel)
@@ -299,20 +333,22 @@ function TicketsAdmin() {
 }
 
 /* ---------- Schulungen & Events ---------- */
+const EMPTY_EVENT = { title: '', kind: 'Schulung', description: '', date: '', from: '09:00', to: '12:00', place: '', link: '', capacity: '', until: '', branches: [] as string[], skills: [] as string[] }
 function EventsAdmin() {
   const { events, registrations, staff, branches, skillCatalog, me, reload } = useApp()
   const [sel, setSel] = useState<string | null>(events[0]?.id ?? null), [form, setForm] = useState(false), [err, setErr] = useState('')
-  const [f, setF] = useState({ title: '', kind: 'Schulung', description: '', date: '', from: '09:00', to: '12:00', place: '', link: '', capacity: '', until: '', branches: [] as string[], skills: [] as string[] })
+  const [f, setF] = useState(EMPTY_EVENT)
   const e = events.find(x => x.id === sel)
   const regs = e ? registrations.filter(r => r.event_id === e.id) : []
   const who = (coming: boolean) => regs.filter(r => r.coming === coming).map(r => staff.find(s => s.id === r.employee_id)).filter(Boolean)
   const people = who(true), nope = who(false)
   // Noch keine Antwort: Zielgruppe (Studio + Skill) ohne Zu- oder Absage; Filialleitung sieht nur ihr Studio
-  const open = e ? staff.filter(s => s.active && s.branch_id !== 'buero' && (e.audienceBranches.length === 0 || e.audienceBranches.includes(s.branch_id))
+  const open = e ? staff.filter(s => real(s) && s.branch_id !== 'buero' && (e.audienceBranches.length === 0 || e.audienceBranches.some(b => inBranch(s, b)))
     && (e.audienceSkills.length === 0 || s.skills.some(k => e.audienceSkills.includes(k))) && !regs.some(r => r.employee_id === s.id)
     && (me.app_role === 'buero' || s.branch_id === me.branch_id)) : []
   const save = async () => {
     if (!f.title.trim() || !f.date) { setErr('Titel und Datum sind nötig.'); return }
+    if (f.to && f.to <= f.from) { setErr('„Bis“ muss nach „Von“ liegen.'); return }
     const at = (d: string, t: string) => new Date(`${d}T${t}:00`).toISOString()
     const { error } = await supabase!.from('events').insert({
       title: f.title.trim(), kind: f.kind, description: f.description.trim(), starts_at: at(f.date, f.from), ends_at: f.to ? at(f.date, f.to) : null,
@@ -320,7 +356,7 @@ function EventsAdmin() {
       audience_branches: f.branches, audience_skills: f.skills,
     })
     if (error) { setErr('Speichern hat nicht geklappt.'); return }
-    setForm(false); setErr(''); await reload(); notifyNow(); retranslate()
+    setForm(false); setErr(''); setF(EMPTY_EVENT); await reload(); notifyNow(); retranslate()
   }
   const tog = (k: 'branches' | 'skills', v: string) => setF({ ...f, [k]: f[k].includes(v) ? f[k].filter(x => x !== v) : [...f[k], v] })
   return (<>
@@ -364,7 +400,7 @@ function StandbyAdmin() {
     .filter(s => sk.length === 0 || s.skills.some(k => sk.includes(k)))
   const list = on(day)
   const in60 = (id: string) => standby.filter(x => x.employee_id === id && x.day <= isoDay(new Date(Date.now() + 60 * 864e5))).length
-  const ranking = staff.filter(s => s.active && s.branch_id !== 'buero' && (me.app_role === 'buero' || s.branch_id === me.branch_id)).map(s => ({ s, n: in60(s.id) })).sort((a, b) => b.n - a.n)
+  const ranking = staff.filter(s => real(s) && s.branch_id !== 'buero' && (me.app_role === 'buero' || inBranch(s, me.branch_id) || (me.extra ?? []).some(b => inBranch(s, b)))).map(s => ({ s, n: in60(s.id) })).sort((a, b) => b.n - a.n)
   return (<>
     <H>Aushilfe</H>
     <div className="flex gap-1 overflow-x-auto no-scrollbar pb-1">{days.map(d => { const n = on(d).length
@@ -402,7 +438,7 @@ function LearnAdmin() {
   const people = (q: Quiz) => {
     let list = q.newsId ? (() => { const n = news.find(x => x.id === q.newsId); return n ? audience(n) : [] })()
       : (() => { const lvl = wiki.find(a => a.id === q.articleId)?.accessLevel ?? 'alle'
-        return staff.filter(s => s.active && (lvl === 'alle' ? s.branch_id !== 'buero' : lvl === 'filialleitung' ? s.app_role !== 'mitarbeiterin' : s.app_role === 'buero')) })()
+        return staff.filter(s => real(s) && (lvl === 'alle' ? s.branch_id !== 'buero' : lvl === 'filialleitung' ? s.app_role !== 'mitarbeiterin' : s.app_role === 'buero')) })()
     if (!isBuero) list = list.filter(s => s.branch_id === me.branch_id)
     return list
   }
@@ -429,12 +465,14 @@ function LearnAdmin() {
     const row = { news_id: edit.target === 'news' ? ref : null, article_id: edit.target === 'article' ? ref : null, title: edit.title.trim(), pass_pct: Math.min(100, Math.max(1, edit.passPct)), updated_at: new Date().toISOString() }
     const { data, error } = edit.id ? await supabase!.from('quizzes').update(row).eq('id', edit.id).select('id').single() : await supabase!.from('quizzes').insert(row).select('id').single()
     if (error || !data) { setBusy(false); setErr(/duplicate|unique/.test(error?.message ?? '') ? 'Dazu gibt es schon ein Quiz.' : 'Speichern hat nicht geklappt.'); return }
-    await supabase!.from('quiz_questions').delete().eq('quiz_id', data.id)
+    const { error: de } = await supabase!.from('quiz_questions').delete().eq('quiz_id', data.id)
+    if (de) { setBusy(false); setErr('Speichern hat nicht geklappt.'); return }
     // Leere Antworten entfernen und die markierten Indizes nachziehen
-    await supabase!.from('quiz_questions').insert(qs.map((q, i) => {
+    const { error: qe } = await supabase!.from('quiz_questions').insert(qs.map((q, i) => {
       if (q.kind === 'text') return { quiz_id: data.id, sort: i, kind: 'text', prompt: q.prompt.trim(), options: [], correct: [], rubric: q.rubric.trim() }
       const keep = q.options.map((o, j) => o ? j : -1).filter(j => j >= 0)
       return { quiz_id: data.id, sort: i, kind: q.kind, prompt: q.prompt.trim(), options: keep.map(j => q.options[j]), correct: q.correct.filter(c => keep.includes(c)).map(c => keep.indexOf(c)), rubric: '' } }))
+    if (qe) { setBusy(false); setErr('Die Fragen liessen sich nicht speichern. Bitte noch einmal speichern.'); return }
     setBusy(false); setEdit(null); setSel(data.id); await reload(); retranslate()
   }
   const taken = new Set(quizzes.filter(q => q.id !== edit?.id).map(q => q.newsId ?? q.articleId))
@@ -501,12 +539,16 @@ function TeamAdmin() {
   const [q, setQ] = useState(''), [b, setB] = useState('Alle'), [form, setForm] = useState(false), [skill, setSkill] = useState(''), [err, setErr] = useState(''), [busy, setBusy] = useState(false)
   const [f, setF] = useState({ first_name: '', last_name: '', email: '', job_title: 'Kosmetikerin', app_role: 'mitarbeiterin', branch_id: 'basel-1' })
   const list = useMemo(() => staff.filter(s => (b === 'Alle' || s.branch === b) && `${s.first} ${s.last} ${s.role} ${s.skills.join(' ')}`.toLowerCase().includes(q.toLowerCase())), [staff, q, b])
-  const call = async (body: Record<string, unknown>) => { const { data, error } = await supabase!.functions.invoke('admin-employee', { body }); return error ? { ok: false, error: 'failed' } : data }
+  const call = async (body: Record<string, unknown>) => {
+    const { data, error } = await supabase!.functions.invoke('admin-employee', { body })
+    if (!error) return data
+    try { return (await (error as { context?: Response }).context?.json()) ?? { ok: false, error: 'failed' } } catch { return { ok: false, error: 'failed' } }
+  }
   const create = async () => {
     setBusy(true); setErr('')
     const r = await call({ action: 'create', ...f })
     setBusy(false)
-    if (!r?.ok) { setErr(r?.error === 'exists' ? 'Diese E-Mail gibt es schon.' : r?.error === 'missing_fields' ? 'Vorname, Nachname, E-Mail und Studio sind nötig.' : 'Anlegen hat nicht geklappt.'); return }
+    if (!r?.ok) { setErr(r?.error === 'exists' ? 'Diese E-Mail gibt es schon.' : r?.error === 'missing_fields' ? 'Vorname, Nachname, eine gültige E-Mail und Studio sind nötig.' : r?.error === 'auth_failed' ? 'Das Login-Konto liess sich nicht anlegen. Bitte noch einmal versuchen.' : 'Anlegen hat nicht geklappt.'); return }
     setForm(false); setF({ ...f, first_name: '', last_name: '', email: '' }); await reload()
   }
   return (<>
@@ -524,9 +566,9 @@ function TeamAdmin() {
     <div className="grid grid-cols-[1fr_260px] gap-8">
       <div><table className="tbl w-full text-[14px]"><thead><tr><Th>Name</Th><Th>Funktion</Th><Th>Studio</Th><Th>Skills</Th><Th> </Th></tr></thead>
         <tbody className="divide-y divide-line">{list.map(s => <tr key={s.id} className={s.active ? '' : 'opacity-50'}><td className="px-4 py-2.5">{s.first} {s.last}</td><td className="px-4 text-mute">{s.role}</td><td className="px-4 text-mute">{s.branch}</td><td className="px-4 text-mute text-[13px]">{s.skills.join(', ')}</td>
-          <td className="px-2"><button onClick={async () => { if (confirm(s.active ? `${s.first} ${s.last} deaktivieren? Sie kann sich dann nicht mehr anmelden.` : `${s.first} ${s.last} wieder aktivieren?`)) { await call({ action: 'set_active', employee_id: s.id, active: !s.active }); await reload() } }} className="text-[13px] text-mute hover:text-ink">{s.active ? 'Deaktivieren' : 'Aktivieren'}</button></td></tr>)}</tbody></table></div>
+          <td className="px-2"><button onClick={async () => { if (confirm(s.active ? `${s.first} ${s.last} deaktivieren? Sie kann sich dann nicht mehr anmelden.` : `${s.first} ${s.last} wieder aktivieren?`)) { const r = await call({ action: 'set_active', employee_id: s.id, active: !s.active }); if (!r?.ok) alert(r?.error === 'self' ? 'Das eigene Konto lässt sich nicht deaktivieren.' : 'Das hat nicht geklappt.'); await reload() } }} className="text-[13px] text-mute hover:text-ink">{s.active ? 'Deaktivieren' : 'Aktivieren'}</button></td></tr>)}</tbody></table></div>
       <Side><Sec>Skill-Katalog</Sec>
-        <div className="mt-3 flex flex-wrap gap-1.5">{skillCatalog.map(k => <span key={k} className="px-2.5 h-7 rounded-[6px] bg-sage-50 text-[12px] flex items-center gap-1.5">{k}<button onClick={async () => { await supabase!.from('skills').delete().eq('name', k); await reload() }} className="text-mute"><X size={11} /></button></span>)}</div>
+        <div className="mt-3 flex flex-wrap gap-1.5">{skillCatalog.map(k => <span key={k} className="px-2.5 h-7 rounded-[6px] bg-sage-50 text-[12px] flex items-center gap-1.5">{k}<button onClick={async () => { const n = staff.filter(x => x.skills.includes(k)).length; if (!confirm(`Skill „${k}“ löschen?${n ? ` ${n} Personen verlieren ihn aus dem Profil.` : ''}`)) return; const { error } = await supabase!.rpc('delete_skill', { p_name: k }); if (error) alert('Löschen hat nicht geklappt.'); await reload() }} className="text-mute"><X size={11} /></button></span>)}</div>
         <div className="mt-3 flex gap-2"><input value={skill} onChange={e => setSkill(e.target.value)} placeholder="Neuer Skill" className={inp} /><button onClick={async () => { if (skill.trim()) { await supabase!.from('skills').insert({ name: skill.trim(), sort: skillCatalog.length }); setSkill(''); await reload() } }} className="h-10 px-3 rounded-[10px] bg-olive-700 hover:bg-olive-800 text-white"><Plus size={15} /></button></div></Side>
     </div>
   </>)
@@ -541,7 +583,7 @@ function StudiosAdmin() {
   const [f, setF] = useState({ name: '', phorest_branch_id: '' }), [edit, setEdit] = useState<StudioRow | null>(null)
   const load = async () => { const { data } = await supabase!.from('branches').select('id, name, is_office, sort, phorest_branch_id, facility_email').order('sort'); setRows((data ?? []) as StudioRow[]) }
   useEffect(() => { load() }, [])
-  const count = (id: string) => staff.filter(s => s.active && s.branch_id === id).length
+  const count = (id: string) => staff.filter(s => real(s) && s.branch_id === id).length
   const done = async (error: { message: string } | null, msg: string) => { if (error) { setErr(msg); return false } setErr(''); await load(); await reload(); return true }
   const add = async () => {
     const name = f.name.trim(), id = slug(name)
@@ -603,7 +645,7 @@ function DemoSwitch() {
       <div><p className="rubric text-ink/70">Beispielinhalte</p>
         <p className="text-[14px] mt-3">Beispiel-News, -Schulungen, -Aufgaben und -Artikel {demoData ? 'werden angezeigt' : 'sind ausgeblendet'}</p>
         <p className="text-xs text-mute mt-1">Gilt für alle. Vor dem Pilot ausschalten. Gelöscht wird nichts.</p></div>
-      <button disabled={busy} role="switch" aria-checked={demoData} onClick={async () => { setBusy(true); await setDemoData(!demoData); setBusy(false) }}
+      <button disabled={busy} role="switch" aria-checked={demoData} onClick={async () => { if (!confirm(demoData ? 'Beispielinhalte für alle ausblenden?' : 'Beispielinhalte für alle wieder einblenden?')) return; setBusy(true); await setDemoData(!demoData); setBusy(false) }}
         className={`relative shrink-0 w-11 h-6 rounded-full transition disabled:opacity-50 ${demoData ? 'bg-olive-700' : 'bg-sage-200'}`}><span className={`absolute top-[3px] w-[18px] h-[18px] rounded-full bg-white transition-all ${demoData ? 'left-[23px]' : 'left-[3px]'}`} /></button>
     </div>
   )
@@ -616,7 +658,7 @@ function MailSettings() {
   const [central, setCentral] = useState(''), [days, setDays] = useState(2), [msg, setMsg] = useState(''), [preview, setPreview] = useState<string | null>(null)
   const load = async () => {
     const { data } = await supabase!.functions.invoke('mailer', { body: { action: 'status' } })
-    if (data?.ok) setSt(data)
+    setSt(data?.ok ? data : { keySet: false, enabled: false, from: '', log: [] })
     const { data: rows } = await supabase!.from('app_settings').select('key, value')
     for (const r of rows ?? []) { if (r.key === 'facility_email') setCentral(String(r.value ?? '')); if (r.key === 'event_reminder_days') setDays(Number(r.value) || 2) }
   }
@@ -627,7 +669,10 @@ function MailSettings() {
     if (!st.enabled && !confirm('E-Mail-Versand einschalten? Ab dann gehen echte Mails an Facility und Mitarbeiterinnen (Einladungen, Erinnerungen).')) return
     await put('mail_enabled', !st.enabled); await load()
   }
-  const save = async () => { await put('facility_email', central.trim()); await put('event_reminder_days', Math.max(1, Math.min(14, days))); setMsg('Gespeichert.'); setTimeout(() => setMsg(''), 2000) }
+  const save = async () => {
+    const [a, b] = await Promise.all([put('facility_email', central.trim()), put('event_reminder_days', Math.max(1, Math.min(14, days)))])
+    setMsg(a.error || b.error ? 'Speichern hat nicht geklappt.' : 'Gespeichert.'); setTimeout(() => setMsg(''), 2500)
+  }
   const showPreview = async () => { const { data } = await supabase!.functions.invoke('mailer', { body: { action: 'preview' } }); setPreview(data?.html ?? null) }
   if (!st) return null
   return (
@@ -700,7 +745,7 @@ function WikiAdmin() {
     </Panel>}
     {obProposal.length > 0 && <Panel className="p-6 mb-8">
       <div className="flex items-start justify-between gap-4"><div><p className="rubric text-brass">Vorschlag aus dem Wiki</p><p className="font-medium mt-2">Onboarding für Neue · {obProposal.length} Schritte</p></div>
-        <button onClick={async () => { if (confirm('Onboarding-Vorschlag freigeben?')) { await supabase!.rpc('approve_wiki_proposals', { p_kind: 'onboarding' }); await reload(); retranslate() } }} className={`${btn} shrink-0`}>Freigeben</button></div>
+        <button onClick={async () => { if (confirm('Onboarding-Vorschlag freigeben? Die Beispiel-Schritte aus dem Prototyp und der Fortschritt dazu werden dabei entfernt.')) { await supabase!.rpc('approve_wiki_proposals', { p_kind: 'onboarding' }); await reload(); retranslate() } }} className={`${btn} shrink-0`}>Freigeben</button></div>
       <ol className="mt-3 text-[13px] text-mute list-decimal pl-5 columns-2 gap-6">{obProposal.map(x => <li key={x.id}>{x.title} · {x.minutes} Min.</li>)}</ol>
     </Panel>}
     <div className="h-10 mb-4 rounded-[10px] bg-sage-50 px-3 flex items-center gap-2"><Search size={16} className="text-mute" /><input value={q} onChange={e => setQ(e.target.value)} placeholder="Titel, Kategorie oder Stichwort" className="flex-1 outline-none text-[14px] bg-transparent" /><span className="text-xs text-mute">{list.length} Artikel</span></div>
@@ -710,8 +755,9 @@ function WikiAdmin() {
 }
 
 /* ---------- KI im Backoffice ---------- */
-type M = { me: boolean; t: string }
+type M = { me: boolean; t: string; ticket?: { kind: 'Meldung' | 'Idee'; title: string } }
 function AdminChat({ onClose }: { onClose: () => void }) {
+  const { addTicket } = useApp()
   const [msgs, setMsgs] = useState<M[]>([]), [v, setV] = useState(''), [busy, setBusy] = useState(false), [steps, setSteps] = useState<Step[]>([])
   const end = useRef<HTMLDivElement>(null)
   useEffect(() => { if (busy) end.current?.scrollIntoView({ behavior: 'smooth' }) }, [steps, busy])
@@ -719,8 +765,8 @@ function AdminChat({ onClose }: { onClose: () => void }) {
   const send = async (q = v) => {
     if (!q.trim() || busy) return
     setMsgs(m => [...m, { me: true, t: q }]); setV(''); setBusy(true); setSteps([{ step: 'think' }])
-    const data = await askBenni(q, msgs, st => setSteps(x => [...x, st])).catch(() => ({ ok: false, text: '' }))
-    setMsgs(m => [...m, { me: false, t: !data.ok || !data.text ? 'Gerade nicht erreichbar.' : data.text }]); setBusy(false); setSteps([])
+    const data: BenniAnswer = await askBenni(q, msgs, st => setSteps(x => [...x, st])).catch(() => ({ ok: false }))
+    setMsgs(m => [...m, { me: false, t: !data.ok || !data.text ? 'Gerade nicht erreichbar.' : data.text, ticket: data.ticket }]); setBusy(false); setSteps([])
     setTimeout(() => end.current?.scrollIntoView({ behavior: 'smooth' }), 50)
   }
   return (
@@ -728,7 +774,7 @@ function AdminChat({ onClose }: { onClose: () => void }) {
       <div className="h-16 px-5 flex items-center justify-between border-b border-line"><p className="font-medium flex items-center gap-2"><BMark className="w-6 h-6 text-[11px]" />{ASSISTANT}</p><button onClick={onClose} className="w-8 h-8 rounded-lg hover:bg-sage-50 flex items-center justify-center"><X size={17} /></button></div>
       <div className="flex-1 overflow-y-auto no-scrollbar p-5 space-y-3">
         {msgs.length === 0 && <div className="border-t border-line">{ideas.map(i => <button key={i} onClick={() => send(i)} className="w-full text-left py-3 text-[14px] border-b border-line hover:text-olive-700">{i}</button>)}</div>}
-        {msgs.map((m, i) => <div key={i} className={m.me ? 'flex justify-end' : ''}><div className={`max-w-[92%] rounded-2xl px-4 py-3 text-[14px] leading-snug ${m.me ? 'bg-olive-700 text-white' : 'bg-sage-50'}`}>{m.me ? m.t : <BenniText text={m.t} />}</div></div>)}
+        {msgs.map((m, i) => <div key={i} className={m.me ? 'flex justify-end' : ''}><div className={`max-w-[92%] rounded-2xl px-4 py-3 text-[14px] leading-snug ${m.me ? 'bg-olive-700 text-white' : 'bg-sage-50'}`}>{m.me ? m.t : <BenniText text={m.t} />}{m.ticket && <TicketDraft kind={m.ticket.kind} title={m.ticket.title} onSend={() => addTicket({ kind: m.ticket!.kind, title: m.ticket!.title, viaAI: true })} />}</div></div>)}
         {busy && <BenniWorking steps={steps} />}
         <div ref={end} />
       </div>

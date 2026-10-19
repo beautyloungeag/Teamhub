@@ -6,11 +6,11 @@ import { tr, setCurrentLang, savedLang, locale, type Lang } from './lib/i18n'
 export type { Lang }
 
 /* ---------- Typen ---------- */
-export type Staff = { id: string; first: string; last: string; branch: string; branch_id: string; role: string; skills: string[]; photo: string | null; app_role: string; active: boolean; email: string; phone?: string | null; appInstalled?: boolean; pushEnabled?: boolean }
+export type Staff = { id: string; first: string; last: string; branch: string; branch_id: string; role: string; skills: string[]; photo: string | null; app_role: string; active: boolean; email: string; phone?: string | null; appInstalled?: boolean; pushEnabled?: boolean; extra?: string[] }
 export type News = { id: string; title: string; teaser: string; body: string; author: string; date: string; tag: string; mustRead: boolean; audience: string; audienceBranches: string[]; audienceGroups: string[]; audienceSkills: string[]; audiencePeople: string[]; publishAt: string; wikiCategory: string | null; image: string | null; orig: { title: string; teaser: string; body: string } | null }
 export type TaskItem = { id: string; title: string; time: string; group: string; prio: boolean; proof: boolean; articleId: string | null }
 export type Template = { id: string; name: string; repeat: 'daily' | 'weekly' | 'monthly'; weekday: number | null; monthday: number | null; branchIds: string[]; items: TaskItem[]; active: boolean; proposed: boolean; sample: boolean }
-export type Done = { by: string; at: string; photo: string | null }
+export type Done = { by: string; byId: string | null; at: string; photo: string | null }
 export type Ticket = { id: string; kind: 'Meldung' | 'Idee'; title: string; body: string; branch: string; branchId: string; status: 'Neu' | 'Zugewiesen' | 'In Arbeit' | 'Erledigt'; who: string; when: string; assignee: string | null; photo: string | null; mediaKind: 'photo' | 'video'; viaAI: boolean; mine: boolean; votes: number; voted: boolean; comments: Comment[] }
 export type Comment = { id: string; author: string; authorId: string | null; body: string; when: string }
 export type Ev = { id: string; title: string; kind: string; description: string; startsAt: string; endsAt: string | null; place: string; link: string | null; capacity: number | null; registerUntil: string | null; audienceBranches: string[]; audienceSkills: string[]; taken: number }
@@ -32,7 +32,7 @@ export const jobGroups = (title: string) => [
 // Wer gehört zur Zielgruppe einer News? Personen gewählt = genau diese; sonst Studio UND Gruppe UND Skill (leer = alle)
 export const inNewsAudience = (s: Staff, n: Pick<News, 'audienceBranches' | 'audienceGroups' | 'audienceSkills' | 'audiencePeople'>) =>
   n.audiencePeople.length ? n.audiencePeople.includes(s.id)
-    : (n.audienceBranches.length === 0 || n.audienceBranches.includes(s.branch_id)) && (n.audienceGroups.length === 0 || jobGroups(s.role).some(g => n.audienceGroups.includes(g)))
+    : (n.audienceBranches.length === 0 || [s.branch_id, ...(s.extra ?? [])].some(b => n.audienceBranches.includes(b))) && (n.audienceGroups.length === 0 || jobGroups(s.role).some(g => n.audienceGroups.includes(g)))
       && (n.audienceSkills.length === 0 || s.skills.some(k => n.audienceSkills.includes(k)))
 
 /* ---------- Datum (Europe/Zurich) ---------- */
@@ -50,7 +50,7 @@ const isoDow = (day: string) => ((new Date(day + 'T12:00:00Z').getUTCDay() + 6) 
 // Gilt die Vorlage heute für diese Filiale?
 export const appliesOn = (t: Template, day: string, branch: string) =>
   (t.branchIds.length === 0 || t.branchIds.includes(branch)) &&
-  (t.repeat === 'daily' || (t.repeat === 'weekly' && t.weekday === isoDow(day)) || (t.repeat === 'monthly' && t.monthday === Number(day.slice(8, 10))))
+  (t.repeat === 'daily' || (t.repeat === 'weekly' && t.weekday === isoDow(day)) || (t.repeat === 'monthly' && Math.min(t.monthday ?? 1, new Date(Date.UTC(Number(day.slice(0, 4)), Number(day.slice(5, 7)), 0)).getUTCDate()) === Number(day.slice(8, 10))))
 
 type Ctx = {
   me: Staff; employee: Employee
@@ -81,7 +81,7 @@ const tx = (row: any, field: string, lang: Lang) => (lang !== 'DE' && row?.i18n?
 export const useApp = () => useContext(C)!
 
 const toStaff = (e: any, branches: Branch[], photos: Map<string, string>): Staff => ({
-  id: e.id, first: e.first_name, last: e.last_name, branch: branches.find(b => b.id === e.branch_id)?.name ?? e.branch_id, branch_id: e.branch_id,
+  id: e.id, first: e.first_name, last: e.last_name, branch: branches.find(b => b.id === e.branch_id)?.name ?? e.branch_id, branch_id: e.branch_id, extra: e.extra_branch_ids ?? [],
   role: e.job_title, skills: e.skills ?? [], photo: e.photo_path ? photos.get(e.photo_path) ?? null : null, app_role: e.app_role, active: e.active, email: e.email, phone: e.phone ?? null, appInstalled: !!e.app_installed_at, pushEnabled: !!e.push_enabled,
 })
 
@@ -128,29 +128,31 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!supabase || !employee) return
     const sb = supabase
     const today = isoDay()
+    // Alle Seiten holen: PostgREST gibt höchstens 1000 Zeilen je Abfrage zurück
+    const all = async (q: () => any) => { const out: any[] = []; for (let from = 0; from < 50000; from += 1000) { const { data, error } = await q().range(from, from + 999); if (error || !data) break; out.push(...data); if (data.length < 1000) break } return { data: out } }
     const [br, em, sk, nw, rd, tt, ti, tc, tk, ev, cnt, rg, wk, ob, obp, mp, fl, tcm, tvt, sbd, qz, qa] = await Promise.all([
       sb.from('branches').select('id, name, is_office').order('sort'),
-      sb.from('employees').select('id, email, phone, first_name, last_name, job_title, app_role, branch_id, skills, photo_path, active, app_installed_at, push_enabled').order('first_name'),
+      sb.from('employees').select('id, email, phone, first_name, last_name, job_title, app_role, branch_id, extra_branch_ids, skills, photo_path, active, app_installed_at, push_enabled').order('first_name'),
       sb.from('skills').select('name').order('sort'),
       sb.from('news').select('*').order('publish_at', { ascending: false }),
-      sb.from('news_reads').select('news_id, employee_id, confirmed_at'),
-      sb.from('task_templates').select('*').or('active.eq.true,proposed.eq.true').order('sort'),
+      all(() => sb.from('news_reads').select('news_id, employee_id, confirmed_at').order('news_id')),
+      sb.from('task_templates').select('*').order('sort'),
       sb.from('task_items').select('*').order('sort'),
-      sb.from('task_completions').select('item_id, branch_id, done_by_name, done_at, photo_path, day').eq('day', today),
+      sb.from('task_completions').select('item_id, branch_id, done_by, done_by_name, done_at, photo_path, day').eq('day', today),
       sb.from('tickets').select('*').order('created_at', { ascending: false }),
       sb.from('events').select('*').order('starts_at'),
       sb.rpc('event_counts'),
-      sb.from('event_registrations').select('event_id, employee_id, coming'),
+      all(() => sb.from('event_registrations').select('event_id, employee_id, coming').order('event_id')),
       Promise.resolve({ data: null }),
       sb.from('onboarding_steps').select('*').order('sort'),
       sb.from('onboarding_progress').select('step_id').eq('employee_id', employee.id),
       sb.from('employee_phorest').select('branch_id, staff_id').eq('employee_id', employee.id),
       sb.rpc('app_flags'),
-      sb.from('ticket_comments').select('id, ticket_id, author_id, author_name, body, created_at').order('created_at'),
-      sb.from('ticket_votes').select('ticket_id, employee_id'),
+      all(() => sb.from('ticket_comments').select('id, ticket_id, author_id, author_name, body, created_at').order('created_at')),
+      all(() => sb.from('ticket_votes').select('ticket_id, employee_id').order('ticket_id')),
       sb.from('standby_days').select('employee_id, day, note').gte('day', today).order('day'),
       sb.from('quizzes').select('id, news_id, article_id, title, pass_pct, is_sample, i18n'),
-      sb.from('quiz_attempts').select('quiz_id, employee_id, score_pct, passed, created_at').order('created_at'),
+      all(() => sb.from('quiz_attempts').select('quiz_id, employee_id, score_pct, passed, created_at').order('created_at')),
     ])
     const demo = (fl.data as any)?.demo_data !== false
     setDemoState(demo)
@@ -172,7 +174,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (np.length) { const { data } = await sb.storage.from('media').createSignedUrls(np, 3600); for (const x of data ?? []) if (x.signedUrl && x.path) nImgs.set(x.path, x.signedUrl) }
     setNews(keep(nw.data).map((n: any) => ({
       id: n.id, title: tx(n, 'title', lang), teaser: tx(n, 'teaser', lang), body: tx(n, 'body', lang), author: n.author_name || tr('Büro'), tag: n.tag, mustRead: n.must_read,
-      date: fmtDate(n.publish_at), audience: n.audience_people?.length ? `${n.audience_people.length} ${n.audience_people.length === 1 ? 'Person' : 'Personen'}` : [n.audience_branches?.length ? n.audience_branches.map(bname).join(', ') : tr('Alle Studios'), ...(n.audience_groups ?? []), ...(n.audience_skills ?? [])].join(' · '),
+      date: fmtDate(n.publish_at), audience: n.audience_people?.length ? `${n.audience_people.length} ${n.audience_people.length === 1 ? tr('Person') : tr('Personen')}` : [n.audience_branches?.length ? n.audience_branches.map(bname).join(', ') : tr('Alle Studios'), ...(n.audience_groups ?? []), ...(n.audience_skills ?? [])].join(' · '),
       audienceBranches: n.audience_branches ?? [], audienceGroups: n.audience_groups ?? [], audienceSkills: n.audience_skills ?? [], audiencePeople: n.audience_people ?? [],
       publishAt: n.publish_at, wikiCategory: n.wiki_category, image: n.image_path ? nImgs.get(n.image_path) ?? null : null,
       orig: lang !== 'DE' && n.i18n?.[lang] ? { title: n.title, teaser: n.teaser, body: n.body } : null,
@@ -186,7 +188,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     })))
     setCompletions(tc.data ?? [])
     const counts = new Map(((cnt.data ?? []) as any[]).map(c => [c.event_id, c.taken]))
-    setEvents(keep(ev.data).map((e: any) => ({
+    const mySkills: string[] = ((em.data ?? []) as any[]).find(e => e.id === employee.id)?.skills ?? []
+    setEvents(keep(ev.data).filter((e: any) => employee.app_role === 'buero' || !(e.audience_skills ?? []).length || (e.audience_skills as string[]).some(k => mySkills.includes(k))).map((e: any) => ({
       id: e.id, title: tx(e, 'title', lang), kind: e.kind, description: tx(e, 'description', lang), startsAt: e.starts_at, endsAt: e.ends_at, place: tx(e, 'place', lang), link: e.link,
       capacity: e.capacity, registerUntil: e.register_until, audienceBranches: e.audience_branches ?? [], audienceSkills: e.audience_skills ?? [], taken: counts.get(e.id) ?? 0,
     })))
@@ -206,7 +209,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setStandby((sbd.data ?? []) as Ctx['standby'])
     setQuizzes(keep(qz.data).map((q: any) => ({ id: q.id, newsId: q.news_id, articleId: q.article_id, title: tx(q, 'title', lang), passPct: q.pass_pct, sample: q.is_sample })))
     setAttempts((qa.data ?? []).map((a: any) => ({ quizId: a.quiz_id, employeeId: a.employee_id, scorePct: a.score_pct, passed: a.passed, at: a.created_at })))
-    newsForWiki.current = (nw.data ?? []).map((n: any) => ({ ...n, title: tx(n, 'title', lang), teaser: tx(n, 'teaser', lang), body: tx(n, 'body', lang) }))
+    newsForWiki.current = keep(nw.data).map((n: any) => ({ ...n, title: tx(n, 'title', lang), teaser: tx(n, 'teaser', lang), body: tx(n, 'body', lang) }))
     void wk
     setAllSteps(keep(ob.data).map((s: any) => ({ id: s.id, title: tx(s, 'title', lang), minutes: s.minutes, articleId: s.article_id, proposed: !!s.proposed })))
     setObDone(new Set((obp.data ?? []).map((x: any) => x.step_id)))
@@ -214,17 +217,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setLoading(false)
   }, [employee, lang])
 
+  // Sprache einmal je Anmeldung festlegen: Profil gewinnt; steht dort noch der Standard, gilt die beim Anmelden gewählte
   useEffect(() => {
     if (!employee) return
-    // Profil gewinnt; nur wenn dort noch der Standard steht, übernimmt es die beim Anmelden gewählte Sprache
     const chosen = savedLang()
-    if (employee.lang === 'DE' && chosen !== 'DE') { setLangState(chosen); supabase?.rpc('update_my_profile', { p_lang: chosen }) }
+    if (employee.lang === 'DE' && chosen !== 'DE') { setLangState(chosen); supabase?.rpc('update_my_profile', { p_lang: chosen }).then(() => {}) }
     else setLangState(employee.lang)
+  }, [employee?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!employee) return
     reload(); reloadWiki()
-    // Zurück in die App (Homescreen) → frische Daten, damit der „Reset“ um Mitternacht greift
-    const onVis = () => { if (document.visibilityState === 'visible') reload() }
+    // Frische Daten: beim Zurückkehren in die App, alle zwei Minuten im Vordergrund und nach Mitternacht
+    let day = isoDay()
+    const fresh = () => { if (document.visibilityState !== 'visible') return; if (isoDay() !== day) { day = isoDay() } reload() }
+    const onVis = () => { if (document.visibilityState === 'visible') fresh() }
     document.addEventListener('visibilitychange', onVis)
-    return () => document.removeEventListener('visibilitychange', onVis)
+    window.addEventListener('focus', onVis)
+    const iv = window.setInterval(fresh, 120000)
+    return () => { document.removeEventListener('visibilitychange', onVis); window.removeEventListener('focus', onVis); window.clearInterval(iv) }
   }, [employee, reload, reloadWiki])
 
   const meStaff = useMemo<Staff>(() => staff.find(s => s.id === employee?.id) ?? {
@@ -251,7 +261,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // „Alle Studios“ meint die Studios, nicht das Büro: das Büro bekommt nur ausdrücklich zugewiesene Vorlagen
   const officeBranch = branches.find(b => b.id === myBranch)?.is_office ?? false
   const tasks = useMemo(() => templates.filter(x => x.active && appliesOn(x, today, myBranch) && (!officeBranch || x.branchIds.includes(myBranch))).flatMap(x => x.items).sort((a, b) => (a.time || '99').localeCompare(b.time || '99')), [templates, today, myBranch, officeBranch])
-  const done = useMemo(() => new Map(completions.filter(c => c.branch_id === myBranch).map(c => [c.item_id, { by: c.done_by_name, at: fmtTime(c.done_at), photo: c.photo_path }])), [completions, myBranch])
+  const done = useMemo(() => new Map(completions.filter(c => c.branch_id === myBranch && c.day === today).map(c => [c.item_id, { by: c.done_by_name, byId: c.done_by ?? null, at: fmtTime(c.done_at), photo: c.photo_path }])), [completions, myBranch, today])
   const myReads = newsReads.filter(r => r.employee_id === employee?.id)
   const read = useMemo(() => new Set(myReads.filter(r => r.confirmed_at).map(r => r.news_id)), [myReads])
   const opened = useMemo(() => new Set(myReads.map(r => r.news_id)), [myReads])
@@ -270,7 +280,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const value: Ctx = {
     me: meStaff, employee, lang, t, loading, reload,
-    setLang: (l) => { setLangState(l); sb.rpc('update_my_profile', { p_lang: l }) },
+    setLang: (l) => { setLangState(l); sb.rpc('update_my_profile', { p_lang: l }).then(({ error }) => { if (error) console.warn('Sprache nicht gespeichert', error.message) }) },
     branches, staff, skillCatalog, news, read, opened, newsReads,
     openNews: (id) => { if (!opened.has(id)) sb.rpc('open_news', { p_news: id }).then(() => setNewsReads(r => [...r, { news_id: id, employee_id: employee.id, confirmed_at: null }])) },
     confirm: async (id) => {
@@ -282,7 +292,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (done.has(id)) {
         await sb.from('task_completions').delete().match({ item_id: id, branch_id: myBranch, day: today })
       } else {
-        const path = photo ? await upload('task-proofs', photo, `${today}-${id}`) : null
+        const path = photo ? await upload('task-proofs', photo, `${today}-${id}-${Date.now()}`) : null
+        if (photo && !path) return
         await sb.from('task_completions').insert({ item_id: id, branch_id: myBranch, day: today, done_by: employee.id, done_by_name: name, photo_path: path })
       }
       await reload()
@@ -290,6 +301,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     tickets,
     addTicket: async ({ kind, title, body = '', photo, viaAI = false }) => {
       const path = photo ? await upload('ticket-photos', photo, `${Date.now()}`) : null
+      if (photo && !path) return false
       const { error } = await sb.from('tickets').insert({ kind, title, body, branch_id: myBranch, created_by: employee.id, created_by_name: name, via_ai: viaAI, photo_path: path, media_kind: photo?.type.startsWith('video') ? 'video' : 'photo' })
       if (!error) await reload()
       return !error
@@ -305,7 +317,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       else await sb.from('ticket_votes').insert({ ticket_id: ticketId, employee_id: employee.id })
       await reload()
     },
-    assign: async (id, a) => { await sb.from('tickets').update({ assignee: a || null, status: a ? 'Zugewiesen' : 'Neu' }).eq('id', id); await reload() },
+    assign: async (id, a) => {
+      const cur = tickets.find(x => x.id === id)?.status
+      const status = a && cur === 'Neu' ? 'Zugewiesen' : !a && cur === 'Zugewiesen' ? 'Neu' : cur
+      await sb.from('tickets').update({ assignee: a || null, status }).eq('id', id); await reload()
+    },
     setStatus: async (id, s) => { await sb.from('tickets').update({ status: s }).eq('id', id); await reload() },
     events, joined, declined, registrations, standby, demoData, quizzes, attempts,
     submitQuiz: async (quizId, answers) => {
@@ -337,7 +353,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       await reload()
     },
     skills: meStaff.skills,
-    setSkills: (s) => { setStaff(list => list.map(x => x.id === employee.id ? { ...x, skills: s } : x)); sb.rpc('update_my_profile', { p_skills: s }) },
+    setSkills: (s) => {
+      const before = meStaff.skills
+      setStaff(list => list.map(x => x.id === employee.id ? { ...x, skills: s } : x))
+      sb.rpc('update_my_profile', { p_skills: s }).then(({ error }) => { if (error) setStaff(list => list.map(x => x.id === employee.id ? { ...x, skills: before } : x)) })
+    },
     photo: meStaff.photo,
     setPhotoFile: async (f) => { const p = await upload('profile-photos', f, 'avatar'); if (p) { await sb.rpc('update_my_profile', { p_photo_path: p }); await reload() } },
     myPhorest, signedUrl,

@@ -45,11 +45,11 @@ const ROLE = { mitarbeiterin: 'Mitarbeiterin', filialleitung: 'Filialleitung', b
 
 // Wo was in der App liegt, damit Benni Wege erklären kann
 const APP_GUIDE = `Handy-App (alle Rollen), unten fünf Reiter: Heute, Aufgaben, Benni, Wissen, Menü.
-- Heute: Schicht und Anzahl Termine aus Phorest, Karte „Bitte lesen und bestätigen“ für Pflicht-News, Tagesaufgaben mit Fortschritt, „Mein Tag“ (eigene Kundentermine), News. Filialleitung zusätzlich „Heute im Studio“. Oben rechts die Glocke mit allem, was neu oder offen ist.
+- Heute: Schicht und Anzahl Termine aus Phorest, Abschnitt „Bitte lesen“ für Pflicht-News, Tagesaufgaben mit Fortschritt, „Mein Tag“ (eigene Kundentermine), News. Filialleitung zusätzlich „Heute im Studio“.
 - Aufgaben: Tagesaufgaben des eigenen Studios, gruppiert nach Listen (Vorlagen vom Büro, z. B. Öffnung, Mittag, Schliessung, Wochenputz). Abhaken mit „Erledigt“, bei manchen mit Foto als Nachweis. Name und Uhrzeit werden gespeichert.
 - Wissen: Suche, Onboarding für Neue („Mit Benni lernen“), alle Artikel des bisherigen Wikis. Unter manchen Artikeln und Pflicht-News ein Quiz (bestanden ab 80 %).
-- Menü: eigenes Profil (Arbeitszeiten der Woche, Aushilfe-Tage eintragen, Sprache DE/EN/FR, Mitteilungen einschalten), Kundentermine (eigenes Studio live aus Phorest, Büro alle), Kundenhistorie (Besuche und Notizen einer Kundin), News, Kalender (Schulungen und Events, „Ich komme“ / „Ich komme nicht“), Team (Kolleginnen, Skills, anrufen), Melden & Ideen (Meldung mit Foto oder Video, Ideen unterstützen, kommentieren), Posteingang (Webmail), Zeit & Ferien (Timebutler), Verbindungen.
-- Pflicht-News gelten erst nach dem Öffnen als bestätigt, mit Quiz erst nach bestandenem Quiz.
+- Menü: eigenes Profil (Arbeitszeiten der Woche, Aushilfe-Tage eintragen, Sprache DE/EN/FR, Mitteilungen einschalten), Kundentermine (eigenes Studio live aus Phorest, Büro alle), Kundenhistorie (Besuche und Notizen einer Kundin), News, Kalender (eigene Termine aus Phorest sowie Schulungen und Events mit „Ich komme“ / „Ich komme nicht“, Filter oben), Team (Kolleginnen, Skills, anrufen), Melden & Ideen (Meldung mit Foto oder Video, Ideen unterstützen, kommentieren), Posteingang (Webmail), Zeit & Ferien (Timebutler), Verbindungen.
+- Pflicht-News gelten erst als bestätigt, wenn man sie öffnet und unten „Gelesen und verstanden“ tippt. Hat sie ein Quiz, gilt sie mit dem bestandenen Quiz als bestätigt.
 - Ferien beantragen und Zeiterfassung laufen in Timebutler (Menü → Zeit & Ferien), nicht im TeamHub.
 Backoffice am Desktop (Filialleitung für das eigene Studio, Büro für alle): Übersicht, Kundentermine, News (nur Büro, mit Benni-Entwurf), Aufgaben (Vorlagen anlegen nur Büro), Meldungen & Ideen, Schulungen & Events, Aushilfe (wer kann an einem Tag einspringen), Lernen (Quiz und Nachweise), Team & Skills, Studios und Wissen (beide nur Büro). Am Handy gibt es kein Backoffice.`
 
@@ -97,9 +97,10 @@ Deno.serve(async (req) => {
   const phorestCall = (b: unknown) => fetch(`${url}/functions/v1/phorest`, { method: 'POST', headers: { Authorization: authz, apikey: anon, 'Content-Type': 'application/json' }, body: JSON.stringify(b) }).then((r) => r.json()).catch(() => ({ ok: false }))
 
   const work = async (): Promise<Record<string, unknown>> => {
-    // Nur freigegebene Artikel, die diese Person per RLS sehen darf.
-    const { data: arts } = await db.from('wiki_articles').select('id, category, title, body, tags').eq('published', true)
-    const articles = (arts ?? []) as (Article & { tags?: string[] })[]
+    // Nur freigegebene Artikel, die diese Person per RLS sehen darf; Beispielartikel nur mit Beispiel-Schalter
+    const [{ data: arts }, { data: fl0 }] = await Promise.all([db.from('wiki_articles').select('id, category, title, body, tags, is_sample').eq('published', true), db.rpc('app_flags')])
+    const demoOn = (fl0 as any)?.demo_data !== false
+    const articles = ((arts ?? []) as any[]).filter((a) => demoOn || !a.is_sample) as (Article & { tags?: string[] })[]
     const ranked = rank(q, articles)
     const byId = new Map(articles.map((a) => [a.id, a.title]))
 
@@ -142,7 +143,7 @@ Deno.serve(async (req) => {
     // Tagesaufgaben des eigenen Studios (gleiche Regel wie in der App)
     const myBranch = me.branch_id
     const tpls = (tplR.data ?? []).filter(keep).filter((t: any) => myBranch !== 'buero' && ((t.branch_ids ?? []).length === 0 || t.branch_ids.includes(myBranch)) &&
-      (t.repeat === 'daily' || (t.repeat === 'weekly' && t.weekday === isoDow(day0)) || (t.repeat === 'monthly' && t.monthday === Number(day0.slice(8, 10)))))
+      (t.repeat === 'daily' || (t.repeat === 'weekly' && t.weekday === isoDow(day0)) || (t.repeat === 'monthly' && Math.min(t.monthday ?? 1, new Date(Date.UTC(Number(day0.slice(0, 4)), Number(day0.slice(5, 7)), 0)).getUTCDate()) === Number(day0.slice(8, 10)))))
     const items = (itemR.data ?? []).filter((i: any) => tpls.some((t: any) => t.id === i.template_id))
     const doneItems = new Map((compR.data ?? []).filter((c: any) => c.branch_id === myBranch).map((c: any) => [c.item_id, c]))
     const openItems = items.filter((i: any) => !doneItems.has(i.id)).sort((a: any, b: any) => String(a.due_time ?? '99').localeCompare(String(b.due_time ?? '99')))
@@ -265,7 +266,7 @@ Deno.serve(async (req) => {
       if (name === 'read_article') {
         const id = String(args.id ?? '')
         emit({ step: 'article', detail: byId.get(id) ?? '' })
-        const { data } = await db.from('wiki_articles').select('id, title, category, body').eq('id', id).eq('published', true).maybeSingle()
+        const { data } = byId.has(id) ? await db.from('wiki_articles').select('id, title, category, body').eq('id', id).eq('published', true).maybeSingle() : { data: null }
         if (data) readIds.add(data.id)
         return data ? { id: data.id, titel: data.title, kategorie: data.category, text: String(data.body ?? '').slice(0, 7000) } : { error: 'nicht_gefunden' }
       }
