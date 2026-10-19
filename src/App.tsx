@@ -26,10 +26,14 @@ function useDesktop() {
   return d
 }
 
-// Anmeldung: am Handy randlos, am Desktop als ruhige Karte in der Mitte.
+// Anmeldung: am Handy randlos, am Desktop als Karte mit Studio-Bild links.
 const LoginFrame = ({ children }: { children: React.ReactNode }) => (
   <div className="min-h-[100dvh] flex items-center justify-center md:p-6">
-    <div className="relative w-full h-[100dvh] md:h-[680px] md:max-w-[420px] bg-paper md:rounded-[24px] md:border md:border-sage-200 overflow-hidden flex flex-col">{children}</div>
+    <div className="w-full h-[100dvh] md:h-[640px] md:max-w-[960px] md:grid md:grid-cols-2 bg-paper md:rounded-[16px] md:shadow-[0_24px_60px_-30px_rgba(29,34,28,.35)] overflow-hidden">
+      {/* Studio-Bild: Glasleuchten aus der Lounge (Standbild aus dem Video auf beautylounge.ch) */}
+      <img src="/login-studio.webp" alt="" className="hidden md:block w-full h-full object-cover" />
+      <div className="relative h-full flex flex-col">{children}</div>
+    </div>
   </div>
 )
 
