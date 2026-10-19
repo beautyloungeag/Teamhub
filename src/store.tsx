@@ -8,13 +8,13 @@ export type { Lang }
 
 /* ---------- Typen ---------- */
 export type Staff = { id: string; first: string; last: string; branch: string; branch_id: string; role: string; skills: string[]; photo: string | null; app_role: string; active: boolean; email: string; phone?: string | null; appInstalled?: boolean; pushEnabled?: boolean; extra?: string[] }
-export type News = { id: string; title: string; teaser: string; body: string; author: string; date: string; tag: string; mustRead: boolean; audience: string; audienceBranches: string[]; audienceGroups: string[]; audienceSkills: string[]; audiencePeople: string[]; publishAt: string; wikiCategory: string | null; image: string | null; orig: { title: string; teaser: string; body: string } | null }
+export type News = { id: string; title: string; teaser: string; body: string; author: string; authorId: string | null; date: string; tag: string; mustRead: boolean; audience: string; audienceBranches: string[]; audienceGroups: string[]; audienceSkills: string[]; audiencePeople: string[]; publishAt: string; wikiCategory: string | null; image: string | null; orig: { title: string; teaser: string; body: string } | null }
 export type TaskItem = { id: string; title: string; time: string; group: string; prio: boolean; proof: boolean; articleId: string | null }
 export type Template = { id: string; name: string; repeat: 'daily' | 'weekly' | 'monthly'; weekday: number | null; monthday: number | null; branchIds: string[]; items: TaskItem[]; active: boolean; proposed: boolean; sample: boolean }
 export type Done = { by: string; byId: string | null; at: string; photo: string | null }
 export type Ticket = { id: string; kind: 'Meldung' | 'Idee'; title: string; body: string; branch: string; branchId: string; status: 'Neu' | 'Zugewiesen' | 'In Arbeit' | 'Erledigt'; who: string; when: string; assignee: string | null; photo: string | null; mediaKind: 'photo' | 'video'; viaAI: boolean; mine: boolean; votes: number; voted: boolean; comments: Comment[] }
 export type Comment = { id: string; author: string; authorId: string | null; body: string; when: string }
-export type Ev = { id: string; title: string; kind: string; description: string; startsAt: string; endsAt: string | null; place: string; link: string | null; capacity: number | null; registerUntil: string | null; audienceBranches: string[]; audienceSkills: string[]; taken: number }
+export type Ev = { id: string; title: string; kind: string; description: string; startsAt: string; endsAt: string | null; place: string; link: string | null; capacity: number | null; registerUntil: string | null; audienceBranches: string[]; audienceSkills: string[]; taken: number; createdBy: string | null; raw: { title: string; description: string; place: string } }
 export type WikiBlock = { t: 'h' | 'p' | 'ul' | 'ol' | 'quote' | 'img' | 'video' | 'file'; text?: string; items?: string[]; src?: string; url?: string; name?: string; level?: number }
 export type WikiArticle = { id: string; cat: string; catKey: string; title: string; minutes: number; updated: string; body: string[]; mediaKind: string; mediaUrl: string | null; published: boolean; fromNews?: boolean; intro: string; tags: string[]; accessLevel: 'alle' | 'filialleitung' | 'buero'; imported: boolean }
 export type Step = { id: string; title: string; minutes: number; articleId: string | null; proposed: boolean }
@@ -176,7 +176,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const np = keep(nw.data).map((n: any) => n.image_path).filter(Boolean)
     if (np.length) { const { data } = await sb.storage.from('media').createSignedUrls(np, 3600); for (const x of data ?? []) if (x.signedUrl && x.path) nImgs.set(x.path, x.signedUrl) }
     setNews(keep(nw.data).map((n: any) => ({
-      id: n.id, title: tx(n, 'title', lang), teaser: tx(n, 'teaser', lang), body: tx(n, 'body', lang), author: n.author_name || tr('Büro'), tag: n.tag, mustRead: n.must_read,
+      id: n.id, title: tx(n, 'title', lang), teaser: tx(n, 'teaser', lang), body: tx(n, 'body', lang), author: n.author_name || tr('Büro'), authorId: n.author_id ?? null, tag: n.tag, mustRead: n.must_read,
       date: fmtDate(n.publish_at), audience: n.audience_people?.length ? `${n.audience_people.length} ${n.audience_people.length === 1 ? tr('Person') : tr('Personen')}` : [n.audience_branches?.length ? n.audience_branches.map(bname).join(', ') : tr('Alle Studios'), ...(n.audience_groups ?? []), ...(n.audience_skills ?? [])].join(' · '),
       audienceBranches: n.audience_branches ?? [], audienceGroups: n.audience_groups ?? [], audienceSkills: n.audience_skills ?? [], audiencePeople: n.audience_people ?? [],
       publishAt: n.publish_at, wikiCategory: n.wiki_category, image: n.image_path ? nImgs.get(n.image_path) ?? null : null,
@@ -193,7 +193,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const counts = new Map(((cnt.data ?? []) as any[]).map(c => [c.event_id, c.taken]))
     const mySkills: string[] = ((em.data ?? []) as any[]).find(e => e.id === employee.id)?.skills ?? []
     setEvents(keep(ev.data).filter((e: any) => employee.app_role === 'buero' || !(e.audience_skills ?? []).length || (e.audience_skills as string[]).some(k => mySkills.includes(k))).map((e: any) => ({
-      id: e.id, title: tx(e, 'title', lang), kind: e.kind, description: tx(e, 'description', lang), startsAt: e.starts_at, endsAt: e.ends_at, place: tx(e, 'place', lang), link: e.link,
+      id: e.id, title: tx(e, 'title', lang), kind: e.kind, description: tx(e, 'description', lang), startsAt: e.starts_at, endsAt: e.ends_at, place: tx(e, 'place', lang), link: e.link, createdBy: e.created_by ?? null, raw: { title: e.title, description: e.description ?? '', place: e.place ?? '' },
       capacity: e.capacity, registerUntil: e.register_until, audienceBranches: e.audience_branches ?? [], audienceSkills: e.audience_skills ?? [], taken: counts.get(e.id) ?? 0,
     })))
     setRegistrations((rg.data ?? []) as Ctx['registrations'])

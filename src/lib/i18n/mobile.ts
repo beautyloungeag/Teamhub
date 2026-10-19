@@ -1,5 +1,15 @@
 // Schlüssel = deutscher Text, Werte [Englisch, Französisch].
 export default {
+  "Aushilfe gesucht": ["Cover needed", "Remplacement recherché"],
+  "Aushilfe": ["Cover", "Remplacement"],
+  "Du hilfst aus": ["You are covering", "Tu remplaces"],
+  "Ich kann": ["I can", "Je peux"],
+  "Leider nicht": ["Sorry, no", "Non, désolée"],
+  "Du hast zugesagt. {name} teilt ein.": ["You said yes. {name} will confirm.", "Tu as dit oui. {name} confirme."],
+  "Doch nicht": ["Undo", "Annuler"],
+  "{studio} sucht Aushilfe": ["{studio} needs cover", "{studio} cherche un remplacement"],
+  "Danke, deine Zusage ist angekommen": ["Thanks, your yes has been sent", "Merci, ta réponse est envoyée"],
+  "Die Filialleitung": ["The studio lead", "La responsable"],
   "Diktat beenden und Text bearbeiten": ["Stop dictation and edit the text", "Arrêter la dictée et modifier le texte"],
   "Stopp": ["Stop", "Stop"],
   "Diktat beenden und senden": ["Stop dictation and send", "Arrêter la dictée et envoyer"],

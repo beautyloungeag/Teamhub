@@ -11,7 +11,7 @@ Deno.serve(async (req) => {
   const url = Deno.env.get('SUPABASE_URL')!, anon = Deno.env.get('SUPABASE_ANON_KEY')!
   const user = createClient(url, anon, { global: { headers: { Authorization: req.headers.get('Authorization') ?? '' } } })
   const { data: me } = await user.rpc('current_employee')
-  if (me?.app_role !== 'buero') return json({ ok: false, error: 'forbidden' }, 403)
+  if (me?.app_role !== 'buero' && me?.app_role !== 'filialleitung') return json({ ok: false, error: 'forbidden' }, 403)
   const body = await req.json().catch(() => ({}))
 
   if (body.action === 'text') {

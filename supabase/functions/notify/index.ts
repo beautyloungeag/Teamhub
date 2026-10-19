@@ -4,6 +4,8 @@
 //   - neue Schulungen/Events an Zielgruppe (Studio, Skills)
 //   - Statuswechsel/Zuweisung einer Meldung an die meldende Person
 //   - neue Aufgabe von Filialleitung/Büro an die Person bzw. das ganze Studio
+//   - Aushilfe gesucht (an Eingetragene oder alle) und „du bist eingeteilt“
+// Dazu auf Knopfdruck: remind_event (Erinnerung an alle ohne Antwort zu einem Termin)
 // Secrets: VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT, NOTIFY_SECRET
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 import webpush from 'npm:web-push@3.6.7'
@@ -18,9 +20,9 @@ type Msg = { title: string; body: string; url: string; tag: string }
 type Lang = 'DE' | 'EN' | 'FR'
 // Rahmentexte je Sprache der Empfängerin; Inhalte (Titel, Teaser) bleiben wie erfasst.
 const L: Record<Lang, Record<string, string>> = {
-  DE: { must: 'Bitte lesen: {t}', newsFallback: 'Neue News im TeamHub', ev: 'Neu: {k} „{t}“', join: 'jetzt anmelden', ticket: 'Deine Meldung', on: 'Mitteilungen sind eingeschaltet.', todo: 'Neue Aufgabe von {n}', until: 'bis' },
-  EN: { must: 'Please read: {t}', newsFallback: 'New news in TeamHub', ev: 'New: {k} “{t}”', join: 'register now', ticket: 'Your report', on: 'Notifications are on.', todo: 'New task from {n}', until: 'by' },
-  FR: { must: 'À lire : {t}', newsFallback: 'Nouvelle actualité dans TeamHub', ev: 'Nouveau : {k} « {t} »', join: 'inscris-toi', ticket: 'Ton signalement', on: 'Les notifications sont activées.', todo: 'Nouvelle tâche de {n}', until: 'avant' },
+  DE: { must: 'Bitte lesen: {t}', newsFallback: 'Neue News im TeamHub', ev: 'Neu: {k} „{t}“', join: 'jetzt anmelden', ticket: 'Deine Meldung', on: 'Mitteilungen sind eingeschaltet.', todo: 'Neue Aufgabe von {n}', until: 'bis', sb: 'Aushilfe gesucht · {b}', sbOk: 'Du hilfst aus · {b}', evRem: 'Bitte antworten: {t}', evRemBody: 'Kommst du? Kurz zu- oder absagen.' },
+  EN: { must: 'Please read: {t}', newsFallback: 'New news in TeamHub', ev: 'New: {k} “{t}”', join: 'register now', ticket: 'Your report', on: 'Notifications are on.', todo: 'New task from {n}', until: 'by', sb: 'Cover needed · {b}', sbOk: 'You are covering · {b}', evRem: 'Please reply: {t}', evRemBody: 'Are you coming? Quick yes or no.' },
+  FR: { must: 'À lire : {t}', newsFallback: 'Nouvelle actualité dans TeamHub', ev: 'Nouveau : {k} « {t} »', join: 'inscris-toi', ticket: 'Ton signalement', on: 'Les notifications sont activées.', todo: 'Nouvelle tâche de {n}', until: 'avant', sb: 'Remplacement recherché · {b}', sbOk: 'Tu remplaces · {b}', evRem: 'Merci de répondre : {t}', evRemBody: 'Tu viens ? Réponds oui ou non.' },
 }
 const fill = (s: string, v: Record<string, string>) => s.replace(/\{(\w+)\}/g, (_, k) => v[k] ?? '')
 const LOC: Record<Lang, string> = { DE: 'de-CH', EN: 'en-GB', FR: 'fr-CH' }
@@ -56,6 +58,24 @@ Deno.serve(async (req) => {
     const lang = (staff.find((e) => e.id === me.id)?.lang ?? 'DE') as Lang
     const r = await send(admin, [me.id], { title: 'TeamHub', body: L[lang].on, url: '/', tag: 'test' })
     return json({ ok: true, ...r })
+  }
+
+  // Erinnerung an alle ohne Antwort zu einem Termin (Knopf im Backoffice)
+  if (body.action === 'remind_event') {
+    const user = createClient(url, Deno.env.get('SUPABASE_ANON_KEY')!, { global: { headers: { Authorization: req.headers.get('Authorization') ?? '' } } })
+    const { data: me } = await user.rpc('current_employee')
+    const { data: ev } = await admin.from('events').select('id, title, starts_at, audience_branches, audience_skills, created_by').eq('id', String(body.event_id ?? '')).maybeSingle()
+    if (!me?.id || !ev) return json({ ok: false, error: 'not_found' }, 404)
+    const mine = [me.branch_id, ...(me.extra_branch_ids ?? [])]
+    const allowed = me.app_role === 'buero' || (me.app_role === 'filialleitung' && (ev.created_by === me.id || (ev.audience_branches ?? []).some((b: string) => mine.includes(b)) || !(ev.audience_branches ?? []).length))
+    if (!allowed) return json({ ok: false, error: 'forbidden' }, 403)
+    const { data: regs } = await admin.from('event_registrations').select('employee_id').eq('event_id', ev.id)
+    const answered = new Set((regs ?? []).map((r: any) => r.employee_id))
+    const ids = staff.filter((e) => e.branch_id !== 'buero' && !answered.has(e.id) && inBranches(e, ev.audience_branches ?? [])
+      && ((ev.audience_skills ?? []).length === 0 || (e.skills ?? []).some((k: string) => ev.audience_skills.includes(k)))
+      && (me.app_role === 'buero' || mine.some((b) => e.branch_id === b || (e.extra_branch_ids ?? []).includes(b)))).map((e) => e.id)
+    const r = await sendByLang(admin, staff, ids, (l) => ({ title: fill(L[l].evRem, { t: ev.title }), body: L[l].evRemBody, url: '/?open=events', tag: `event-${ev.id}` }))
+    return json({ ok: true, people: ids.length, ...r })
   }
 
   const now = new Date().toISOString()
@@ -102,6 +122,24 @@ Deno.serve(async (req) => {
       }
       return { title: fill(L[l].todo, { n: x.created_by_name || 'TeamHub' }), body: x.title + until, url: '/?open=todos', tag: `todo-${x.id}` }
     }))
+  }
+  // 5) Aushilfe gesucht: an alle, die sich für den Tag eingetragen haben (oder an alle), passend zum Skill
+  const { data: brs } = await admin.from('branches').select('id, name')
+  const bName = (id: string) => (brs ?? []).find((b: any) => b.id === id)?.name ?? id
+  const sbWhen = (x: any, l: Lang) => `${new Intl.DateTimeFormat(LOC[l], { timeZone: 'UTC', weekday: 'short', day: '2-digit', month: '2-digit' }).format(new Date(x.day + 'T12:00:00Z'))}${x.start_time ? ` · ${String(x.start_time).slice(0, 5)}${x.end_time ? `–${String(x.end_time).slice(0, 5)}` : ''}` : ''}`
+  const { data: sreq } = await admin.from('standby_requests').select('*').is('notified_at', null).eq('status', 'offen').limit(20)
+  for (const x of sreq ?? []) {
+    await admin.from('standby_requests').update({ notified_at: now }).eq('id', x.id)
+    const { data: days } = await admin.from('standby_days').select('employee_id').eq('day', x.day)
+    const avail = new Set((days ?? []).map((d: any) => d.employee_id))
+    const ids = staff.filter((e) => e.id !== x.created_by && e.branch_id !== 'buero' && (x.to_all || avail.has(e.id)) && (!x.skill || (e.skills ?? []).includes(x.skill))).map((e) => e.id)
+    add(await sendByLang(admin, staff, ids, (l) => ({ title: fill(L[l].sb, { b: bName(x.branch_id) }), body: [sbWhen(x, l), x.skill, x.note].filter(Boolean).join(' · '), url: '/?open=standby', tag: `standby-${x.id}` })))
+  }
+  // 6) Eingeteilt: Mitteilung an die Person, die aushilft
+  const { data: filled } = await admin.from('standby_requests').select('*').eq('status', 'besetzt').is('filled_notified_at', null).not('filled_by', 'is', null).limit(20)
+  for (const x of filled ?? []) {
+    await admin.from('standby_requests').update({ filled_notified_at: now }).eq('id', x.id)
+    add(await sendByLang(admin, staff, [x.filled_by], (l) => ({ title: fill(L[l].sbOk, { b: bName(x.branch_id) }), body: [sbWhen(x, l), x.note].filter(Boolean).join(' · '), url: '/?open=standby', tag: `standby-${x.id}` })))
   }
   return json({ ok: true, sent, failed, removed })
 })

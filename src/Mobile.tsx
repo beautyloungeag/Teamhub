@@ -19,6 +19,7 @@ import { BenniChat, openNewBenniChat, askBenniOnce, BenniWorking, BenniText, typ
 import { MyTodos, useTodos, isForMe, isLate, useDue, reloadTodos } from './Todos'
 import { Avatar, ContactRow } from './People'
 import { SideNav } from './Nav'
+import { useStandbyRequests, answerStandby, reloadStandby, timeSpan } from './standby'
 export { Avatar }
 import { toast } from './Toast'
 
@@ -95,6 +96,7 @@ function Shell({ onLogout, onSwitch }: { onLogout: () => void; onSwitch?: () => 
     else if (o.startsWith('ticket:')) { reload(); open({ k: 'ticket', id: o.slice(7) }) }
     else if (o.startsWith('events')) open({ k: 'events' }); else if (o === 'tickets') open({ k: 'tickets' })
     else if (o === 'todos') { tasksView = 'me'; reloadTodos(); go('tasks') }
+    else if (o === 'standby') { reloadStandby(); go('home') }
   }
   // „Mit Benni lernen“ aus dem Onboarding: in den Benni-Reiter wechseln, die Frage stellt der Reiter selbst
   useEffect(() => { const f = () => go('ai'); window.addEventListener('th-benni', f); return () => window.removeEventListener('th-benni', f) }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -175,6 +177,34 @@ function Shell({ onLogout, onSwitch }: { onLogout: () => void; onSwitch?: () => 
   )
 }
 
+/* ---------- Aushilfe gesucht (auf Heute) ---------- */
+function StandbyAsk() {
+  const { me, standby, branches, t } = useApp()
+  const { requests, responses } = useStandbyRequests()
+  const [busy, setBusy] = useState<string | null>(null)
+  const today = isoDay()
+  const myDays = new Set(standby.filter(x => x.employee_id === me.id).map(x => x.day))
+  const mine = (id: string) => responses.find(r => r.request_id === id && r.employee_id === me.id)?.answer
+  const list = requests.filter(r => r.day >= today && r.created_by !== me.id && (r.filled_by === me.id
+    || (r.status === 'offen' && (r.to_all || myDays.has(r.day)) && (!r.skill || me.skills.includes(r.skill)) && mine(r.id) !== 'nein')))
+  if (!list.length) return null
+  const when = (d: string) => new Intl.DateTimeFormat(locale(), { timeZone: 'UTC', weekday: 'long', day: 'numeric', month: 'long' }).format(new Date(d + 'T12:00:00Z'))
+  const say = async (id: string, a: 'ja' | 'nein' | null) => { setBusy(id); const ok = await answerStandby(id, me.id, a); setBusy(null); if (!ok) toast(t('Das hat nicht geklappt'), 'error'); else if (a === 'ja') toast(t('Danke, deine Zusage ist angekommen')) }
+  return (<>
+    <h2 className="mt-8 mb-2.5 px-1 rubric text-brass">{t(list.every(r => r.filled_by === me.id) ? 'Aushilfe' : 'Aushilfe gesucht')}</h2>
+    <div className="space-y-2.5">{list.map(r => { const studio = branches.find(b => b.id === r.branch_id)?.name ?? '', a = mine(r.id)
+      const detail = [when(r.day), timeSpan(r), r.skill].filter(Boolean).join(' · ')
+      if (r.filled_by === me.id) return <div key={r.id} className="rounded-[16px] bg-olive-800 text-white p-4"><p className="text-[13px] text-sage-200">{t('Du hilfst aus')}</p><p className="mt-0.5 text-[16px] font-medium">{studio}</p><p className="text-[14px] text-sage-200 mt-0.5">{detail}</p>{r.note && <p className="text-[14px] mt-2">{r.note}</p>}</div>
+      return <div key={r.id} className="rounded-[16px] bg-white p-4">
+        <p className="text-[16px] font-medium">{t('{studio} sucht Aushilfe', { studio })}</p>
+        <p className="text-[14px] text-mute mt-0.5">{detail}</p>
+        {r.note && <p className="text-[14px] mt-2">{r.note}</p>}
+        {a === 'ja' ? <p className="mt-3 text-[13.5px] text-ink/80 flex items-center gap-2"><Check size={15} className="text-ok" />{t('Du hast zugesagt. {name} teilt ein.', { name: r.created_by_name || t('Die Filialleitung') })} <button disabled={busy === r.id} onClick={() => say(r.id, null)} className="text-mute underline underline-offset-2">{t('Doch nicht')}</button></p>
+          : <div className="mt-3 grid grid-cols-2 gap-2"><button disabled={busy === r.id} onClick={() => say(r.id, 'ja')} className="h-11 rounded-[12px] bg-olive-700 text-white text-[15px] disabled:opacity-50">{t('Ich kann')}</button><button disabled={busy === r.id} onClick={() => say(r.id, 'nein')} className="h-11 rounded-[12px] bg-sage-50 text-[15px] disabled:opacity-50">{t('Leider nicht')}</button></div>}
+      </div> })}</div>
+  </>)
+}
+
 /* ---------- Heute ---------- */
 function useMyDay() {
   const [day, setDay] = useState<MyDay | null>(null)
@@ -217,6 +247,7 @@ function Today({ open, go }: { open: (s: Sub) => void; go: (t: Tab) => void }) {
       </div>
 
       <ReadyCard open={open} />
+      <StandbyAsk />
       {must.length > 0 && <>
         <div className="flex items-baseline justify-between mt-8 mb-2.5 px-1"><h2 className="rubric text-brass">{t('Bitte lesen')}</h2><span className="text-[12px] text-mute tabular-nums">{t('{n} offen', { n: must.length })}</span></div>
         <List>{must.map(n => (
