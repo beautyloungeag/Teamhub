@@ -1,7 +1,8 @@
 import { supabase } from './supabase'
 
 // Push-Mitteilungen und Startbereitschaft (BLTH-27).
-const VAPID = import.meta.env.VITE_VAPID_PUBLIC_KEY as string | undefined
+// Öffentlicher VAPID-Schlüssel (der private liegt nur als Supabase-Secret).
+const VAPID = (import.meta.env.VITE_VAPID_PUBLIC_KEY as string | undefined) || 'BMttSCxDC8TrjwjUdQrrZDdgodI6wmsfSjVMHtqZXxN844sgAn02NAMbDCuLlmFfMCvrM6Wv7y13_s3L_hH29yk'
 
 export const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
 export const isAndroid = () => /android/i.test(navigator.userAgent)
