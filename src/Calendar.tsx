@@ -96,11 +96,11 @@ export function Terminbuch({ compact }: { compact?: boolean }) {
 
 /* ---------- Mein Kalender: Phorest-Termine + Schulungen/Events ---------- */
 type Item = { time: string; end?: string; title: string; sub: string; src: 'phorest' | 'event'; color: string; ev?: Ev }
-const SRC = { phorest: { label: 'Termine', color: '#7FB77E' }, event: { label: 'Schulungen & Events', color: '#B08A52' } } as const
+const SRC = { phorest: { label: 'Termine', color: '#8FA382' }, event: { label: 'Schulungen & Events', color: '#B08A52' } } as const
 const ymd = (y: number, m: number, d: number) => `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
 
 export function EventCalendar() {
-  const { joined, toggleEvent, events, t } = useApp()
+  const { joined, declined, toggleEvent, declineEvent, events, t } = useApp()
   const t0 = isoDay()
   const [y, setY] = useState(Number(t0.slice(0, 4))), [m, setM] = useState(Number(t0.slice(5, 7))), [sel, setSel] = useState(t0)
   const [show, setShow] = useState({ phorest: true, event: true })
@@ -155,7 +155,10 @@ export function EventCalendar() {
               {x.ev?.description && <p className="text-[13px] mt-1">{x.ev.description}</p>}
               {x.ev?.link && <a href={x.ev.link} target="_blank" rel="noreferrer" className="text-[13px] text-sage-800 underline">{t('Zum Meeting')}</a>}
               <p className="text-[11px] mt-0.5" style={{ color: SRC[x.src].color }}>{x.src === 'phorest' ? 'Phorest' : 'TeamHub'}</p>
-              {x.ev && <button disabled={!j && (full || closed)} onClick={async () => { const r = await toggleEvent(x.ev!.id); setMsg(v => ({ ...v, [x.ev!.id]: r ?? '' })) }} className={`mt-2 h-8 px-3.5 rounded-full text-[12px] disabled:opacity-50 ${j ? 'bg-sage-100 text-sage-800' : 'bg-olive-700 text-white'}`}>{j ? t('Angemeldet · abmelden') : full ? t('Ausgebucht') : closed ? t('Anmeldung geschlossen') : t('Anmelden|event')}</button>}
+              {x.ev && <div className="mt-2 flex gap-1.5 items-center">
+                <button disabled={!j && (full || closed)} onClick={async () => { const r = j ? null : await toggleEvent(x.ev!.id); setMsg(v => ({ ...v, [x.ev!.id]: r ?? '' })) }} className={`h-8 px-3.5 rounded-[8px] text-[12px] transition disabled:opacity-50 ${j ? 'bg-olive-700 text-white' : 'bg-sage-50 text-ink'}`}>{j ? t('Ich komme') : full ? t('Ausgebucht') : closed ? t('Anmeldung geschlossen') : t('Ich komme')}</button>
+                {!closed && <button onClick={async () => { await declineEvent(x.ev!.id); setMsg(v => ({ ...v, [x.ev!.id]: '' })) }} className={`h-8 px-3.5 rounded-[8px] text-[12px] transition ${declined.has(x.ev.id) ? 'bg-olive-800 text-white' : 'bg-sage-50 text-ink'}`}>{t('Ich komme nicht')}</button>}
+              </div>}
               {x.ev && msg[x.ev.id] && <p className="mt-1 text-[12px] text-alert">{t(msg[x.ev.id])}</p>}
             </div>
           </div>

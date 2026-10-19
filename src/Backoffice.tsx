@@ -1,21 +1,22 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { LayoutDashboard, Smartphone, Store, ArrowUp, ArrowDown, Newspaper, ListChecks, Lightbulb, CalendarDays, Users, BookOpen, Plus, Check, Camera, Search, CalendarClock, Send, X, Trash2 } from 'lucide-react'
+import { LayoutDashboard, LifeBuoy, Phone, Smartphone, Store, ArrowUp, ArrowDown, Newspaper, ListChecks, Lightbulb, CalendarDays, Users, BookOpen, Plus, Check, Search, CalendarClock, Send, X, Trash2 } from 'lucide-react'
 import { Terminbuch } from './Calendar'
-import { useApp, isoDay, appliesOn, fmtDate, fmtTime, zurichHour, type Ticket } from './store'
+import { useApp, isoDay, appliesOn, fmtDate, fmtTime, zurichHour, inNewsAudience, GROUPS, type Ticket, type News } from './store'
 import { supabase } from './lib/supabase'
 import { Status, ASSISTANT } from './Mobile'
 import { notifyNow } from './lib/push'
 import { Logo, BMark } from './Logo'
+import { Comments, Media } from './TicketParts'
 
-type View = 'overview' | 'book' | 'news' | 'tasks' | 'tickets' | 'events' | 'team' | 'studios' | 'wiki'
-const NAV: [View, string, typeof Users][] = [['overview', 'Übersicht', LayoutDashboard], ['book', 'Kundentermine', CalendarClock], ['news', 'News', Newspaper], ['tasks', 'Aufgaben', ListChecks], ['tickets', 'Meldungen & Ideen', Lightbulb], ['events', 'Schulungen & Events', CalendarDays], ['team', 'Team & Skills', Users], ['studios', 'Studios', Store], ['wiki', 'Wissen', BookOpen]]
+type View = 'overview' | 'book' | 'news' | 'tasks' | 'tickets' | 'events' | 'standby' | 'team' | 'studios' | 'wiki'
+const NAV: [View, string, typeof Users][] = [['overview', 'Übersicht', LayoutDashboard], ['book', 'Kundentermine', CalendarClock], ['news', 'News', Newspaper], ['tasks', 'Aufgaben', ListChecks], ['tickets', 'Meldungen & Ideen', Lightbulb], ['events', 'Schulungen & Events', CalendarDays], ['standby', 'Aushilfe', LifeBuoy], ['team', 'Team & Skills', Users], ['studios', 'Studios', Store], ['wiki', 'Wissen', BookOpen]]
 
 export default function Backoffice({ onSwitch }: { onSwitch?: () => void }) {
   const { me } = useApp()
   const [v, setV] = useState<View>('overview')
   const [ai, setAi] = useState(false)
   // Filialleitung verwaltet nur ihre Filiale; Inhalte (News, Wissen, Vorlagen, Team) pflegt das Büro.
-  const nav = me.app_role === 'buero' ? NAV : NAV.filter(([k]) => ['overview', 'book', 'tasks', 'tickets', 'events'].includes(k))
+  const nav = me.app_role === 'buero' ? NAV : NAV.filter(([k]) => ['overview', 'book', 'tasks', 'tickets', 'events', 'standby'].includes(k))
   return (
     <div className="flex h-full bg-white overflow-hidden">
       <aside className="w-60 shrink-0 bg-olive-800 p-4 flex flex-col">
@@ -29,7 +30,7 @@ export default function Backoffice({ onSwitch }: { onSwitch?: () => void }) {
       <main className={`flex-1 no-scrollbar p-8 ${v === 'book' ? 'flex flex-col overflow-hidden' : 'overflow-y-auto'}`}>
         {v === 'book' && <><H>Kundentermine</H><div className="flex-1 min-h-0"><Terminbuch /></div></>}
         {v === 'overview' && <Overview go={setV} />}{v === 'news' && <NewsAdmin />}{v === 'tasks' && <TasksAdmin />}
-        {v === 'tickets' && <TicketsAdmin />}{v === 'events' && <EventsAdmin />}{v === 'team' && <TeamAdmin />}{v === 'studios' && <StudiosAdmin />}{v === 'wiki' && <WikiAdmin />}
+        {v === 'tickets' && <TicketsAdmin />}{v === 'standby' && <StandbyAdmin />}{v === 'events' && <EventsAdmin />}{v === 'team' && <TeamAdmin />}{v === 'studios' && <StudiosAdmin />}{v === 'wiki' && <WikiAdmin />}
       </main>
       {ai && <AdminChat onClose={() => setAi(false)} />}
     </div>
@@ -54,7 +55,8 @@ const Err = ({ m }: { m: string }) => m ? <p className="text-[13px] text-alert">
 /* Wer gehört zur Zielgruppe (leer = alle aktiven)? */
 function useAudience() {
   const { staff } = useApp()
-  return (branches: string[]) => staff.filter(s => s.active && s.branch_id !== 'buero' && (branches.length === 0 || branches.includes(s.branch_id)))
+  return (n: Pick<News, 'audienceBranches' | 'audienceGroups' | 'audienceSkills' | 'audiencePeople'>) =>
+    staff.filter(s => s.active && (n.audiencePeople.length ? true : s.branch_id !== 'buero') && inNewsAudience(s, n))
 }
 /* Fortschritt der Tagesaufgaben je Studio heute */
 function useTaskProgress() {
@@ -71,7 +73,7 @@ function Overview({ go }: { go: (v: View) => void }) {
   const { tickets, news, newsReads, events, me } = useApp()
   const audience = useAudience(), progress = useTaskProgress()
   const must = news.find(n => n.mustRead && new Date(n.publishAt) <= new Date())
-  const mustPeople = must ? audience(must.audienceBranches) : []
+  const mustPeople = must ? audience(must) : []
   const mustPct = must && mustPeople.length ? Math.round(mustPeople.filter(p => newsReads.some(r => r.news_id === must.id && r.employee_id === p.id && r.confirmed_at)).length / mustPeople.length * 100) : 0
   const open = tickets.filter(t => t.status !== 'Erledigt')
   const tot = progress.reduce((a, b) => a + b.total, 0), dn = progress.reduce((a, b) => a + b.done, 0)
@@ -116,25 +118,30 @@ function Readiness() {
 
 /* ---------- News ---------- */
 function NewsAdmin() {
-  const { news, newsReads, branches, me, reload } = useApp()
+  const { news, newsReads, branches, me, reload, skillCatalog, staff } = useApp()
   const audience = useAudience()
   const [sel, setSel] = useState<string | null>(news[0]?.id ?? null), [compose, setCompose] = useState(false)
-  const [f, setF] = useState({ title: '', teaser: '', body: '', tag: 'Studio', must: false, branches: [] as string[], when: '', wiki: '' })
+  const blank = { title: '', teaser: '', body: '', tag: 'Studio', must: false, branches: [] as string[], groups: [] as string[], skills: [] as string[], people: [] as string[], when: '', wiki: '' }
+  const [f, setF] = useState(blank)
+  const [pq, setPq] = useState('')
+  const reach = audience({ audienceBranches: f.branches, audienceGroups: f.groups, audienceSkills: f.skills, audiencePeople: f.people }).length
+  const tog = (k: 'branches' | 'groups' | 'skills' | 'people', v: string) => setF({ ...f, [k]: f[k].includes(v) ? f[k].filter(x => x !== v) : [...f[k], v] })
+  const chip = (on: boolean) => `px-2.5 h-7 rounded-[8px] text-[12px] ${on ? 'bg-olive-700 text-white' : 'bg-white text-ink/80'}`
   const [err, setErr] = useState(''), [busy, setBusy] = useState(false)
   const n = news.find(x => x.id === sel)
-  const pctOf = (id: string, br: string[]) => { const p = audience(br); return p.length ? Math.round(p.filter(s => newsReads.some(r => r.news_id === id && r.employee_id === s.id && r.confirmed_at)).length / p.length * 100) : 0 }
+  const pctOf = (n: News) => { const id = n.id, p = audience(n); return p.length ? Math.round(p.filter(s => newsReads.some(r => r.news_id === id && r.employee_id === s.id && r.confirmed_at)).length / p.length * 100) : 0 }
   const publish = async () => {
     if (!f.title.trim() || !f.body.trim()) { setErr('Titel und Text sind nötig.'); return }
     setBusy(true); setErr('')
     const { error } = await supabase!.from('news').insert({
       title: f.title.trim(), teaser: f.teaser.trim() || f.body.trim().slice(0, 140), body: f.body.trim(), tag: f.must ? 'Pflicht' : f.tag, must_read: f.must,
-      audience_branches: f.branches, author_id: me.id, author_name: `${me.first} ${me.last}`, publish_at: f.when ? new Date(f.when).toISOString() : new Date().toISOString(), wiki_category: f.wiki || null,
+      audience_branches: f.branches, audience_groups: f.groups, audience_skills: f.skills, audience_people: f.people, author_id: me.id, author_name: `${me.first} ${me.last}`, publish_at: f.when ? new Date(f.when).toISOString() : new Date().toISOString(), wiki_category: f.wiki || null,
     })
     setBusy(false)
     if (error) { setErr('Veröffentlichen hat nicht geklappt.'); return }
-    setCompose(false); setF({ title: '', teaser: '', body: '', tag: 'Studio', must: false, branches: [], when: '', wiki: '' }); await reload(); notifyNow()
+    setCompose(false); setF(blank); setPq(''); await reload(); notifyNow()
   }
-  const people = n ? audience(n.audienceBranches) : []
+  const people = n ? audience(n) : []
   return (<>
     <H action={<New onClick={() => setCompose(!compose)}>Neue News</New>}>News</H>
     {compose && <Panel className="p-6 mb-8 grid grid-cols-[1fr_280px] gap-6">
@@ -142,7 +149,20 @@ function NewsAdmin() {
         <input value={f.teaser} onChange={e => setF({ ...f, teaser: e.target.value })} placeholder="Kurzfassung für die Karte (optional)" className="w-full text-[15px] outline-none text-mute" />
         <textarea value={f.body} onChange={e => setF({ ...f, body: e.target.value })} rows={8} placeholder="Text. Absätze mit einer Leerzeile trennen." className="w-full resize-none outline-none text-[15px]" /></div>
       <div className="space-y-3 text-[14px]">
-        <Field label="Zielgruppe"><div className="flex flex-wrap gap-1.5">{branches.filter(b => !b.is_office).map(b => <button key={b.id} onClick={() => setF({ ...f, branches: f.branches.includes(b.id) ? f.branches.filter(x => x !== b.id) : [...f.branches, b.id] })} className={`px-2.5 h-8 rounded-[8px] text-[13px] ${f.branches.includes(b.id) ? 'bg-olive-700 text-white' : 'bg-white text-ink/80'}`}>{b.name}</button>)}</div><span className="text-[11px] text-mute">{f.branches.length ? '' : 'Keine Auswahl = alle Studios'}</span></Field>
+        <div>
+          <div className="flex items-baseline justify-between mb-1.5"><span className="text-xs text-mute">Zielgruppe</span><span className="text-xs text-olive-700">{reach} {reach === 1 ? 'Person' : 'Personen'}</span></div>
+          {f.people.length === 0 ? <div className="space-y-2">
+            <p className="text-[11px] text-mute">Studios</p>
+            <div className="flex flex-wrap gap-1.5">{branches.filter(b => !b.is_office).map(b => <button key={b.id} onClick={() => tog('branches', b.id)} className={chip(f.branches.includes(b.id))}>{b.name}</button>)}</div>
+            <p className="text-[11px] text-mute pt-1">Gruppen</p>
+            <div className="flex flex-wrap gap-1.5">{GROUPS.map(g => <button key={g} onClick={() => tog('groups', g)} className={chip(f.groups.includes(g))}>{g}</button>)}</div>
+            {skillCatalog.length > 0 && <p className="text-[11px] text-mute pt-1">Skills</p>}
+            {skillCatalog.length > 0 && <div className="flex flex-wrap gap-1.5">{skillCatalog.map(k => <button key={k} onClick={() => tog('skills', k)} className={chip(f.skills.includes(k))}>{k}</button>)}</div>}
+            <p className="text-[11px] text-mute pt-1">Nichts gewählt = alle.</p>
+          </div> : <div className="flex flex-wrap gap-1.5">{f.people.map(id => { const p = staff.find(x => x.id === id); return <button key={id} onClick={() => tog('people', id)} className={`${chip(true)} flex items-center gap-1`}>{p ? `${p.first} ${p.last}` : id}<X size={11} /></button> })}</div>}
+          <div className="mt-2 relative"><input value={pq} onChange={e => setPq(e.target.value)} placeholder="Oder einzelne Personen …" className={inp} />
+            {pq.trim().length > 1 && <div className="absolute z-10 left-0 right-0 mt-1 rounded-[10px] bg-white shadow-[0_8px_24px_-12px_rgba(29,34,28,.35)] max-h-48 overflow-y-auto">{staff.filter(s => s.active && !f.people.includes(s.id) && `${s.first} ${s.last}`.toLowerCase().includes(pq.toLowerCase())).slice(0, 8).map(s => <button key={s.id} onClick={() => { tog('people', s.id); setPq('') }} className="w-full text-left px-3 py-2 text-[13px] hover:bg-sage-50">{s.first} {s.last} <span className="text-mute">· {s.branch}</span></button>)}</div>}</div>
+        </div>
         <Field label="Kategorie"><select value={f.tag} onChange={e => setF({ ...f, tag: e.target.value })} className={inp}>{['Studio', 'Marketing', 'Team', 'Hygiene'].map(x => <option key={x}>{x}</option>)}</select></Field>
         <label className="flex items-center gap-2"><input type="checkbox" checked={f.must} onChange={e => setF({ ...f, must: e.target.checked })} />Pflicht mit Lesebestätigung</label>
         <Field label="Veröffentlichen"><input type="datetime-local" value={f.when} onChange={e => setF({ ...f, when: e.target.value })} className={inp} /><span className="text-[11px] text-mute">Leer = sofort</span></Field>
@@ -152,7 +172,7 @@ function NewsAdmin() {
     </Panel>}
     <div className="grid grid-cols-[1fr_320px] gap-8">
       <div><table className="tbl w-full text-[14px]"><thead><tr><Th>Titel</Th><Th>Zielgruppe</Th><Th>Datum</Th><Th>Gelesen</Th></tr></thead>
-        <tbody className="divide-y divide-line">{news.map(x => { const p = x.mustRead ? pctOf(x.id, x.audienceBranches) : null, planned = new Date(x.publishAt) > new Date()
+        <tbody className="divide-y divide-line">{news.map(x => { const p = x.mustRead ? pctOf(x) : null, planned = new Date(x.publishAt) > new Date()
           return <tr key={x.id} onClick={() => setSel(x.id)} className={`cursor-pointer ${sel === x.id ? 'bg-sage-50' : ''}`}><td className="px-4 py-3">{x.title}{x.mustRead && <span className="ml-2 text-xs text-brass">Pflicht</span>}{planned && <span className="ml-2 text-xs text-mute">geplant</span>}</td><td className="px-4 text-mute">{x.audience}</td><td className="px-4 text-mute">{x.date}</td><td className="px-4 w-32">{p !== null ? <div className="flex items-center gap-2"><Bar p={p} /><span className="text-xs text-mute">{p}%</span></div> : <span className="text-xs text-mute">–</span>}</td></tr>
         })}</tbody></table></div>
       {n && <Side><p className="font-medium">{n.title}</p><p className="text-xs text-mute mt-1">{n.mustRead ? `${people.filter(s => newsReads.some(r => r.news_id === n.id && r.employee_id === s.id && r.confirmed_at)).length} von ${people.length} bestätigt` : 'Ohne Lesebestätigung'}</p>
@@ -216,21 +236,35 @@ function TasksAdmin() {
 /* ---------- Meldungen & Ideen ---------- */
 function TicketsAdmin() {
   const { tickets, assign, setStatus, staff, me } = useApp()
-  const [f, setF] = useState<'Alle' | 'Meldung' | 'Idee'>('Alle')
+  const [f, setF] = useState<'Alle' | 'Meldung' | 'Idee'>('Alle'), [st, setSt] = useState<'offen' | 'erledigt'>('offen'), [sel, setSel] = useState<string | null>(null)
   const assignees = ['Facility', ...staff.filter(s => s.active && s.app_role !== 'mitarbeiterin').map(s => `${s.first} ${s.last}`)]
-  const canEdit = me.app_role === 'buero'
+  const canEdit = (tk: Ticket) => me.app_role === 'buero' || (me.app_role === 'filialleitung' && tk.branchId === me.branch_id)
+  const list = tickets.filter(t => (f === 'Alle' || t.kind === f) && (st === 'offen' ? t.status !== 'Erledigt' : t.status === 'Erledigt'))
+    .sort((a, b) => (f === 'Idee' ? b.votes - a.votes : 0))
+  const tk = tickets.find(x => x.id === sel)
+  const seg = (on: boolean) => `h-8 px-3 rounded-[8px] text-[13px] transition ${on ? 'bg-white text-ink shadow-[0_1px_2px_rgba(29,34,28,.08)]' : 'text-ink/60'}`
   return (<>
-    <H action={<div className="flex gap-1 p-1 rounded-[10px] bg-sage-50">{(['Alle', 'Meldung', 'Idee'] as const).map(k => <button key={k} onClick={() => setF(k)} className={`h-8 px-3 rounded-[8px] text-[13px] transition ${f === k ? 'bg-white text-ink shadow-[0_1px_2px_rgba(29,34,28,.08)]' : 'text-ink/60'}`}>{k}</button>)}</div>}>Meldungen & Ideen</H>
-    <div><table className="tbl w-full text-[14px]"><thead><tr><Th>Art</Th><Th>Titel</Th><Th>Studio</Th><Th>Von</Th><Th>Zuständig</Th><Th>Status</Th></tr></thead>
-      <tbody className="divide-y divide-line">{tickets.length === 0 && <tr><td colSpan={6} className="px-4 py-4 text-mute">Keine Meldungen.</td></tr>}
-        {tickets.filter(t => f === 'Alle' || t.kind === f).map(t => (
-        <tr key={t.id}><td className="px-4 py-3 text-mute">{t.kind}</td>
-          <td className="px-4">{t.title}<span className="ml-2 inline-flex gap-1.5 text-mute align-middle">{t.photo && <a href={t.photo} target="_blank" rel="noreferrer"><Camera size={13} /></a>}{t.viaAI && <span className="text-xs">über {ASSISTANT}</span>}</span><p className="text-xs text-mute">{t.when}</p></td>
-          <td className="px-4 text-mute">{t.branch}</td><td className="px-4 text-mute">{t.who}</td>
-          <td className="px-4">{canEdit ? <select value={t.assignee ?? ''} onChange={e => assign(t.id, e.target.value)} className="h-8 rounded-[8px] bg-sage-50 px-2 text-[13px] outline-none"><option value="">Zuweisen …</option>{assignees.map(a => <option key={a}>{a}</option>)}</select> : <span className="text-mute">{t.assignee ?? '–'}</span>}</td>
-          <td className="px-4">{canEdit ? <select value={t.status} onChange={e => setStatus(t.id, e.target.value as Ticket['status'])} className="h-8 rounded-[8px] bg-sage-50 px-2 text-[13px] outline-none">{['Neu', 'Zugewiesen', 'In Arbeit', 'Erledigt'].map(s => <option key={s}>{s}</option>)}</select> : <Status s={t.status} />}</td></tr>
-      ))}</tbody></table></div>
-      </>)
+    <H action={<div className="flex gap-3">
+      <div className="flex gap-1 p-1 rounded-[10px] bg-sage-50">{(['offen', 'erledigt'] as const).map(k => <button key={k} onClick={() => setSt(k)} className={seg(st === k)}>{k === 'offen' ? `Offen · ${tickets.filter(t => t.status !== 'Erledigt').length}` : 'Erledigt'}</button>)}</div>
+      <div className="flex gap-1 p-1 rounded-[10px] bg-sage-50">{(['Alle', 'Meldung', 'Idee'] as const).map(k => <button key={k} onClick={() => setF(k)} className={seg(f === k)}>{k}</button>)}</div>
+    </div>}>Meldungen & Ideen</H>
+    <div className={`grid gap-8 ${tk ? 'grid-cols-[1fr_340px]' : 'grid-cols-1'}`}>
+      <div><table className="tbl w-full text-[14px]"><thead><tr><Th>Art</Th><Th>Titel</Th><Th>Studio</Th><Th>Von</Th><Th>Zuständig</Th><Th>Status</Th></tr></thead>
+        <tbody className="divide-y divide-line">{list.length === 0 && <tr><td colSpan={6} className="px-4 py-4 text-mute">{st === 'offen' ? 'Nichts offen.' : 'Noch nichts erledigt.'}</td></tr>}
+          {list.map(t => (
+          <tr key={t.id} onClick={() => setSel(t.id === sel ? null : t.id)} className={`cursor-pointer ${sel === t.id ? 'bg-sage-50' : 'hover:bg-sage-50/70'}`}><td className="px-4 py-3 text-mute">{t.kind}</td>
+            <td className="px-4">{t.title}<p className="text-xs text-mute">{t.when}{t.photo && ` · ${t.mediaKind === 'video' ? 'Video' : 'Foto'}`}{t.comments.length > 0 && ` · ${t.comments.length} Kommentar${t.comments.length > 1 ? 'e' : ''}`}{t.kind === 'Idee' && t.votes > 0 && ` · ${t.votes} unterstützen`}{t.viaAI && ` · über ${ASSISTANT}`}</p></td>
+            <td className="px-4 text-mute">{t.branch}</td><td className="px-4 text-mute">{t.who}</td>
+            <td className="px-4" onClick={e => e.stopPropagation()}>{canEdit(t) ? <select value={t.assignee ?? ''} onChange={e => assign(t.id, e.target.value)} className="h-8 rounded-[8px] bg-sage-50 px-2 text-[13px] outline-none"><option value="">Zuweisen …</option>{assignees.map(a => <option key={a}>{a}</option>)}</select> : <span className="text-mute">{t.assignee ?? '–'}</span>}</td>
+            <td className="px-4" onClick={e => e.stopPropagation()}>{canEdit(t) ? <select value={t.status} onChange={e => setStatus(t.id, e.target.value as Ticket['status'])} className="h-8 rounded-[8px] bg-sage-50 px-2 text-[13px] outline-none">{['Neu', 'Zugewiesen', 'In Arbeit', 'Erledigt'].map(s => <option key={s}>{s}</option>)}</select> : <Status s={t.status} />}</td></tr>
+        ))}</tbody></table></div>
+      {tk && <Side><p className="rubric text-ink/70">{tk.kind} · {tk.branch}</p><p className="font-medium mt-2">{tk.title}</p>{tk.body && <p className="text-[13px] mt-1 whitespace-pre-wrap">{tk.body}</p>}
+        <p className="text-xs text-mute mt-1">{tk.who} · {tk.when}</p>
+        <div className="mt-3"><Media tk={tk} /></div>
+        <div className="mt-4"><Sec>Verlauf</Sec><Comments tk={tk} /></div>
+      </Side>}
+    </div>
+  </>)
 }
 
 /* ---------- Schulungen & Events ---------- */
@@ -239,7 +273,13 @@ function EventsAdmin() {
   const [sel, setSel] = useState<string | null>(events[0]?.id ?? null), [form, setForm] = useState(false), [err, setErr] = useState('')
   const [f, setF] = useState({ title: '', kind: 'Schulung', description: '', date: '', from: '09:00', to: '12:00', place: '', link: '', capacity: '', until: '', branches: [] as string[], skills: [] as string[] })
   const e = events.find(x => x.id === sel)
-  const people = e ? registrations.filter(r => r.event_id === e.id).map(r => staff.find(s => s.id === r.employee_id)).filter(Boolean) : []
+  const regs = e ? registrations.filter(r => r.event_id === e.id) : []
+  const who = (coming: boolean) => regs.filter(r => r.coming === coming).map(r => staff.find(s => s.id === r.employee_id)).filter(Boolean)
+  const people = who(true), nope = who(false)
+  // Noch keine Antwort: Zielgruppe (Studio + Skill) ohne Zu- oder Absage; Filialleitung sieht nur ihr Studio
+  const open = e ? staff.filter(s => s.active && s.branch_id !== 'buero' && (e.audienceBranches.length === 0 || e.audienceBranches.includes(s.branch_id))
+    && (e.audienceSkills.length === 0 || s.skills.some(k => e.audienceSkills.includes(k))) && !regs.some(r => r.employee_id === s.id)
+    && (me.app_role === 'buero' || s.branch_id === me.branch_id)) : []
   const save = async () => {
     if (!f.title.trim() || !f.date) { setErr('Titel und Datum sind nötig.'); return }
     const at = (d: string, t: string) => new Date(`${d}T${t}:00`).toISOString()
@@ -276,9 +316,40 @@ function EventsAdmin() {
           <td className="px-4 text-mute">{x.taken}{x.capacity ? `/${x.capacity}` : ''}</td></tr>)}</tbody></table></div>
       {e && <Side><p className="font-medium">{e.title}</p><p className="text-xs text-mute mt-1">{e.taken} Anmeldungen · {e.link ? 'Online' : e.place}</p>
         {e.description && <p className="mt-2 text-[13px]">{e.description}</p>}
-        <div className="mt-3 divide-y divide-line">{people.length === 0 && <p className="py-2 text-[13px] text-mute">{me.app_role === 'buero' ? 'Noch niemand angemeldet.' : 'Aus deiner Filiale noch niemand angemeldet.'}</p>}{people.map(p => <p key={p!.id} className="py-2 text-[13px]">{p!.first} {p!.last} <span className="text-mute">· {p!.branch}</span></p>)}</div>
+        {([['Zusagen', people], ['Absagen', nope], ['Noch keine Antwort', open]] as const).map(([l, ps]) => <div key={l} className="mt-4"><Sec>{`${l} · ${ps.length}`}</Sec><div className="divide-y divide-line">{ps.length === 0 && <p className="py-2 text-[13px] text-mute">Niemand.</p>}{ps.map(p => <p key={p!.id} className="py-2 text-[13px]">{p!.first} {p!.last} <span className="text-mute">· {p!.branch}</span></p>)}</div></div>)}
         {me.app_role === 'buero' && <button onClick={async () => { if (confirm('Diesen Termin löschen? Anmeldungen gehen verloren.')) { await supabase!.from('events').delete().eq('id', e.id); setSel(null); await reload() } }} className="mt-3 text-[13px] text-mute flex items-center gap-1"><Trash2 size={13} />Löschen</button>}
       </Side>}
+    </div>
+  </>)
+}
+
+/* ---------- Aushilfe (Pikett): wer kann an welchem Tag einspringen? ---------- */
+function StandbyAdmin() {
+  const { standby, staff, skillCatalog, me } = useApp()
+  const days = Array.from({ length: 14 }, (_, i) => isoDay(new Date(Date.now() + i * 864e5)))
+  const [day, setDay] = useState(days[0]), [sk, setSk] = useState<string[]>([])
+  const label = (d: string, o: Intl.DateTimeFormatOptions) => fmtDate(d + 'T12:00:00Z', o)
+  const on = (d: string) => standby.filter(x => x.day === d).map(x => staff.find(s => s.id === x.employee_id)).filter((s): s is NonNullable<typeof s> => !!s && s.active)
+    .filter(s => sk.length === 0 || s.skills.some(k => sk.includes(k)))
+  const list = on(day)
+  const in60 = (id: string) => standby.filter(x => x.employee_id === id && x.day <= isoDay(new Date(Date.now() + 60 * 864e5))).length
+  const ranking = staff.filter(s => s.active && s.branch_id !== 'buero' && (me.app_role === 'buero' || s.branch_id === me.branch_id)).map(s => ({ s, n: in60(s.id) })).sort((a, b) => b.n - a.n)
+  return (<>
+    <H>Aushilfe</H>
+    <div className="flex gap-1 overflow-x-auto no-scrollbar pb-1">{days.map(d => { const n = on(d).length
+      return <button key={d} onClick={() => setDay(d)} className={`shrink-0 w-[60px] py-2 rounded-[10px] text-center transition ${d === day ? 'bg-olive-700 text-white' : 'bg-sage-50 hover:bg-sage-100'}`}>
+        <span className={`block text-[11px] ${d === day ? 'text-sage-200' : 'text-mute'}`}>{label(d, { weekday: 'short' })}</span><span className="block font-display text-[16px]">{label(d, { day: 'numeric' })}</span>
+        <span className={`block text-[11px] ${d === day ? 'text-sage-200' : n ? 'text-olive-700' : 'text-mute'}`}>{n || '–'}</span></button> })}</div>
+    {skillCatalog.length > 0 && <div className="mt-4 flex flex-wrap gap-1.5">{skillCatalog.map(k => <button key={k} onClick={() => setSk(sk.includes(k) ? sk.filter(x => x !== k) : [...sk, k])} className={`px-2.5 h-7 rounded-[8px] text-[12px] ${sk.includes(k) ? 'bg-olive-700 text-white' : 'bg-sage-50 text-ink/80'}`}>{k}</button>)}</div>}
+    <div className="grid grid-cols-[1fr_300px] gap-8 mt-6">
+      <div><Sec>{`${label(day, { weekday: 'long', day: 'numeric', month: 'long' })} · ${list.length} verfügbar`}</Sec>
+        {list.length === 0 && <p className="py-3 text-[14px] text-mute">Niemand hat sich für diesen Tag eingetragen.</p>}
+        {list.map(s => <div key={s.id} className="py-3 border-b border-line grid grid-cols-[1fr_auto] gap-3 items-center">
+          <div><p className="text-[14px]">{s.first} {s.last} <span className="text-mute">· {s.role} · {s.branch}</span></p>{s.skills.length > 0 && <p className="text-xs text-mute mt-0.5">{s.skills.join(', ')}</p>}</div>
+          {s.phone ? <a href={`tel:${s.phone.replace(/\s/g, '')}`} className="h-8 px-3 rounded-[8px] bg-sage-50 hover:bg-sage-100 text-[13px] flex items-center gap-1.5"><Phone size={13} />{s.phone}</a> : <span className="text-xs text-mute">keine Nummer</span>}
+        </div>)}
+      </div>
+      <Side><Sec>Eingetragene Tage · nächste 60</Sec><div>{ranking.map(({ s, n }) => <div key={s.id} className="py-2 border-b border-line flex justify-between text-[13px]"><span>{s.first} {s.last} <span className="text-mute">· {s.branch}</span></span><span className={n ? 'tabular-nums' : 'text-mute'}>{n}</span></div>)}</div></Side>
     </div>
   </>)
 }
@@ -377,8 +448,24 @@ function StudiosAdmin() {
             <td className="px-4 text-mute text-[13px]">{r.facility_email || 'zentrale Adresse'}</td>
             <td className="px-4 whitespace-nowrap text-right"><button aria-label="nach oben" disabled={i === 0} onClick={() => move(i, -1)} className="p-1 text-mute disabled:opacity-30"><ArrowUp size={15} /></button><button aria-label="nach unten" disabled={i === (rows?.length ?? 0) - 1} onClick={() => move(i, 1)} className="p-1 text-mute disabled:opacity-30"><ArrowDown size={15} /></button>
               <button onClick={() => setEdit(r)} className="ml-3 text-[13px] text-mute hover:text-ink">Bearbeiten</button>{!r.is_office && <button onClick={() => remove(r)} className="ml-3 text-[13px] text-mute hover:text-ink">Löschen</button>}</td></tr>)}</tbody></table></div>
+    <DemoSwitch />
     <MailSettings />
   </>)
+}
+
+/* ---------- Beispielinhalte ein/aus (gilt für alle) ---------- */
+function DemoSwitch() {
+  const { demoData, setDemoData } = useApp()
+  const [busy, setBusy] = useState(false)
+  return (
+    <div className="mt-12 pt-6 border-t border-line flex items-start justify-between gap-4">
+      <div><p className="rubric text-ink/70">Beispielinhalte</p>
+        <p className="text-[14px] mt-3">Beispiel-News, -Schulungen, -Aufgaben und -Artikel {demoData ? 'werden angezeigt' : 'sind ausgeblendet'}</p>
+        <p className="text-xs text-mute mt-1">Gilt für alle. Vor dem Pilot ausschalten. Gelöscht wird nichts.</p></div>
+      <button disabled={busy} role="switch" aria-checked={demoData} onClick={async () => { setBusy(true); await setDemoData(!demoData); setBusy(false) }}
+        className={`relative shrink-0 w-11 h-6 rounded-full transition disabled:opacity-50 ${demoData ? 'bg-olive-700' : 'bg-sage-200'}`}><span className={`absolute top-[3px] w-[18px] h-[18px] rounded-full bg-white transition-all ${demoData ? 'left-[23px]' : 'left-[3px]'}`} /></button>
+    </div>
+  )
 }
 
 /* ---------- E-Mail-Versand (Facility, Einladungen, Erinnerungen) ---------- */

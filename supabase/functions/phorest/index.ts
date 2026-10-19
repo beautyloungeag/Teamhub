@@ -4,6 +4,7 @@
 //   my_day      {date?}          eigene Schichten + Termine (alle eigenen Phorest-Spalten)
 //   branch_day  {branch, date?}  Filialkalender: nur eigene Filiale(n), Büro alle
 //   team_today  {branch}         wer arbeitet heute: nur Filialleitung der Filiale oder Büro
+//   staff_week  {employee_id?}   Schichten der nächsten 7 Tage einer Person (ohne Kundendaten; für Profil)
 //   sync_staff  {}               Zuordnung per Firmen-Mail neu aufbauen (nur Büro)
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 
@@ -101,6 +102,28 @@ Deno.serve(async (req) => {
       return json({ ok: true, date, columns: cols.filter((c: any) => c.shift || d.list.some((a: any) => a.staffId === c.staff_id)), appointments: d.list.map((a: any) => ({
         staff_id: a.staffId, start: hhmm(a.startTime), end: hhmm(a.endTime), service: a.serviceName ?? '', client: names.get(a.clientId) ?? 'Kundin',
       })) })
+    }
+
+    if (body.action === 'staff_week') {
+      // Nur Arbeitszeiten, keine Termine: darf jede Kollegin sehen (z. B. um jemanden anzurufen)
+      const who = typeof body.employee_id === 'string' ? body.employee_id : me.id
+      const { data: maps } = await admin.from('employee_phorest').select('branch_id, staff_id').eq('employee_id', who)
+      if (!maps?.length) return json({ ok: true, mapped: false, days: [] })
+      // Phorest liefert den Dienstplan zuverlässig nur je Tag – deshalb sieben einzelne Abfragen
+      const dates = Array.from({ length: 7 }, (_, i) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Zurich' }).format(new Date(Date.now() + i * 864e5)))
+      const days: { date: string; branch_id: string; start: string; end: string }[] = []
+      for (const m of maps) {
+        const pbid = pb(m.branch_id); if (!pbid) continue
+        await Promise.all(dates.map(async (d) => {
+          const wt = await ph(`/branch/${pbid}/staff/worktimetable?from_date=${d}&to_date=${d}&size=200`)
+          for (const w of wt?._embedded?.workTimeTables ?? []) {
+            if (w.staffId !== m.staff_id) continue
+            const work = (w.timeSlots ?? []).filter((s: any) => s.type === 'WORKING')
+            if (work.length) days.push({ date: d, branch_id: m.branch_id, start: hhmm(work[0].startTime), end: hhmm(work[work.length - 1].endTime) })
+          }
+        }))
+      }
+      return json({ ok: true, mapped: true, days: days.sort((a, b) => a.date.localeCompare(b.date)) })
     }
 
     if (body.action === 'sync_staff') {

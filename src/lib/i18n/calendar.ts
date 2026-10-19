@@ -1,5 +1,7 @@
 // Schlüssel = deutscher Text, Werte [Englisch, Französisch].
 export default {
+  'Ich komme': ["I'm coming", 'Je viens'],
+  'Ich komme nicht': ["I can't come", 'Je ne viens pas'],
   'Für dein Konto ist kein Studio mit Phorest-Kalender hinterlegt.': ['No studio with a Phorest calendar is linked to your account.', "Aucun studio avec agenda Phorest n'est lié à ton compte."],
   'Deine Standorte': ['Your locations', 'Tes sites'],
   'Kundin suchen': ['Search client', 'Chercher une cliente'],

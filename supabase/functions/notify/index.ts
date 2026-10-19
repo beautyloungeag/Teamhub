@@ -38,9 +38,14 @@ Deno.serve(async (req) => {
   const body = await req.json().catch(() => ({}))
   webpush.setVapidDetails(Deno.env.get('VAPID_SUBJECT') ?? 'mailto:info@aleksa.ai', Deno.env.get('VAPID_PUBLIC_KEY')!, Deno.env.get('VAPID_PRIVATE_KEY')!)
 
-  const { data: emps } = await admin.from('employees').select('id, branch_id, extra_branch_ids, skills, app_role, lang').eq('active', true)
+  const { data: emps } = await admin.from('employees').select('id, branch_id, extra_branch_ids, skills, app_role, lang, job_title').eq('active', true)
   const staff = emps ?? []
   const inBranches = (e: any, br: string[]) => br.length === 0 || br.includes(e.branch_id) || (e.extra_branch_ids ?? []).some((b: string) => br.includes(b))
+  // Gleiche Regel wie public.job_groups() / news_for_me() in der Datenbank
+  const groupsOf = (t: string) => [/(respo|stv\.?\s*r|filialleit)/i.test(t) && 'Filialleitung', /kosmetik/i.test(t) && 'Kosmetikerinnen', /(lehrling|lernend|praktik|berufsbild)/i.test(t) && 'Lernende', /(büro|buero|\bhr\b|fibu|office)/i.test(t) && 'Büro'].filter(Boolean) as string[]
+  const forNews = (e: any, n: any) => (n.audience_people ?? []).length ? n.audience_people.includes(e.id)
+    : inBranches(e, n.audience_branches ?? []) && ((n.audience_groups ?? []).length === 0 || groupsOf(e.job_title ?? '').some((g) => n.audience_groups.includes(g)))
+      && ((n.audience_skills ?? []).length === 0 || (e.skills ?? []).some((k: string) => n.audience_skills.includes(k)))
 
   // Probe-Mitteilung an sich selbst (Knopf im Profil)
   if (body.action === 'test') {
@@ -57,10 +62,10 @@ Deno.serve(async (req) => {
   const add = (r: { sent: number; failed: number; removed: number }) => { sent += r.sent; failed += r.failed; removed += r.removed }
 
   // 1) News, die jetzt sichtbar sind
-  const { data: news } = await admin.from('news').select('id, title, teaser, must_read, audience_branches').is('notified_at', null).lte('publish_at', now).limit(20)
+  const { data: news } = await admin.from('news').select('id, title, teaser, must_read, audience_branches, audience_groups, audience_skills, audience_people').is('notified_at', null).lte('publish_at', now).limit(20)
   for (const n of news ?? []) {
     await admin.from('news').update({ notified_at: now }).eq('id', n.id)  // zuerst markieren: nie doppelt melden
-    const ids = staff.filter((e) => inBranches(e, n.audience_branches ?? [])).map((e) => e.id)
+    const ids = staff.filter((e) => forNews(e, n)).map((e) => e.id)
     add(await sendByLang(admin, staff, ids, (l) => ({ title: n.must_read ? fill(L[l].must, { t: n.title }) : n.title, body: n.teaser || L[l].newsFallback, url: `/?open=news:${n.id}`, tag: `news-${n.id}` })))
   }
   // 2) Neue Schulungen und Events

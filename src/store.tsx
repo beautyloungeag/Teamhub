@@ -6,17 +6,30 @@ import { tr, setCurrentLang, savedLang, locale, type Lang } from './lib/i18n'
 export type { Lang }
 
 /* ---------- Typen ---------- */
-export type Staff = { id: string; first: string; last: string; branch: string; branch_id: string; role: string; skills: string[]; photo: string | null; app_role: string; active: boolean; email: string; appInstalled?: boolean; pushEnabled?: boolean }
-export type News = { id: string; title: string; teaser: string; body: string; author: string; date: string; tag: string; mustRead: boolean; audience: string; audienceBranches: string[]; publishAt: string; wikiCategory: string | null }
+export type Staff = { id: string; first: string; last: string; branch: string; branch_id: string; role: string; skills: string[]; photo: string | null; app_role: string; active: boolean; email: string; phone?: string | null; appInstalled?: boolean; pushEnabled?: boolean }
+export type News = { id: string; title: string; teaser: string; body: string; author: string; date: string; tag: string; mustRead: boolean; audience: string; audienceBranches: string[]; audienceGroups: string[]; audienceSkills: string[]; audiencePeople: string[]; publishAt: string; wikiCategory: string | null }
 export type TaskItem = { id: string; title: string; time: string; group: string; prio: boolean; proof: boolean; articleId: string | null }
 export type Template = { id: string; name: string; repeat: 'daily' | 'weekly' | 'monthly'; weekday: number | null; monthday: number | null; branchIds: string[]; items: TaskItem[]; active: boolean; proposed: boolean; sample: boolean }
 export type Done = { by: string; at: string; photo: string | null }
-export type Ticket = { id: string; kind: 'Meldung' | 'Idee'; title: string; body: string; branch: string; branchId: string; status: 'Neu' | 'Zugewiesen' | 'In Arbeit' | 'Erledigt'; who: string; when: string; assignee: string | null; photo: string | null; viaAI: boolean }
+export type Ticket = { id: string; kind: 'Meldung' | 'Idee'; title: string; body: string; branch: string; branchId: string; status: 'Neu' | 'Zugewiesen' | 'In Arbeit' | 'Erledigt'; who: string; when: string; assignee: string | null; photo: string | null; mediaKind: 'photo' | 'video'; viaAI: boolean; mine: boolean; votes: number; voted: boolean; comments: Comment[] }
+export type Comment = { id: string; author: string; authorId: string | null; body: string; when: string }
 export type Ev = { id: string; title: string; kind: string; description: string; startsAt: string; endsAt: string | null; place: string; link: string | null; capacity: number | null; registerUntil: string | null; audienceBranches: string[]; audienceSkills: string[]; taken: number }
 export type WikiBlock = { t: 'h' | 'p' | 'ul' | 'ol' | 'quote' | 'img' | 'video' | 'file'; text?: string; items?: string[]; src?: string; url?: string; name?: string; level?: number }
 export type WikiArticle = { id: string; cat: string; title: string; minutes: number; updated: string; body: string[]; mediaKind: string; mediaUrl: string | null; published: boolean; fromNews?: boolean; intro: string; tags: string[]; accessLevel: 'alle' | 'filialleitung' | 'buero'; imported: boolean }
 export type Step = { id: string; title: string; minutes: number; articleId: string | null; proposed: boolean }
 export type Branch = { id: string; name: string; is_office: boolean }
+
+// Gruppen aus der Funktion – gleiche Regel wie public.job_groups() in der Datenbank
+export const GROUPS = ['Filialleitung', 'Kosmetikerinnen', 'Lernende', 'Büro'] as const
+export const jobGroups = (title: string) => [
+  /(respo|stv\.?\s*r|filialleit)/i.test(title) && 'Filialleitung', /kosmetik/i.test(title) && 'Kosmetikerinnen',
+  /(lehrling|lernend|praktik|berufsbild)/i.test(title) && 'Lernende', /(büro|buero|\bhr\b|fibu|office)/i.test(title) && 'Büro',
+].filter(Boolean) as string[]
+// Wer gehört zur Zielgruppe einer News? Personen gewählt = genau diese; sonst Studio UND Gruppe UND Skill (leer = alle)
+export const inNewsAudience = (s: Staff, n: Pick<News, 'audienceBranches' | 'audienceGroups' | 'audienceSkills' | 'audiencePeople'>) =>
+  n.audiencePeople.length ? n.audiencePeople.includes(s.id)
+    : (n.audienceBranches.length === 0 || n.audienceBranches.includes(s.branch_id)) && (n.audienceGroups.length === 0 || jobGroups(s.role).some(g => n.audienceGroups.includes(g)))
+      && (n.audienceSkills.length === 0 || s.skills.some(k => n.audienceSkills.includes(k)))
 
 /* ---------- Datum (Europe/Zurich) ---------- */
 export const TZ = 'Europe/Zurich'
@@ -45,9 +58,12 @@ type Ctx = {
   templates: Template[]; tasks: TaskItem[]; done: Map<string, Done>; toggle: (id: string, photo?: File) => Promise<void>
   completionsToday: { item_id: string; branch_id: string }[]
   tickets: Ticket[]; addTicket: (t: { kind: 'Meldung' | 'Idee'; title: string; body?: string; photo?: File; viaAI?: boolean }) => Promise<boolean>
+  addComment: (ticketId: string, body: string) => Promise<boolean>; toggleVote: (ticketId: string) => Promise<void>
   assign: (id: string, a: string) => Promise<void>; setStatus: (id: string, s: Ticket['status']) => Promise<void>
-  events: Ev[]; joined: Set<string>; toggleEvent: (id: string) => Promise<string | null>
-  registrations: { event_id: string; employee_id: string }[]
+  events: Ev[]; joined: Set<string>; declined: Set<string>; toggleEvent: (id: string) => Promise<string | null>; declineEvent: (id: string) => Promise<void>
+  registrations: { event_id: string; employee_id: string; coming: boolean }[]
+  standby: { employee_id: string; day: string; note: string }[]; toggleStandby: (day: string) => Promise<void>
+  demoData: boolean; setDemoData: (on: boolean) => Promise<void>
   wiki: WikiArticle[]; reloadWiki: () => Promise<void>; steps: Step[]; allSteps: Step[]; obDone: Set<string>; toggleStep: (id: string) => Promise<void>
   skills: string[]; setSkills: (s: string[]) => void
   photo: string | null; setPhotoFile: (f: File) => Promise<void>
@@ -59,7 +75,7 @@ export const useApp = () => useContext(C)!
 
 const toStaff = (e: any, branches: Branch[], photos: Map<string, string>): Staff => ({
   id: e.id, first: e.first_name, last: e.last_name, branch: branches.find(b => b.id === e.branch_id)?.name ?? e.branch_id, branch_id: e.branch_id,
-  role: e.job_title, skills: e.skills ?? [], photo: e.photo_path ? photos.get(e.photo_path) ?? null : null, app_role: e.app_role, active: e.active, email: e.email, appInstalled: !!e.app_installed_at, pushEnabled: !!e.push_enabled,
+  role: e.job_title, skills: e.skills ?? [], photo: e.photo_path ? photos.get(e.photo_path) ?? null : null, app_role: e.app_role, active: e.active, email: e.email, phone: e.phone ?? null, appInstalled: !!e.app_installed_at, pushEnabled: !!e.push_enabled,
 })
 
 export function AppProvider({ children }: { children: ReactNode }) {
@@ -78,6 +94,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [events, setEvents] = useState<Ev[]>([])
   const [registrations, setRegistrations] = useState<Ctx['registrations']>([])
+  const [standby, setStandby] = useState<Ctx['standby']>([])
+  const [demoData, setDemoState] = useState(true)
   const [allSteps, setAllSteps] = useState<Step[]>([])
   const steps = useMemo(() => allSteps.filter(x => !x.proposed), [allSteps])
   const [obDone, setObDone] = useState<Set<string>>(new Set())
@@ -87,7 +105,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Wissen: nur Liste laden (ohne Inhalte), einmal beim Start und nach Änderungen im Backoffice
   const reloadWiki = useCallback(async () => {
     if (!supabase || !employee) return
-    const { data } = await supabase.from('wiki_articles').select('id, category, title, minutes, updated_at, media_kind, media_url, published, access_level, tags, intro, source_id').order('category').order('sort').order('title')
+    const { data } = await supabase.from('wiki_articles').select('id, category, title, minutes, updated_at, media_kind, media_url, published, access_level, tags, intro, source_id, is_sample').order('category').order('sort').order('title')
     setWikiRows(data ?? [])
   }, [employee])
 
@@ -101,9 +119,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!supabase || !employee) return
     const sb = supabase
     const today = isoDay()
-    const [br, em, sk, nw, rd, tt, ti, tc, tk, ev, cnt, rg, wk, ob, obp, mp] = await Promise.all([
+    const [br, em, sk, nw, rd, tt, ti, tc, tk, ev, cnt, rg, wk, ob, obp, mp, fl, tcm, tvt, sbd] = await Promise.all([
       sb.from('branches').select('id, name, is_office').order('sort'),
-      sb.from('employees').select('id, email, first_name, last_name, job_title, app_role, branch_id, skills, photo_path, active, app_installed_at, push_enabled').order('first_name'),
+      sb.from('employees').select('id, email, phone, first_name, last_name, job_title, app_role, branch_id, skills, photo_path, active, app_installed_at, push_enabled').order('first_name'),
       sb.from('skills').select('name').order('sort'),
       sb.from('news').select('*').order('publish_at', { ascending: false }),
       sb.from('news_reads').select('news_id, employee_id, confirmed_at'),
@@ -113,12 +131,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
       sb.from('tickets').select('*').order('created_at', { ascending: false }),
       sb.from('events').select('*').order('starts_at'),
       sb.rpc('event_counts'),
-      sb.from('event_registrations').select('event_id, employee_id'),
+      sb.from('event_registrations').select('event_id, employee_id, coming'),
       Promise.resolve({ data: null }),
       sb.from('onboarding_steps').select('*').order('sort'),
       sb.from('onboarding_progress').select('step_id').eq('employee_id', employee.id),
       sb.from('employee_phorest').select('branch_id, staff_id').eq('employee_id', employee.id),
+      sb.rpc('app_flags'),
+      sb.from('ticket_comments').select('id, ticket_id, author_id, author_name, body, created_at').order('created_at'),
+      sb.from('ticket_votes').select('ticket_id, employee_id'),
+      sb.from('standby_days').select('employee_id, day, note').gte('day', today).order('day'),
     ])
+    const demo = (fl.data as any)?.demo_data !== false
+    setDemoState(demo)
+    const keep = (rows: any[] | null) => (rows ?? []).filter((r: any) => demo || !r.is_sample)
     const brs = (br.data ?? []) as Branch[]
     const bname = (id: string) => brs.find(b => b.id === id)?.name ?? id
     setBranches(brs)
@@ -131,35 +156,42 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
     setStaff((em.data ?? []).map((e: any) => toStaff(e, brs, photos)))
     setSkillCatalog((sk.data ?? []).map((s: any) => s.name))
-    setNews((nw.data ?? []).map((n: any) => ({
+    setNews(keep(nw.data).map((n: any) => ({
       id: n.id, title: n.title, teaser: n.teaser, body: n.body, author: n.author_name || 'Büro', tag: n.tag, mustRead: n.must_read,
-      date: fmtDate(n.publish_at), audience: n.audience_branches?.length ? n.audience_branches.map(bname).join(', ') : 'Alle Studios',
-      audienceBranches: n.audience_branches ?? [], publishAt: n.publish_at, wikiCategory: n.wiki_category,
+      date: fmtDate(n.publish_at), audience: n.audience_people?.length ? `${n.audience_people.length} ${n.audience_people.length === 1 ? 'Person' : 'Personen'}` : [n.audience_branches?.length ? n.audience_branches.map(bname).join(', ') : 'Alle Studios', ...(n.audience_groups ?? []), ...(n.audience_skills ?? [])].join(' · '),
+      audienceBranches: n.audience_branches ?? [], audienceGroups: n.audience_groups ?? [], audienceSkills: n.audience_skills ?? [], audiencePeople: n.audience_people ?? [],
+      publishAt: n.publish_at, wikiCategory: n.wiki_category,
     })))
     setNewsReads((rd.data ?? []) as Ctx['newsReads'])
     const items = (ti.data ?? []) as any[]
-    setTemplates((tt.data ?? []).map((x: any) => ({
+    setTemplates(keep(tt.data).map((x: any) => ({
       id: x.id, name: x.name, repeat: x.repeat, weekday: x.weekday, monthday: x.monthday, branchIds: x.branch_ids ?? [],
       items: items.filter(i => i.template_id === x.id).map(i => ({ id: i.id, title: i.title, time: i.due_time ? String(i.due_time).slice(0, 5) : '', group: x.name, prio: i.prio, proof: i.proof_photo, articleId: i.article_id ?? null })),
       active: x.active, proposed: x.proposed, sample: x.is_sample,
     })))
     setCompletions(tc.data ?? [])
     const counts = new Map(((cnt.data ?? []) as any[]).map(c => [c.event_id, c.taken]))
-    setEvents((ev.data ?? []).map((e: any) => ({
+    setEvents(keep(ev.data).map((e: any) => ({
       id: e.id, title: e.title, kind: e.kind, description: e.description, startsAt: e.starts_at, endsAt: e.ends_at, place: e.place, link: e.link,
       capacity: e.capacity, registerUntil: e.register_until, audienceBranches: e.audience_branches ?? [], audienceSkills: e.audience_skills ?? [], taken: counts.get(e.id) ?? 0,
     })))
     setRegistrations((rg.data ?? []) as Ctx['registrations'])
     const tkPhotos = new Map<string, string>()
-    const tp = (tk.data ?? []).map((x: any) => x.photo_path).filter(Boolean)
+    const tks = keep(tk.data)
+    const tp = tks.map((x: any) => x.photo_path).filter(Boolean)
     if (tp.length) { const { data } = await sb.storage.from('ticket-photos').createSignedUrls(tp, 3600); for (const x of data ?? []) if (x.signedUrl && x.path) tkPhotos.set(x.path, x.signedUrl) }
-    setTickets((tk.data ?? []).map((x: any) => ({
+    const votes = (tvt.data ?? []) as { ticket_id: string; employee_id: string }[]
+    const coms = (tcm.data ?? []) as any[]
+    setTickets(tks.map((x: any) => ({
       id: x.id, kind: x.kind, title: x.title, body: x.body, branch: bname(x.branch_id), branchId: x.branch_id, status: x.status, who: x.created_by_name,
-      when: relWhen(x.created_at), assignee: x.assignee, photo: x.photo_path ? tkPhotos.get(x.photo_path) ?? null : null, viaAI: x.via_ai,
+      when: relWhen(x.created_at), assignee: x.assignee, photo: x.photo_path ? tkPhotos.get(x.photo_path) ?? null : null, mediaKind: x.media_kind ?? 'photo', viaAI: x.via_ai,
+      mine: x.created_by === employee.id, votes: votes.filter(v => v.ticket_id === x.id).length, voted: votes.some(v => v.ticket_id === x.id && v.employee_id === employee.id),
+      comments: coms.filter(c => c.ticket_id === x.id).map(c => ({ id: c.id, author: c.author_name, authorId: c.author_id, body: c.body, when: relWhen(c.created_at) })),
     })))
+    setStandby((sbd.data ?? []) as Ctx['standby'])
     newsForWiki.current = nw.data ?? []
     void wk
-    setAllSteps((ob.data ?? []).map((s: any) => ({ id: s.id, title: s.title, minutes: s.minutes, articleId: s.article_id, proposed: !!s.proposed })))
+    setAllSteps(keep(ob.data).map((s: any) => ({ id: s.id, title: s.title, minutes: s.minutes, articleId: s.article_id, proposed: !!s.proposed })))
     setObDone(new Set((obp.data ?? []).map((x: any) => x.step_id)))
     setMyPhorest((mp.data ?? []) as Ctx['myPhorest'])
     setLoading(false)
@@ -184,7 +216,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [staff, employee])
 
   const wiki = useMemo<WikiArticle[]>(() => {
-    const arts: WikiArticle[] = wikiRows.map((a: any) => ({
+    const arts: WikiArticle[] = wikiRows.filter((a: any) => demoData || !a.is_sample).map((a: any) => ({
       id: a.id, cat: a.category, title: a.title, minutes: a.minutes, updated: fmtDate(a.updated_at, { day: '2-digit', month: '2-digit', year: 'numeric' }),
       body: [], mediaKind: a.media_kind, mediaUrl: a.media_url, published: a.published, intro: a.intro ?? '', tags: a.tags ?? [], accessLevel: a.access_level, imported: !!a.source_id,
     }))
@@ -195,7 +227,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       intro: n.teaser ?? '', tags: [], accessLevel: 'alle', imported: false,
     })
     return arts
-  }, [wikiRows, news]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [wikiRows, news, demoData]) // eslint-disable-line react-hooks/exhaustive-deps
   const today = isoDay()
   const myBranch = employee?.branch_id ?? ''
   // „Alle Studios“ meint die Studios, nicht das Büro: das Büro bekommt nur ausdrücklich zugewiesene Vorlagen
@@ -205,7 +237,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const myReads = newsReads.filter(r => r.employee_id === employee?.id)
   const read = useMemo(() => new Set(myReads.filter(r => r.confirmed_at).map(r => r.news_id)), [myReads])
   const opened = useMemo(() => new Set(myReads.map(r => r.news_id)), [myReads])
-  const joined = useMemo(() => new Set(registrations.filter(r => r.employee_id === employee?.id).map(r => r.event_id)), [registrations, employee])
+  const joined = useMemo(() => new Set(registrations.filter(r => r.employee_id === employee?.id && r.coming).map(r => r.event_id)), [registrations, employee])
+  const declined = useMemo(() => new Set(registrations.filter(r => r.employee_id === employee?.id && !r.coming).map(r => r.event_id)), [registrations, employee])
 
   if (!employee) return <C.Provider value={null}>{children}</C.Provider>
   const sb = supabase!
@@ -239,13 +272,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
     tickets,
     addTicket: async ({ kind, title, body = '', photo, viaAI = false }) => {
       const path = photo ? await upload('ticket-photos', photo, `${Date.now()}`) : null
-      const { error } = await sb.from('tickets').insert({ kind, title, body, branch_id: myBranch, created_by: employee.id, created_by_name: name, via_ai: viaAI, photo_path: path })
+      const { error } = await sb.from('tickets').insert({ kind, title, body, branch_id: myBranch, created_by: employee.id, created_by_name: name, via_ai: viaAI, photo_path: path, media_kind: photo?.type.startsWith('video') ? 'video' : 'photo' })
       if (!error) await reload()
       return !error
     },
+    addComment: async (ticketId, body) => {
+      const { error } = await sb.from('ticket_comments').insert({ ticket_id: ticketId, author_id: employee.id, author_name: `${employee.first_name} ${employee.last_name}`, body: body.trim() })
+      if (!error) await reload()
+      return !error
+    },
+    toggleVote: async (ticketId) => {
+      const tk = tickets.find(x => x.id === ticketId)
+      if (tk?.voted) await sb.from('ticket_votes').delete().match({ ticket_id: ticketId, employee_id: employee.id })
+      else await sb.from('ticket_votes').insert({ ticket_id: ticketId, employee_id: employee.id })
+      await reload()
+    },
     assign: async (id, a) => { await sb.from('tickets').update({ assignee: a || null, status: a ? 'Zugewiesen' : 'Neu' }).eq('id', id); await reload() },
     setStatus: async (id, s) => { await sb.from('tickets').update({ status: s }).eq('id', id); await reload() },
-    events, joined, registrations,
+    events, joined, declined, registrations, standby, demoData,
     toggleEvent: async (id) => {
       const { error } = joined.has(id)
         ? await sb.from('event_registrations').delete().match({ event_id: id, employee_id: employee.id })
@@ -254,6 +298,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (!error) return null
       return /full/.test(error.message) ? 'Leider ausgebucht.' : /deadline/.test(error.message) ? 'Die Anmeldefrist ist vorbei.' : 'Das hat nicht geklappt.'
     },
+    declineEvent: async (id) => { await sb.rpc('decline_event', { p_event: id }); await reload() },
+    toggleStandby: async (day) => {
+      if (standby.some(x => x.employee_id === employee.id && x.day === day)) await sb.from('standby_days').delete().match({ employee_id: employee.id, day })
+      else await sb.from('standby_days').insert({ employee_id: employee.id, day })
+      await reload()
+    },
+    setDemoData: async (on) => { await sb.from('app_settings').upsert({ key: 'demo_data', value: on, updated_at: new Date().toISOString() }); await reload(); await reloadWiki() },
     wiki, reloadWiki, steps, allSteps, obDone,
     toggleStep: async (id) => {
       if (obDone.has(id)) await sb.from('onboarding_progress').delete().match({ step_id: id, employee_id: employee.id })

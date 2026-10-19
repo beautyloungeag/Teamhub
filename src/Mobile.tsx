@@ -3,23 +3,24 @@ import { motion } from 'motion/react'
 import {
   Home, ListChecks, BookOpen, LayoutGrid, Sparkles, ChevronLeft, ChevronRight, Check, Camera, MapPin, Users,
   Search, Lightbulb, AlertTriangle, CalendarDays, Inbox, Send, Newspaper, Plane, Play, Video,
-  ArrowUpRight, LogOut, GraduationCap, Link2, Lock, FileText, Smartphone, Share, PlusSquare, MoreVertical, ExternalLink, Monitor,
+  ArrowUpRight, LogOut, Phone, ThumbsUp, GraduationCap, Link2, Lock, FileText, Smartphone, Share, PlusSquare, MoreVertical, ExternalLink, Monitor,
 } from 'lucide-react'
 import { useAuth } from './lib/auth'
 import { supabase } from './lib/supabase'
-import { phorest, type MyDay, type TeamToday } from './lib/phorest'
+import { phorest, type MyDay, type TeamToday, type StaffWeek } from './lib/phorest'
 import { pushState, enablePush, disablePush, testPush, reportDevice, isStandalone, isIOS, isAndroid, canPromptInstall, promptInstall, type PushState } from './lib/push'
 import { useApp, isoDay, type Lang, type News, type WikiArticle, type WikiBlock, type Staff } from './store'
 import { Terminbuch, EventCalendar } from './Calendar'
 import { tr, locale } from './lib/i18n'
 import { Logo, BMark } from './Logo'
+import { Comments, Media } from './TicketParts'
 
 // Name des KI-Reiters (im Vertrag „Marc Beau“, im abgestimmten Prototyp „Benni“)
 export const ASSISTANT = 'Benni'
 
 type Tab = 'home' | 'tasks' | 'ai' | 'wiki' | 'menu'
 type Sub = null | { k: 'news-list' } | { k: 'news'; item: News } | { k: 'wiki'; item: WikiArticle } | { k: 'onboarding' } | { k: 'team' } | { k: 'profile'; item: Staff }
-  | { k: 'me' } | { k: 'conn' } | { k: 'book' } | { k: 'tickets' } | { k: 'events' } | { k: 'inbox' } | { k: 'time' } | { k: 'install' }
+  | { k: 'me' } | { k: 'conn' } | { k: 'book' } | { k: 'tickets' } | { k: 'ticket'; id: string } | { k: 'events' } | { k: 'inbox' } | { k: 'time' } | { k: 'install' }
 
 const ini = (s: { first: string; last: string }) => ((s.first[0] ?? '') + (s.last[0] ?? '')).toUpperCase()
 
@@ -95,7 +96,8 @@ function Shell({ onLogout, onSwitch }: { onLogout: () => void; onSwitch?: () => 
     case 'team': screen = <Team open={open} />; break
     case 'profile': screen = <Profile s={sub.item} />; break
     case 'me': screen = <MyProfile />; break
-    case 'tickets': screen = <Tickets />; break
+    case 'tickets': screen = <Tickets open={open} />; break
+    case 'ticket': screen = <TicketDetail id={sub.id} />; break
     case 'events': screen = <Events />; break
     case 'conn': screen = <Connections />; break
     case 'book': screen = <div className="px-5 pb-4 h-[calc(100dvh-150px)] md:h-[calc(100dvh-110px)]"><h1 className="text-[26px] font-medium tracking-tight mb-3">{t('Kundentermine')}</h1><Terminbuch compact /></div>; break
@@ -534,6 +536,36 @@ function Team({ open }: { open: (s: Sub) => void }) {
     </div>
   )
 }
+
+/* ---------- Arbeitszeiten der Woche (aus Phorest) ---------- */
+function WeekShifts({ id }: { id?: string }) {
+  const { t, branches } = useApp()
+  const [w, setW] = useState<StaffWeek | null>(null)
+  useEffect(() => { setW(null); phorest<StaffWeek>({ action: 'staff_week', employee_id: id }).then(setW) }, [id])
+  const days = Array.from({ length: 7 }, (_, i) => isoDay(new Date(Date.now() + i * 864e5)))
+  const label = (d: string) => new Intl.DateTimeFormat(locale(), { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'numeric' }).format(new Date(d + 'T12:00:00Z'))
+  if (!w) return <Empty>{t('Lädt aus Phorest …')}</Empty>
+  if (!w.ok || !w.mapped) return <Empty>{t('Keine Arbeitszeiten aus Phorest.')}</Empty>
+  return <List>{days.map(d => { const x = w.days.filter(s => s.date === d)
+    return <div key={d} className="px-4 py-2.5 flex justify-between text-[14px]"><span className="text-ink/80">{label(d)}</span>{x.length ? <span>{x.map(s => `${s.start}–${s.end}${branches.length && x.length > 1 ? ' ' + (branches.find(b => b.id === s.branch_id)?.name ?? '') : ''}`).join(', ')}</span> : <span className="text-mute">{t('frei')}</span>}</div> })}</List>
+}
+/* ---------- Aushilfe-Tage (Pikett) ---------- */
+function StandbyPicker() {
+  const { standby, toggleStandby, me, t } = useApp()
+  const mine = new Set(standby.filter(x => x.employee_id === me.id).map(x => x.day))
+  const days = Array.from({ length: 56 }, (_, i) => isoDay(new Date(Date.now() + (i + 1) * 864e5)))
+  const dow = (d: string) => (new Date(d + 'T12:00:00Z').getUTCDay() + 6) % 7
+  const pad = dow(days[0])
+  const [busy, setBusy] = useState<string | null>(null)
+  return (<div>
+    <div className="grid grid-cols-7 gap-1 text-center text-[11px] text-mute mb-1">{['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].map(x => <span key={x}>{t(x)}</span>)}</div>
+    <div className="grid grid-cols-7 gap-1">{Array.from({ length: pad }, (_, i) => <span key={'p' + i} />)}{days.map(d => { const on = mine.has(d), first = d.slice(8) === '01' || d === days[0]
+      return <button key={d} disabled={busy === d} onClick={async () => { setBusy(d); await toggleStandby(d); setBusy(null) }} className={`h-10 rounded-[10px] text-[13px] transition ${on ? 'bg-olive-700 text-white' : 'bg-white'} ${busy === d ? 'opacity-50' : ''}`}>
+        {first ? new Intl.DateTimeFormat(locale(), { timeZone: 'UTC', day: 'numeric', month: 'numeric' }).format(new Date(d + 'T12:00:00Z')) : Number(d.slice(8))}</button> })}</div>
+    <p className="mt-2 text-xs text-mute">{t('{n} Tage eingetragen', { n: mine.size })}</p>
+  </div>)
+}
+
 function Profile({ s }: { s: Staff }) {
   const { t } = useApp()
   return (
@@ -541,7 +573,9 @@ function Profile({ s }: { s: Staff }) {
       <div className="mt-4 flex justify-center"><Avatar s={s} photo={s.photo} size="w-24 h-24 text-2xl" /></div>
       <h1 className="mt-4 text-[24px] font-medium tracking-tight">{s.first} {s.last}</h1><p className="text-mute">{s.role} · {t('Studio {name}', { name: s.branch })}</p>
       <div className="mt-6 text-left"><Label>{t('Skills')}</Label>{s.skills.length ? <div className="flex flex-wrap gap-2">{s.skills.map(k => <span key={k} className="px-3 h-8 rounded-full bg-white text-[13px] flex items-center">{k}</span>)}</div> : <p className="text-[14px] text-mute">{t('Noch keine Skills eingetragen.')}</p>}
-        <div className="mt-6"><a href={`mailto:${s.email}`} className="w-full h-12 rounded-2xl font-medium flex items-center justify-center gap-2 bg-white text-ink"><Send size={16} />{t('E-Mail schreiben')}</a></div></div>
+        <Label>{t('Arbeitszeiten diese Woche')}</Label><WeekShifts id={s.id} />
+        <div className="mt-6 grid gap-2">{s.phone && <a href={`tel:${s.phone.replace(/\s/g, '')}`} className="w-full h-12 rounded-[10px] font-medium flex items-center justify-center gap-2 bg-olive-700 text-white"><Phone size={16} />{t('Anrufen')}</a>}
+          <a href={`mailto:${s.email}`} className="w-full h-12 rounded-[10px] font-medium flex items-center justify-center gap-2 bg-white text-ink"><Send size={16} />{t('E-Mail schreiben')}</a></div></div>
     </div>
   )
 }
@@ -561,6 +595,10 @@ function MyProfile() {
       <Label>{t('Meine Skills')}</Label>
       <div className="flex flex-wrap gap-2">{skillCatalog.map(k => <button key={k} onClick={() => tog(k)} className={`px-3 h-8 rounded-full text-[13px] ${skills.includes(k) ? 'bg-olive-700 text-white' : 'bg-white'}`}>{k}</button>)}</div>
       <p className="mt-3 text-xs text-mute">{t('Die Skill-Liste gibt das Büro vor. Kolleginnen finden dich darüber.')}</p>
+      <Label>{t('Meine Arbeitszeiten')}</Label>
+      <WeekShifts />
+      <Label>{t('Ich kann aushelfen an')}</Label>
+      <StandbyPicker />
       <Label>{t('Mitteilungen')}</Label>
       <PushToggle />
       <Label>{t('Sprache')}</Label>
@@ -569,9 +607,10 @@ function MyProfile() {
   )
 }
 
-function Tickets() {
-  const { tickets, addTicket, me, t } = useApp()
+function Tickets({ open }: { open: (s: Sub) => void }) {
+  const { tickets, addTicket, toggleVote, me, t } = useApp()
   const [kind, setKind] = useState<'Meldung' | 'Idee'>('Meldung'), [text, setText] = useState(''), [ok, setOk] = useState(''), [photo, setPhoto] = useState<File | null>(null), [busy, setBusy] = useState(false)
+  const [view, setView] = useState<'offen' | 'erledigt'>('offen')
   const file = useRef<HTMLInputElement>(null)
   const submit = async () => {
     if (!text.trim() || busy) return
@@ -579,32 +618,55 @@ function Tickets() {
     if (good) { setText(''); setPhoto(null); setOk(t('Gesendet. Du siehst hier, was daraus wird.')) } else setOk(t('Das hat nicht geklappt. Bitte versuche es noch einmal.'))
     setTimeout(() => setOk(''), 3000)
   }
-  // Die Datenbank liefert nur, was diese Person sehen darf (eigene, Filiale oder alle)
-  const mine = tickets
+  // Die Datenbank liefert nur, was diese Person sehen darf: eigene Meldungen, Ideen des Teams, als Leitung das Studio
+  const list = tickets.filter(x => view === 'offen' ? x.status !== 'Erledigt' : x.status === 'Erledigt')
+    .sort((a, b) => (b.kind === 'Idee' ? b.votes : 0) - (a.kind === 'Idee' ? a.votes : 0))
+  const isVideo = photo?.type.startsWith('video')
   return (
     <div className="pb-10"><Title>{t('Melden & Ideen')}</Title>
       <div className="px-5">
-        <div className="grid grid-cols-2 gap-2 p-1 rounded-2xl bg-white">
-          {(['Meldung', 'Idee'] as const).map(k => <button key={k} onClick={() => setKind(k)} className={`h-10 rounded-xl text-[14px] flex items-center justify-center gap-1.5 ${kind === k ? 'bg-olive-700 text-white' : ''}`}>{k === 'Meldung' ? <AlertTriangle size={15} /> : <Lightbulb size={15} />}{t(k)}</button>)}
+        <div className="grid grid-cols-2 gap-1 p-1 rounded-[12px] bg-white">
+          {(['Meldung', 'Idee'] as const).map(k => <button key={k} onClick={() => setKind(k)} className={`h-10 rounded-[10px] text-[14px] flex items-center justify-center gap-1.5 transition ${kind === k ? 'bg-olive-700 text-white' : ''}`}>{k === 'Meldung' ? <AlertTriangle size={15} /> : <Lightbulb size={15} />}{t(k)}</button>)}
         </div>
         <Card className="mt-3 p-4">
           <textarea value={text} onChange={e => setText(e.target.value)} rows={3} placeholder={kind === 'Meldung' ? t('Was ist kaputt oder fehlt?') : t('Was könnten wir besser machen?')} className="w-full resize-none outline-none text-[15px] placeholder:text-mute bg-transparent" />
           <div className="mt-2 flex items-center justify-between text-[13px] text-mute">
-            <span className="flex items-center gap-3"><button onClick={() => file.current?.click()} className={`flex items-center gap-1 ${photo ? 'text-sage-800' : ''}`}><Camera size={15} />{photo ? t('Foto dabei') : t('Foto')}</button><span className="flex items-center gap-1"><MapPin size={15} />{me.branch}</span></span>
-            <button disabled={busy} onClick={submit} className="h-9 px-4 rounded-full bg-olive-700 text-white flex items-center gap-1.5 disabled:opacity-60"><Send size={13} />{t('Senden')}</button>
+            <span className="flex items-center gap-3"><button onClick={() => file.current?.click()} className={`flex items-center gap-1 ${photo ? 'text-olive-700' : ''}`}>{isVideo ? <Video size={15} /> : <Camera size={15} />}{photo ? (isVideo ? t('Video dabei') : t('Foto dabei')) : t('Foto oder Video')}</button><span className="flex items-center gap-1"><MapPin size={15} />{me.branch}</span></span>
+            <button disabled={busy} onClick={submit} className="h-9 px-4 rounded-[10px] bg-olive-700 text-white flex items-center gap-1.5 disabled:opacity-60"><Send size={13} />{t('Senden')}</button>
           </div>
-          <input ref={file} type="file" accept="image/*" capture="environment" className="hidden" onChange={e => setPhoto(e.target.files?.[0] ?? null)} />
+          <input ref={file} type="file" accept="image/*,video/*" className="hidden" onChange={e => setPhoto(e.target.files?.[0] ?? null)} />
         </Card>
-        <p className="mt-2 text-xs text-mute">{ok || (kind === 'Meldung' ? t('Landet im Büro und wird dort zugewiesen.') : t('Landet beim Büro.'))}</p>
-        <Label>{t('Verlauf')}</Label>
-        <List>{mine.length === 0 && <Empty>{t('Noch nichts gemeldet.')}</Empty>}{mine.map(x => (
-          <div key={x.id} className="px-4 py-3">
-            <div className="flex items-center gap-2 text-xs text-mute"><span className="text-sage-800">{t(x.kind)}</span>·<span>{x.branch}</span>·<span>{x.when}</span>{x.viaAI && <span>{t('über {name}', { name: ASSISTANT })}</span>}</div>
-            <p className="text-[15px] mt-1">{x.title}</p>
-            <p className="text-xs mt-1"><Status s={x.status} />{x.assignee && <span className="text-mute"> · {x.assignee}</span>}</p>
+        {ok && <p className="mt-2 text-xs text-mute">{ok}</p>}
+        <div className="mt-8 mb-2.5 px-1 flex items-center justify-between"><h2 className="rubric text-ink/70">{t('Verlauf')}</h2>
+          <div className="flex gap-1 p-0.5 rounded-[8px] bg-white">{(['offen', 'erledigt'] as const).map(k => <button key={k} onClick={() => setView(k)} className={`h-7 px-2.5 rounded-[6px] text-[12px] transition ${view === k ? 'bg-olive-700 text-white' : 'text-ink/60'}`}>{t(k === 'offen' ? 'Offen' : 'Erledigt')}</button>)}</div></div>
+        <List>{list.length === 0 && <Empty>{view === 'offen' ? t('Nichts offen.') : t('Noch nichts erledigt.')}</Empty>}{list.map(x => (
+          <div key={x.id} className="px-4 py-3 flex gap-3 items-start">
+            <button onClick={() => open({ k: 'ticket', id: x.id })} className="flex-1 min-w-0 text-left">
+              <div className="flex items-center gap-2 text-xs text-mute"><span className="text-olive-700">{t(x.kind)}</span>·<span>{x.branch}</span>·<span>{x.when}</span>{!x.mine && <span>· {x.who}</span>}</div>
+              <p className="text-[15px] mt-1">{x.title}</p>
+              <p className="text-xs mt-1 flex items-center gap-2"><Status s={x.status} />{x.assignee && <span className="text-mute">· {x.assignee}</span>}{x.comments.length > 0 && <span className="text-mute">· {t('{n} Kommentare', { n: x.comments.length })}</span>}</p>
+            </button>
+            {x.kind === 'Idee' && <button onClick={() => toggleVote(x.id)} aria-pressed={x.voted} className={`shrink-0 w-11 py-1.5 rounded-[10px] flex flex-col items-center text-[12px] transition ${x.voted ? 'bg-olive-700 text-white' : 'bg-sage-50 text-ink/70'}`}><ThumbsUp size={14} />{x.votes}</button>}
           </div>
         ))}</List>
       </div>
+    </div>
+  )
+}
+function TicketDetail({ id }: { id: string }) {
+  const { tickets, toggleVote, t } = useApp()
+  const x = tickets.find(y => y.id === id)
+  if (!x) return <Empty>{t('Nicht mehr vorhanden.')}</Empty>
+  return (
+    <div className="px-5 pb-10">
+      <p className="rubric text-olive-700 mt-2">{t(x.kind)} · {x.branch}</p>
+      <h1 className="text-[24px] leading-tight mt-2">{x.title}</h1>
+      {x.body && <p className="mt-2 text-[15px] whitespace-pre-wrap">{x.body}</p>}
+      <p className="mt-2 text-[13px] text-mute flex items-center gap-2"><Status s={x.status} />{x.assignee && <span>· {x.assignee}</span>}<span>· {x.who}, {x.when}</span></p>
+      {x.photo && <div className="mt-4"><Media tk={x} /></div>}
+      {x.kind === 'Idee' && <button onClick={() => toggleVote(x.id)} className={`mt-4 h-10 px-4 rounded-[10px] text-[14px] flex items-center gap-2 transition ${x.voted ? 'bg-olive-700 text-white' : 'bg-white'}`}><ThumbsUp size={15} />{x.voted ? t('Du unterstützt das') : t('Unterstützen')} · {x.votes}</button>}
+      <Label>{t('Verlauf')}</Label>
+      <div className="rounded-[16px] bg-white px-4 py-2"><Comments tk={x} compact /></div>
     </div>
   )
 }

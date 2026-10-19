@@ -130,7 +130,7 @@ Deno.serve(async (req) => {
   // 3) Erinnerungen an Angemeldete
   const days = Number(S.event_reminder_days ?? 2)
   const until = new Date(Date.now() + days * 864e5).toISOString()
-  const { data: regs } = await admin.from('event_registrations').select('event_id, employee_id, events!inner(*), employees!inner(id, email, first_name, lang, active)').is('reminded_at', null).gt('events.starts_at', new Date().toISOString()).lte('events.starts_at', until).limit(100)
+  const { data: regs } = await admin.from('event_registrations').select('event_id, employee_id, events!inner(*), employees!inner(id, email, first_name, lang, active)').is('reminded_at', null).eq('coming', true).gt('events.starts_at', new Date().toISOString()).lte('events.starts_at', until).limit(100)
   for (const r of regs ?? []) {
     const e: any = Array.isArray(r.events) ? r.events[0] : r.events, p: any = Array.isArray(r.employees) ? r.employees[0] : r.employees
     if (p?.active) out.push({ ...eventMail('erinnerung', e, p, appUrl), ref: `${r.event_id}:${r.employee_id}` })

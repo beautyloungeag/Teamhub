@@ -2,6 +2,19 @@
 
 Interne Mitarbeiter-App (PWA + Desktop-Backoffice) der Beautylounge AG. Kundin: Renée Baumann. PM-Projekt: `projekt.aleksa.ai`, Key **BLTH** (`d4ee5d5c-4553-436c-bba7-137a03a2b704`). ⚠️ Das Repo `beautyloungeag/Teamhub` ist **öffentlich** — nie Personendaten committen.
 
+### Nachtrag 2026-10-19 abends — Ausbau nach Update-Meeting 25.09.
+
+- **Migration `0009_ausbau_oktober.sql`** (eingespielt): `app_flags()` + `app_settings.demo_data`, `job_groups(title)` (Filialleitung, Kosmetikerinnen, Lernende, Büro aus `job_title`), News-Spalten `audience_groups/_skills/_people` + `news_for_me()` in der RLS, Ideen fürs ganze Team sichtbar (Meldungen weiter nur Meldende + Leitung), Filialleitung darf Meldungen ihres Studios bearbeiten, `tickets.media_kind` (Foto/Video), Tabellen `ticket_comments`, `ticket_votes` (nur Ideen), `standby_days` (Pikett), `event_registrations.coming` + RPC `decline_event`, `event_counts` zählt nur Zusagen.
+- **Beispielinhalte-Schalter** im Backoffice unter Studios (gilt für alle, löscht nichts; Filter clientseitig über `is_sample`). Steht auf an.
+- **News-Zielgruppe:** Studios, Gruppen, Skills (Schnittmenge) oder einzelne Personen (dann nur diese), Live-Zähler. `notify` nutzt dieselbe Regel.
+- **Melden & Ideen:** Foto oder Video, Kommentare (Verlauf), Unterstützen bei Ideen, Filter offen/erledigt, Detailansicht in App und Backoffice (`src/TicketParts.tsx`).
+- **Profil:** Arbeitszeiten der Woche aus Phorest (neue Aktion `staff_week`, sieben Tagesabfragen, weil Phorest bei Datumsbereich nur einen Eintrag liefert), Anrufen-Knopf, eigene Aushilfe-Tage (8 Wochen).
+- **Backoffice „Aushilfe“** (Büro + Filialleitung): Tag wählen, Skills filtern, Telefonnummer, Rangliste eingetragener Tage (60 Tage).
+- **Events:** „Ich komme“ / „Ich komme nicht“, Backoffice zeigt Zusagen, Absagen, noch keine Antwort; Erinnerungsmails nur an Zusagen.
+- Alles am 19.10. lokal mit Test-Mitarbeiterin und Büro durchgeklickt, Rechte per REST geprüft (News an eine Person sieht nur sie). Testdaten wieder gelöscht.
+- **Offen aus Teil 2:** Wiki-Aufräumen (Liste von Renée), Benni entwirft News, Kundenhistorie, Lernbegleiter (alle drei brauchen den OpenAI-Schlüssel bzw. Bennis Anbindung). Danach Quiz.
+- **Timebutler (Recherche 19.10.):** API v1 mit Firmen-Token (Admin) liest Nutzer, Abwesenheiten, Resturlaub, Arbeitszeit und kann für jede Person stempeln; API v2 nur persönliche Tokens; keine Webhooks, kein OAuth-Plugin. Empfehlung: v1-Token als Supabase-Secret.
+
 ### Nachtrag 2026-10-19
 
 - **Design System (Aleksas Wahl 19.10.):** Olive #495940 / Stein #F5F5F2 / Messing #B08A52 nur für „heute wichtig“, Jost (Titel, Rubriken gesperrt) + Albert Sans (Text), Titel nie fett. Handy Variante B (weisse Gruppen auf Stein, Schicht auf Olive 800), Seitenleisten dunkel Olive mit Logo (`src/Logo.tsx`), Benni als Monogramm statt Funkel-Icon, Status als Punkt + Wort, Kennzahlen ohne Kacheln, Menü als Liste. Tokens in `src/index.css` (alte `sage-*`-Namen zeigen auf die neuen Werte). Referenzseite mit Befund: claude-team `ai-team/assets/beautylounge-teamhub/design-system/index.html`. Backoffice-Unterseiten (News, Aufgaben, Meldungen, Schulungen, Team, Studios, Wissen, Benni-Seitenleiste) ebenfalls überarbeitet: flache Tabellen (`.tbl`), Formulare und Vorschläge als `Panel` auf Stein, Detailspalten als `Side` mit Linie, Rubriken `Sec`, Erklärsätze entfernt. Anmeldung am Desktop mit Studio-Foto `public/login-studio.webp` (Nagelplätze, von Aleksa am 19.10.; weitere Fotos in claude-team `ai-team/assets/beautylounge-teamhub/fotos/`).
