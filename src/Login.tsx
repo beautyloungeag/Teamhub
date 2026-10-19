@@ -47,11 +47,11 @@ export default function Login({ notice }: { notice?: string }) {
   }
 
   return (
-    <div className="flex-1 flex flex-col px-7 pt-14 pb-10">
+    <div className="flex-1 flex flex-col px-7 md:px-10 pt-14 md:pt-8 pb-10 md:pb-8">
       <div className="flex justify-end gap-1 text-xs">
         {(['DE', 'EN', 'FR'] as Lang[]).map(l => <button key={l} onClick={() => setLang(l)} className={`px-2.5 py-1 rounded-full ${lang === l ? 'bg-olive-700 text-white' : 'text-mute'}`}>{l}</button>)}
       </div>
-      <div className="mt-14">
+      <div className="mt-14 md:mt-10">
         <Logo className="w-44 text-olive-800 -ml-1" />
         <p className="mt-8 rubric text-olive-700">TeamHub</p>
       </div>
