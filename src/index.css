@@ -25,3 +25,6 @@ body{margin:0;background:#F5F5F2;color:var(--color-ink);font-family:var(--font-s
 h1,h2,h3{font-family:var(--font-display);font-weight:500;letter-spacing:-0.01em}
 .rubric{font-family:var(--font-display);font-weight:500;font-size:11px;letter-spacing:.2em;text-transform:uppercase}
 .no-scrollbar::-webkit-scrollbar{display:none}
+.tbl th:first-child,.tbl td:first-child{padding-left:0}
+.tbl tbody tr{transition:background .15s}
+input[type=checkbox]{accent-color:#495940}
