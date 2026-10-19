@@ -7,6 +7,8 @@
 //   staff_week  {employee_id?}   Schichten der nächsten 7 Tage einer Person (ohne Kundendaten; für Profil)
 //   client_search {q}            Kundin suchen (Name, E-Mail oder Telefon), protokolliert
 //   client_history {client_id, months?, summary?} Besuche + Notizen der letzten Monate, auf Wunsch mit KI-Zusammenfassung, protokolliert
+//   services    {branch?, q?}    Behandlungskatalog (Dauer, Preis CHF, Kategorie), alle Rollen
+//   read        {path}           freie GET-Abfrage für Benni (Filialleitung: eigene Filiale ohne Umsätze, Büro alles)
 //   sync_staff  {}               Zuordnung per Firmen-Mail neu aufbauen (nur Büro)
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 import { aiJson, hasAI } from '../_shared/openai.ts'
@@ -102,6 +104,16 @@ Deno.serve(async (req) => {
         return json({ ok: true, date, team: cols.filter((c: any) => c.shift).map((c: any) => ({ name: c.name, ...c.shift, appointments: d.list.filter((a: any) => a.staffId === c.staff_id).length })) })
       }
       const names = await clientNames(d.list.map((a: any) => a.clientId))
+      // Freie Zeiten je Person: Schicht minus Termine, Lücken ab 15 Minuten
+      const mins = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5)), fmt = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+      for (const c of cols as any[]) {
+        if (!c.shift) { c.free = []; continue }
+        const busy = d.list.filter((a: any) => a.staffId === c.staff_id).map((a: any) => [mins(hhmm(a.startTime)), mins(hhmm(a.endTime))]).sort((x: number[], y: number[]) => x[0] - y[0])
+        let cur = mins(c.shift.start); const end = mins(c.shift.end), free: string[] = []
+        for (const [a, b] of busy) { if (a - cur >= 15) free.push(`${fmt(cur)}–${fmt(a)}`); cur = Math.max(cur, b) }
+        if (end - cur >= 15) free.push(`${fmt(cur)}–${fmt(end)}`)
+        c.free = free
+      }
       return json({ ok: true, date, columns: cols.filter((c: any) => c.shift || d.list.some((a: any) => a.staffId === c.staff_id)), appointments: d.list.map((a: any) => ({
         staff_id: a.staffId, start: hhmm(a.startTime), end: hhmm(a.endTime), service: a.serviceName ?? '', client: names.get(a.clientId) ?? 'Kundin',
       })) })
@@ -156,11 +168,13 @@ Deno.serve(async (req) => {
       const months = Math.min(24, Math.max(1, Number(body.months) || 12))
       const client = await ph(`/client/${encodeURIComponent(cid)}`)
       // Phorest liefert Termine nur in Zeitfenstern (max. ~31 Tage); je Studio und Monat eine Abfrage
+      const f = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Zurich' }).format(d)
       const windows = Array.from({ length: months }, (_, i) => {
         const to = new Date(Date.now() - i * 30 * 864e5), from = new Date(to.getTime() - 30 * 864e5)
-        const f = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Zurich' }).format(d)
         return [f(from), f(to)]
       })
+      // Kommende Termine: drei Fenster à 30 Tage voraus
+      for (let i = 0; i < 3; i++) windows.push([f(new Date(Date.now() + (i * 30 + 1) * 864e5)), f(new Date(Date.now() + (i + 1) * 30 * 864e5))])
       // Namen der Behandelnden direkt aus Phorest (alle Studios), nicht nur zugeordnete Konten
       const sName = new Map<string, string>()
       await Promise.all((branches ?? []).filter((b) => b.phorest_branch_id).map(async (b) => {
@@ -177,10 +191,13 @@ Deno.serve(async (req) => {
       const all: any[] = []
       for (let i = 0; i < jobs.length; i += 8) (await Promise.all(jobs.slice(i, i + 8).map((j) => j()))).forEach((x) => all.push(...x))
       const byId = new Map(all.map((a) => [a.appointmentId, a]))
-      const visits = [...byId.values()].sort((a, b) => `${b.appointmentDate}${b.startTime}`.localeCompare(`${a.appointmentDate}${a.startTime}`)).map((a) => ({
+      const nowLocal = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Zurich', dateStyle: 'short', timeStyle: 'short' }).format(new Date()).replace(' ', 'T')
+      const mapped = [...byId.values()].sort((a, b) => `${b.appointmentDate}${b.startTime}`.localeCompare(`${a.appointmentDate}${a.startTime}`)).map((a) => ({
         date: a.appointmentDate, time: hhmm(a.startTime), branch: a._branch, service: a.serviceName ?? '', staff: sName.get(a.staffId) ?? '',
         cancelled: !!(a.cancelled || a.activationState === 'CANCELED'), notes: String(a.notes ?? a.note ?? '').trim(),
       }))
+      const visits = mapped.filter((v) => `${v.date}T${v.time}` < nowLocal)
+      const upcoming = mapped.filter((v) => `${v.date}T${v.time}` >= nowLocal && !v.cancelled).reverse()
       await admin.from('client_lookups').insert({ employee_id: me.id, action: 'history', client_id: cid, result_count: visits.length })
       const info = {
         name: `${client.firstName ?? ''} ${client.lastName ?? ''}`.trim(), since: String(client.clientSince ?? client.firstVisit ?? client.createdAt ?? '').slice(0, 10),
@@ -200,7 +217,38 @@ Deno.serve(async (req) => {
           await admin.from('client_lookups').insert({ employee_id: me.id, action: 'summary', client_id: cid, result_count: visits.length })
         } catch { summary = null }
       }
-      return json({ ok: true, months, client: info, visits, summary })
+      return json({ ok: true, months, client: info, visits, upcoming, summary })
+    }
+
+    // Behandlungen mit Dauer, Preis (CHF), Kategorie und Online-Buchbarkeit, gefiltert nach Suchwörtern
+    if (body.action === 'services') {
+      const b = String(body.branch ?? (me.branch_id === 'buero' ? 'basel-1' : me.branch_id))
+      const pbid = pb(b); if (!pbid) return json({ ok: false, error: 'no_phorest_branch' }, 400)
+      const list = ((await ph(`/branch/${pbid}/service?size=500`))?._embedded?.services ?? []).filter((x: any) => !x.archived)
+      const words = String(body.q ?? '').toLowerCase().split(/\s+/).filter((w: string) => w.length >= 3)
+      const hits = words.length ? list.filter((x: any) => words.some((w: string) => `${x.name} ${x.categoryName ?? ''}`.toLowerCase().includes(w))) : list
+      return json({ ok: true, branch: b, total: hits.length, services: hits.slice(0, 60).map((x: any) => ({ name: String(x.name ?? '').trim(), minuten: x.duration, preis_chf: x.price, kategorie: x.categoryName ?? '', online_buchbar: !!x.internetEnabled, nur_zusatz: !!x.isAddonOnly })) })
+    }
+
+    // Freie Leseabfrage für Benni (nur Filialleitung und Büro). Nur GET, nur unterhalb des eigenen Business.
+    // Filialleitung: nur eigene Filiale, keine Umsätze. Kundendaten werden protokolliert.
+    if (body.action === 'read') {
+      if (me.app_role === 'mitarbeiterin') return json({ ok: false, error: 'forbidden' }, 403)
+      const raw = String(body.path ?? '').trim().replace(/^\/+/, '').replace(/^business\/[^/]+\//, '')
+      if (!raw || raw.includes('..') || /^https?:/i.test(raw)) return json({ ok: false, error: 'bad_path' }, 400)
+      const parts = raw.split('?')[0].split('/')
+      const head = parts[0].toLowerCase()
+      if (!['branch', 'client', 'voucher'].includes(head)) return json({ ok: false, error: 'path_not_allowed', allowed: 'branch, branch/{id}/…, client, client/{id}, voucher' }, 400)
+      if (head === 'branch' && parts[1]) {
+        const own = (branches ?? []).filter((b) => me.app_role === 'buero' || myBranches.includes(b.id)).map((b) => b.phorest_branch_id)
+        if (!own.includes(parts[1])) return json({ ok: false, error: 'branch_not_allowed' }, 403)
+        if (me.app_role !== 'buero' && /^(purchase|transaction|sale|report)/i.test(parts[2] ?? '')) return json({ ok: false, error: 'forbidden_for_role' }, 403)
+      }
+      if (head === 'client' || /client_id=/.test(raw)) await admin.from('client_lookups').insert({ employee_id: me.id, action: 'search', query: ('read ' + raw).slice(0, 120), result_count: null })
+      try {
+        const text = JSON.stringify(await ph('/' + raw))
+        return json({ ok: true, truncated: text.length > 15000, body: text.slice(0, 15000) })
+      } catch (e) { return json({ ok: false, error: e instanceof Error ? e.message : String(e) }) }
     }
 
     if (body.action === 'sync_staff') {

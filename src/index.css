@@ -43,3 +43,8 @@ input[type=checkbox]{accent-color:#495940}
 @keyframes orb-float{0%,100%{transform:translateY(1.5%) rotate(-1deg)}50%{transform:translateY(-4%) rotate(1deg)}}
 @keyframes orb-shadow{0%,100%{opacity:.8;transform:scale(1)}50%{opacity:.45;transform:scale(.8)}}
 @media (prefers-reduced-motion: reduce){.benni-orb .orb-float,.benni-orb .orb-shadow{animation:none!important}.benni-orb canvas{transition:none}}
+
+/* Benni arbeitet: Schritt-Text mit sanftem Schimmer */
+.benni-shimmer{background:linear-gradient(90deg,var(--color-mute) 0%,var(--color-ink) 45%,var(--color-mute) 90%);background-size:220% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:benni-shimmer 2.2s linear infinite}
+@keyframes benni-shimmer{from{background-position:120% 0}to{background-position:-100% 0}}
+@media (prefers-reduced-motion: reduce){.benni-shimmer{animation:none;color:var(--color-mute);background:none}}

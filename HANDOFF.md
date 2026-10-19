@@ -2,6 +2,16 @@
 
 Interne Mitarbeiter-App (PWA + Desktop-Backoffice) der Beautylounge AG. Kundin: Renée Baumann. PM-Projekt: `projekt.aleksa.ai`, Key **BLTH** (`d4ee5d5c-4553-436c-bba7-137a03a2b704`). ⚠️ Das Repo `beautyloungeag/Teamhub` ist **öffentlich** — nie Personendaten committen.
 
+### Nachtrag 2026-10-19 spätabends — Benni deutlich klüger, Arbeitsschritte, Aufgaben, Glocke
+
+- **Benni (`assistant`, neu geschrieben):** Responses-API mit Nachdenken (`reasoning.effort` Standard `low`, Secret `ASSISTANT_REASONING`), Rückfall auf chat/completions ohne Nachdenken, dann Wissensmodus. ⚠️ Die Responses-API verlangt das Wort „JSON“ in den Eingabe-Nachrichten (nicht nur in `instructions`), deshalb eine `developer`-Nachricht vorn. Im Prompt: wer fragt (Rolle, Studio, Skills), Datum/Uhrzeit Zürich, **Lagebild** (offene Pflicht-News, neueste News, Tagesaufgaben des Studios inkl. Nächstes, Events mit eigener Antwort, eigene Meldungen, Onboarding, Aushilfe-Tage), App-Leitfaden, Regeln (erst Werkzeug, dann antworten; nie „kann ich nicht sehen“ ohne Versuch; Kontaktdaten nie weitergeben).
+- **Werkzeuge:** `my_day`, `my_week`, `studio_day` (wer arbeitet, freie Zeiten je Person, alle Termine; Mitarbeiterin nur eigenes Studio), `client_history` (jetzt mit kommenden Terminen), `services` (Katalog mit Dauer/Preis CHF/online), `phorest_read` (nur Filialleitung eigenes Studio ohne Umsätze, Büro alles; Nachschlagewerk der geprüften Endpunkte im Werkzeug), `search_knowledge`, `read_article`, `news`, `onboarding_status`, `mark_step_done`.
+- **`phorest` neu:** `read {path}` (nur GET, Allowlist branch/client/voucher, Kundenzugriffe protokolliert), `services {q, branch}`, `branch_day` liefert `free` je Spalte, `client_history` liefert `upcoming`. Geprüft am 19.10.: branch, staff, worktimetable, appointment, service, service-category, package, course, product, room, machine, review, client, voucher.
+- **Arbeitsschritte sichtbar:** `{stream: true}` liefert NDJSON `{step, detail}` und am Ende `{done: true, …}`. App/Backoffice nutzen `src/BenniChat.tsx` (`askBenni`, `BenniWorking` mit Schimmer-Text und erledigten Schritten, `BenniText` für Listen/fett).
+- **Aufgaben-Seite neu:** Fortschritt oben, je Liste „Jeden Tag · 07:45–07:55“ (Regel der Vorlage + Zeitfenster), deutlicher „Erledigt“-Knopf (mit Kamera bei Fotopflicht), „fällig seit“ in Rot, Erklärung unten.
+- **Heute:** Pflicht-News als Messing-Karte mit „Lesen“, **Glocke** oben rechts (Pflicht-News, überfällige Aufgaben, Event-Einladungen ohne Antwort, Status/Kommentare eigener Meldungen, neue News, Onboarding). Gesehen-Stand im Browser (`th-bell-v1`).
+- Getestet 19.10. lokal (Handy + Desktop) und per Skript mit allen drei Rollen.
+
 ### Nachtrag 2026-10-19 nachts — Benni kennt Termine an jedem Tag
 
 - **Vorher:** Den eigenen Tag bekam Benni nur, wenn die Frage bestimmte Stichwörter enthielt (`isShift`), und nur für heute. „Welchen Termin habe ich morgen um 14 Uhr?“ lief ins Leere.

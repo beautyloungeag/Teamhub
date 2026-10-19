@@ -3,7 +3,7 @@ import { motion } from 'motion/react'
 import {
   Home, ListChecks, BookOpen, LayoutGrid, Sparkles, ChevronLeft, ChevronRight, Check, Camera, MapPin, Users,
   Search, Lightbulb, AlertTriangle, CalendarDays, Inbox, Send, Newspaper, Plane, Play, Video,
-  ArrowUpRight, LogOut, Phone, ThumbsUp, GraduationCap, Link2, Lock, FileText, Smartphone, Share, PlusSquare, MoreVertical, ExternalLink, Monitor,
+  ArrowUpRight, LogOut, Phone, ThumbsUp, GraduationCap, Link2, Lock, FileText, Smartphone, Share, PlusSquare, MoreVertical, ExternalLink, Monitor, Bell, X,
 } from 'lucide-react'
 import { useAuth } from './lib/auth'
 import { supabase } from './lib/supabase'
@@ -15,6 +15,7 @@ import { tr, locale } from './lib/i18n'
 import { Logo, BMark } from './Logo'
 import { Comments, Media } from './TicketParts'
 import { QuizRunner } from './QuizRunner'
+import { askBenni, BenniWorking, BenniText, type Step } from './BenniChat'
 
 // Name des KI-Reiters (im Vertrag „Marc Beau“, im abgestimmten Prototyp „Benni“)
 export const ASSISTANT = 'Benni'
@@ -174,8 +175,79 @@ function weekDays() {
   const now = new Date(isoDay() + 'T12:00:00Z'), dow = (now.getUTCDay() + 6) % 7
   return Array.from({ length: 7 }, (_, i) => { const d = new Date(now.getTime() + (i - dow) * 864e5); return { d: ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'][i], n: d.getUTCDate(), today: i === dow } })
 }
+/* ---------- Glocke: alles, was neu ist oder auf eine Antwort wartet ---------- */
+type BellItem = { id: string; icon: typeof Bell; title: string; sub: string; must?: boolean; count: boolean; go: () => void }
+const BELL_KEY = 'th-bell-v1'
+function useBell(open: (s: Sub) => void, go: (t: Tab) => void) {
+  const { t, news, read, opened, events, joined, declined, tickets, steps, obDone, tasks, done, quizzes } = useApp()
+  const [seen, setSeen] = useState<Record<string, string>>(() => { try { return JSON.parse(localStorage.getItem(BELL_KEY) || '{}') } catch { return {} } })
+  const now = Date.now(), nowHM = new Intl.DateTimeFormat('de-CH', { timeZone: 'Europe/Zurich', hour: '2-digit', minute: '2-digit' }).format(new Date())
+  const items: BellItem[] = []
+  for (const n of news.filter(n => n.mustRead && !read.has(n.id)))
+    items.push({ id: 'must:' + n.id, icon: Newspaper, title: n.title, sub: quizzes.some(q => q.newsId === n.id) ? t('Pflicht · lesen, bestätigen und Quiz') : t('Pflicht · lesen und bestätigen'), must: true, count: true, go: () => open({ k: 'news', item: n }) })
+  const late = tasks.filter(x => !done.has(x.id) && x.time && x.time < nowHM)
+  if (late.length) items.push({ id: 'late', icon: ListChecks, title: t('{n} Aufgaben überfällig', { n: late.length }), sub: late.slice(0, 2).map(x => x.title).join(', '), count: true, go: () => go('tasks') })
+  for (const e of events.filter(e => new Date(e.startsAt).getTime() > now && !joined.has(e.id) && !declined.has(e.id) && (!e.registerUntil || new Date(e.registerUntil).getTime() > now)))
+    items.push({ id: 'ev:' + e.id, icon: CalendarDays, title: e.title, sub: t('Einladung · {date}', { date: new Intl.DateTimeFormat(locale(), { timeZone: 'Europe/Zurich', weekday: 'short', day: 'numeric', month: 'short' }).format(new Date(e.startsAt)) }), count: true, go: () => open({ k: 'events' }) })
+  for (const tk of tickets.filter(x => x.mine)) {
+    const sig = `${tk.status}|${tk.comments.length}`
+    if (seen['tk:' + tk.id] && seen['tk:' + tk.id] !== sig) items.push({ id: 'tk:' + tk.id, icon: Lightbulb, title: tk.title, sub: t('{kind} · jetzt {status}', { kind: t(tk.kind), status: t(tk.status) }), count: true, go: () => open({ k: 'ticket', id: tk.id }) })
+  }
+  for (const n of news.filter(n => !n.mustRead && !opened.has(n.id) && now - new Date(n.publishAt).getTime() < 14 * 864e5))
+    items.push({ id: 'news:' + n.id, icon: Newspaper, title: n.title, sub: t('Neue News'), count: !seen['news:' + n.id], go: () => open({ k: 'news', item: n }) })
+  if (steps.length && steps.some(s => !obDone.has(s.id)))
+    items.push({ id: 'ob', icon: GraduationCap, title: t('Onboarding'), sub: t('{n} von {m} Schritten erledigt', { n: steps.filter(s => obDone.has(s.id)).length, m: steps.length }), count: false, go: () => open({ k: 'onboarding' }) })
+  // Beim Öffnen gilt alles Gesehene als gelesen; Meldungen merken sich Status und Kommentare
+  const markSeen = () => {
+    const next = { ...seen }
+    for (const tk of tickets.filter(x => x.mine)) next['tk:' + tk.id] = `${tk.status}|${tk.comments.length}`
+    for (const i of items) if (i.id.startsWith('news:')) next[i.id] = '1'
+    setSeen(next); try { localStorage.setItem(BELL_KEY, JSON.stringify(next)) } catch { /* privat */ }
+  }
+  // Erstes Mal: aktuellen Stand der eigenen Meldungen merken, damit nur Änderungen auftauchen
+  useEffect(() => {
+    const missing = tickets.filter(x => x.mine && !seen['tk:' + x.id])
+    if (!missing.length) return
+    const next = { ...seen }; for (const tk of missing) next['tk:' + tk.id] = `${tk.status}|${tk.comments.length}`
+    setSeen(next); try { localStorage.setItem(BELL_KEY, JSON.stringify(next)) } catch { /* privat */ }
+  }, [tickets]) // eslint-disable-line react-hooks/exhaustive-deps
+  return { items, badge: items.filter(i => i.count).length, markSeen }
+}
+
+function BellButton({ open, go }: { open: (s: Sub) => void; go: (t: Tab) => void }) {
+  const { t } = useApp()
+  const { items, badge, markSeen } = useBell(open, go)
+  const [show, setShow] = useState(false)
+  return (
+    <>
+      <button onClick={() => setShow(true)} aria-label={t('Mitteilungen')} className="relative w-11 h-11 rounded-full bg-white flex items-center justify-center text-ink hover:bg-white/70 transition">
+        <Bell size={19} strokeWidth={1.7} />
+        {badge > 0 && <span className="absolute -top-0.5 -right-0.5 min-w-[19px] h-[19px] px-1 rounded-full bg-brass text-white text-[11px] font-medium leading-[19px] text-center tabular-nums ring-2 ring-sage-50">{badge > 9 ? '9+' : badge}</span>}
+      </button>
+      {show && (
+        <div className="absolute inset-0 z-30" onClick={() => { markSeen(); setShow(false) }}>
+          <div className="absolute inset-0 bg-ink/20" />
+          <motion.div initial={{ y: -8, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ duration: 0.18 }} onClick={e => e.stopPropagation()}
+            className="absolute left-3 right-3 top-3 md:left-auto md:right-6 md:top-6 md:w-[380px] bg-paper rounded-[20px] shadow-[0_18px_50px_-12px_rgba(29,34,28,.35)] overflow-hidden">
+            <div className="px-5 pt-4 pb-3 flex items-center justify-between"><p className="font-display text-[19px]">{t('Mitteilungen')}</p><button onClick={() => { markSeen(); setShow(false) }} aria-label={t('Schliessen')} className="w-8 h-8 rounded-full hover:bg-sage-50 flex items-center justify-center text-mute"><X size={17} /></button></div>
+            {items.length === 0 ? <p className="px-5 pb-6 text-[14px] text-mute">{t('Alles erledigt. Gerade gibt es nichts Neues.')}</p> : (
+              <div className="max-h-[70vh] overflow-y-auto no-scrollbar pb-2">{items.map(i => (
+                <button key={i.id} onClick={() => { markSeen(); setShow(false); i.go() }} className="w-full text-left px-5 py-3 flex items-start gap-3 hover:bg-sage-50/70">
+                  <span className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${i.must ? 'bg-brass text-white' : 'bg-sage-50 text-olive-700'}`}><i.icon size={16} strokeWidth={1.8} /></span>
+                  <span className="flex-1 min-w-0"><span className="block text-[15px] leading-snug truncate">{i.title}</span><span className={`block text-[12px] mt-0.5 truncate ${i.must ? 'text-brass' : 'text-mute'}`}>{i.sub}</span></span>
+                  {i.count && <span className="mt-2 w-2 h-2 rounded-full bg-brass shrink-0" />}
+                </button>
+              ))}</div>
+            )}
+          </motion.div>
+        </div>
+      )}
+    </>
+  )
+}
+
 function Today({ open, go }: { open: (s: Sub) => void; go: (t: Tab) => void }) {
-  const { me, t, done, read, tasks, news } = useApp()
+  const { me, t, done, read, tasks, news, quizzes } = useApp()
   const day = useMyDay()
   const [team, setTeam] = useState<TeamToday | null>(null)
   const isLead = me.app_role === 'filialleitung'
@@ -187,8 +259,9 @@ function Today({ open, go }: { open: (s: Sub) => void; go: (t: Tab) => void }) {
   const dateLabel = new Intl.DateTimeFormat(locale(), { timeZone: 'Europe/Zurich', weekday: 'long', day: 'numeric', month: 'long' }).format(new Date())
   return (
     <div className="px-5 pb-10">
-      <div className="pt-3 pb-5">
-        <p className="text-[13px] text-mute">{dateLabel}</p><h1 className="text-[30px] leading-tight mt-0.5">{t('Hallo')} {me.first}</h1>
+      <div className="pt-3 pb-5 flex items-end justify-between gap-3">
+        <div><p className="text-[13px] text-mute">{dateLabel}</p><h1 className="text-[30px] leading-tight mt-0.5">{t('Hallo')} {me.first}</h1></div>
+        <BellButton open={open} go={go} />
       </div>
 
       <div className="rounded-[16px] bg-olive-800 text-white p-5">
@@ -200,12 +273,17 @@ function Today({ open, go }: { open: (s: Sub) => void; go: (t: Tab) => void }) {
       </div>
 
       <ReadyCard open={open} />
-      {must.length > 0 && <div className="mt-3"><List>{must.map(n => (
-        <button key={n.id} onClick={() => open({ k: 'news', item: n })} className="w-full text-left px-4 py-3.5 flex items-center gap-3">
-          <span className="flex-1 min-w-0"><span className="block rubric !text-[10px] text-brass">{t('Bitte lesen und bestätigen')}</span><span className="block text-[15px] font-medium mt-1 truncate">{n.title}</span></span>
-          <ChevronRight size={18} className="text-sage-400 shrink-0" />
+      {must.length > 0 && <div className="mt-3 space-y-2">{must.map(n => (
+        <button key={n.id} onClick={() => open({ k: 'news', item: n })} className="w-full text-left rounded-[16px] bg-brass/10 ring-1 ring-inset ring-brass/30 px-4 py-3.5 flex items-center gap-3 hover:bg-brass/15 transition">
+          <span className="relative w-10 h-10 rounded-full bg-brass text-white flex items-center justify-center shrink-0"><Newspaper size={17} strokeWidth={1.8} /><span className="absolute inset-0 rounded-full ring-2 ring-brass/40 animate-ping [animation-duration:2.4s] motion-reduce:hidden" /></span>
+          <span className="flex-1 min-w-0">
+            <span className="block text-[11px] font-medium uppercase tracking-[.12em] text-brass">{t('Pflicht · bitte lesen')}</span>
+            <span className="block text-[15px] font-medium mt-0.5 truncate">{n.title}</span>
+            <span className="block text-[12px] text-mute mt-0.5">{quizzes.some(q => q.newsId === n.id) ? t('Lesen, bestätigen und kurzes Quiz') : t('Lesen und bestätigen')}</span>
+          </span>
+          <span className="h-8 px-3.5 rounded-full bg-brass text-white text-[13px] font-medium flex items-center shrink-0">{t('Lesen')}</span>
         </button>
-      ))}</List></div>}
+      ))}</div>}
 
       <Label action={<button onClick={() => go('tasks')} className="text-[13px] text-sage-800">{t('Alle')}</button>}>{t('Tagesaufgaben')}</Label>
       <Card onClick={() => go('tasks')} className="p-4">
@@ -293,35 +371,66 @@ function NewsDetail({ n }: { n: News }) {
 
 /* ---------- Aufgaben ---------- */
 function Tasks({ open }: { open: (s: Sub) => void }) {
-  const { me, done, toggle, t, tasks, wiki } = useApp()
-  const groups = [...new Set(tasks.map(x => x.group))]
+  const { me, done, toggle, t, tasks, templates, wiki } = useApp()
   const [photoFor, setPhotoFor] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const file = useRef<HTMLInputElement>(null)
   const run = async (id: string, f?: File) => { setBusy(id); await toggle(id, f); setBusy(null) }
+  // Listen = Vorlagen vom Büro, die heute für dieses Studio gelten; je Liste: wann sie gilt und Zeitfenster
+  const groups = [...new Set(tasks.map(x => x.group))].map(g => {
+    const items = tasks.filter(x => x.group === g)
+    const tpl = templates.find(tp => tp.items.some(i => i.id === items[0]?.id))
+    const times = items.map(i => i.time).filter(Boolean).sort()
+    const when = !tpl ? '' : tpl.repeat === 'daily' ? t('Jeden Tag')
+      : tpl.repeat === 'weekly' ? t('Jeden {day}', { day: new Intl.DateTimeFormat(locale(), { weekday: 'long', timeZone: 'UTC' }).format(new Date(Date.UTC(2024, 0, tpl.weekday ?? 1))) })
+      : t('Am {n}. jedes Monats', { n: tpl.monthday ?? 1 })
+    const span = times.length ? (times[0] === times[times.length - 1] ? times[0] : `${times[0]}–${times[times.length - 1]}`) : ''
+    return { g, items, sub: [when, span].filter(Boolean).join(' · ') }
+  })
+  const total = tasks.length, n = tasks.filter(x => done.has(x.id)).length
+  const next = tasks.find(x => !done.has(x.id))
+  const nowHM = new Intl.DateTimeFormat('de-CH', { timeZone: 'Europe/Zurich', hour: '2-digit', minute: '2-digit' }).format(new Date())
   return (
     <div className="pb-10"><Title sub={t('Studio {name} · heute', { name: me.branch })}>{t('Aufgaben')}</Title>
       <div className="px-5">
-        {tasks.length === 0 && <Card className="p-4 text-[14px] text-mute">{t('Für dein Studio sind heute keine Aufgaben hinterlegt.')}</Card>}
-        {groups.map(g => <div key={g}><Label>{g}</Label>
-          <List>{tasks.filter(x => x.group === g).map(x => {
-            const d = done.get(x.id)
-            return (
-              <div key={x.id} className="flex items-center gap-3 px-4 py-3.5">
-                <button disabled={busy === x.id} onClick={() => x.proof && !d ? setPhotoFor(x.id) : run(x.id)} className={`w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 transition ${d ? 'bg-sage-600 border-sage-600' : 'border-sage-200'} ${busy === x.id ? 'opacity-50' : ''}`}>{d && <Check size={14} className="text-white" strokeWidth={3} />}</button>
-                <div className="flex-1 min-w-0">
-                  <p className={`text-[15px] ${d ? 'text-mute line-through' : ''}`}>{x.title}</p>
-                  <p className="text-xs text-mute mt-0.5 flex items-center gap-2">
-                    {d ? <>{d.by} · {d.at}</> : <>{x.time}</>}
-                    {x.prio && !d && <span className="text-brass">{t('Wichtig')}</span>}
-                    {x.proof && <span className="flex items-center gap-0.5"><Camera size={12} />{t('Foto')}</span>}
-                  </p>
-                </div>
-                {x.articleId && wiki.find(w => w.id === x.articleId) && <button onClick={() => open({ k: 'wiki', item: wiki.find(w => w.id === x.articleId)! })} className="w-8 h-8 rounded-lg bg-sage-50 text-sage-800 flex items-center justify-center shrink-0" title={t('Anleitung im Wissen')}><BookOpen size={15} /></button>}
+        {total === 0 ? <Card className="p-4 text-[14px] text-mute">{t('Für dein Studio sind heute keine Aufgaben hinterlegt.')}</Card> : (
+          <Card className="p-4">
+            <div className="flex items-baseline justify-between"><p className="font-display text-[26px] leading-none">{n} <span className="text-mute text-[16px]">/ {total}</span></p><p className="text-[13px] text-mute">{n === total ? t('Alles erledigt') : t('{n} offen', { n: total - n })}</p></div>
+            <div className="mt-3 h-[4px] rounded-full bg-sage-100 overflow-hidden"><div className="h-full bg-olive-700 rounded-full transition-all" style={{ width: (total ? n / total * 100 : 0) + '%' }} /></div>
+            {next && <p className="mt-3 text-[13px] text-mute">{t('Als Nächstes:')} <span className="text-ink">{next.title}</span>{next.time && ` · ${next.time}`}</p>}
+          </Card>
+        )}
+        {groups.map(({ g, items, sub }) => {
+          const k = items.filter(x => done.has(x.id)).length
+          return (
+            <div key={g}>
+              <div className="mt-8 mb-2.5 px-1 flex items-end justify-between gap-3">
+                <div className="min-w-0"><h2 className="rubric text-ink/70">{g}</h2>{sub && <p className="text-[12px] text-mute mt-1">{sub}</p>}</div>
+                <span className={`text-[12px] tabular-nums shrink-0 ${k === items.length ? 'text-ok' : 'text-mute'}`}>{k === items.length ? <span className="inline-flex items-center gap-1"><Check size={13} strokeWidth={2.6} />{t('fertig')}</span> : `${k} / ${items.length}`}</span>
               </div>
-            )
-          })}</List></div>)}
-        <p className="mt-5 text-xs text-mute">{t('Vorlagen, Wiederholungen und Fotonachweise legt das Büro fest. Jeden Morgen neu, alte Nachweise bleiben gespeichert.')}</p>
+              <List>{items.map(x => {
+                const d = done.get(x.id), late = !d && x.time && x.time < nowHM
+                const doIt = () => x.proof && !d ? setPhotoFor(x.id) : run(x.id)
+                return (
+                  <div key={x.id} className="flex items-center gap-3 px-4 py-3.5">
+                    <button aria-label={d ? t('Rückgängig') : t('Erledigt')} disabled={busy === x.id} onClick={doIt} className={`w-[26px] h-[26px] rounded-full flex items-center justify-center shrink-0 transition ${d ? 'bg-olive-700 text-white' : 'shadow-[inset_0_0_0_1.5px_#979E92] hover:shadow-[inset_0_0_0_1.5px_#495940]'} ${busy === x.id ? 'opacity-50' : ''}`}>{d && <Check size={15} strokeWidth={3} />}</button>
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-[15px] leading-snug ${d ? 'text-mute line-through decoration-sage-400' : ''}`}>{x.title}</p>
+                      <p className="text-[12px] text-mute mt-0.5 flex flex-wrap items-center gap-x-2">
+                        {d ? <span>{t('Erledigt von {name} · {time}', { name: d.by, time: d.at })}</span> : x.time && <span className={late ? 'text-alert' : ''}>{late ? t('fällig seit {time}', { time: x.time }) : t('bis {time}', { time: x.time })}</span>}
+                        {x.prio && !d && <span className="text-brass">{t('Wichtig')}</span>}
+                        {x.proof && <span className="inline-flex items-center gap-1"><Camera size={12} />{t('mit Foto')}</span>}
+                      </p>
+                    </div>
+                    {x.articleId && wiki.find(w => w.id === x.articleId) && <button onClick={() => open({ k: 'wiki', item: wiki.find(w => w.id === x.articleId)! })} className="w-8 h-8 rounded-lg text-sage-800 hover:bg-sage-50 flex items-center justify-center shrink-0" title={t('Anleitung im Wissen')}><BookOpen size={16} /></button>}
+                    {!d && <button disabled={busy === x.id} onClick={doIt} className="h-8 px-3 rounded-full bg-olive-700/10 text-olive-800 text-[13px] font-medium flex items-center gap-1.5 shrink-0 hover:bg-olive-700/15 disabled:opacity-50">{x.proof ? <Camera size={14} /> : <Check size={14} strokeWidth={2.6} />}{t('Erledigt')}</button>}
+                  </div>
+                )
+              })}</List>
+            </div>
+          )
+        })}
+        {total > 0 && <p className="mt-6 px-1 text-[12px] text-mute leading-relaxed">{t('Die Listen und wann sie gelten legt das Büro im Backoffice unter Aufgaben fest. Jeden Morgen beginnen sie neu, erledigte Aufgaben bleiben mit Name und Uhrzeit gespeichert.')}</p>}
       </div>
       <input ref={file} type="file" accept="image/*" capture="environment" className="hidden" onChange={async e => { const f = e.target.files?.[0]; const id = photoFor; e.target.value = ''; if (f && id) { setPhotoFor(null); await run(id, f) } }} />
       {photoFor && <Sheet onClose={() => setPhotoFor(null)}>
@@ -332,6 +441,7 @@ function Tasks({ open }: { open: (s: Sub) => void }) {
     </div>
   )
 }
+
 function Sheet({ children, onClose }: { children: ReactNode; onClose: () => void }) {
   return (
     <div className="absolute inset-0 z-30 flex items-end md:items-center md:justify-center" onClick={onClose}>
@@ -348,16 +458,18 @@ function AI({ open }: { open: (s: Sub) => void }) {
   const [msgs, setMsgs] = useState<Msg[]>([])
   const [v, setV] = useState('')
   const [busy, setBusy] = useState(false)
+  const [steps, setSteps] = useState<Step[]>([])
   const end = useRef<HTMLDivElement>(null)
+  useEffect(() => { if (busy) end.current?.scrollIntoView({ behavior: 'smooth' }) }, [steps, busy])
   const ideas = ['Was steht heute bei mir an?', 'Lass uns mit dem Onboarding weiterlernen.', 'Wie entferne ich Shellac ohne Nagelschaden?', 'Das Wachsgerät in Kabine 3 ist kaputt']
   useEffect(() => { let q: string | null = null; try { q = sessionStorage.getItem('th-benni-ask'); sessionStorage.removeItem('th-benni-ask') } catch { /* privat */ } if (q) send(q) }, []) // eslint-disable-line react-hooks/exhaustive-deps
   const send = async (q = v) => {
     if (!q.trim() || busy || !supabase) return
     const history = msgs
-    setMsgs(m => [...m, { me: true, t: q }]); setV(''); setBusy(true)
-    const { data, error } = await supabase.functions.invoke('assistant', { body: { message: q, history } })
-    setMsgs(m => [...m, error || !data?.ok ? { me: false, t: t('Ich bin gerade nicht erreichbar. Bitte versuche es gleich noch einmal.') } : { me: false, t: data.text, sources: data.sources, ticket: data.ticket }])
-    setBusy(false); setTimeout(() => end.current?.scrollIntoView({ behavior: 'smooth' }), 50)
+    setMsgs(m => [...m, { me: true, t: q }]); setV(''); setBusy(true); setSteps([{ step: 'think' }])
+    const data = await askBenni(q, history, st => setSteps(x => [...x, st])).catch(() => ({ ok: false } as { ok: false; text?: string; sources?: undefined; ticket?: undefined }))
+    setMsgs(m => [...m, !data.ok || !data.text ? { me: false, t: t('Ich bin gerade nicht erreichbar. Bitte versuche es gleich noch einmal.') } : { me: false, t: data.text, sources: data.sources, ticket: data.ticket }])
+    setBusy(false); setSteps([]); setTimeout(() => end.current?.scrollIntoView({ behavior: 'smooth' }), 50)
   }
   return (
     <div className="flex flex-col h-full">
@@ -372,13 +484,13 @@ function AI({ open }: { open: (s: Sub) => void }) {
           <div className="pt-3 space-y-3 pb-4">
             {msgs.map((m, i) => (
               <div key={i} className={m.me ? 'flex justify-end' : ''}>
-                <div className={`max-w-[88%] rounded-[16px] px-4 py-3 text-[15px] leading-snug ${m.me ? 'bg-olive-700 text-white' : 'bg-white'}`}>{m.t}
+                <div className={`max-w-[88%] rounded-[16px] px-4 py-3 text-[15px] leading-snug ${m.me ? 'bg-olive-700 text-white' : 'bg-white'}`}>{m.me ? m.t : <BenniText text={m.t} />}
                   {m.sources?.map(s => { const a = wiki.find(x => x.id === s.id); return a && <button key={s.id} onClick={() => open({ k: 'wiki', item: a })} className="mt-2 text-[13px] text-sage-800 flex items-center gap-1"><BookOpen size={14} />{s.title}<ArrowUpRight size={13} /></button> })}
                   {m.ticket && <TicketDraft kind={m.ticket.kind} title={m.ticket.title} onSend={() => addTicket({ kind: m.ticket!.kind, title: m.ticket!.title, viaAI: true })} />}
                 </div>
               </div>
             ))}
-            {busy && <div className="pl-1 pt-1"><BMark className="w-8 h-8" working /></div>}
+            {busy && <BenniWorking steps={steps} />}
             <div ref={end} />
           </div>
         )}

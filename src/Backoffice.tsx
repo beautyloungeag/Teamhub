@@ -6,6 +6,7 @@ import { supabase } from './lib/supabase'
 import { Status, ASSISTANT } from './Mobile'
 import { notifyNow } from './lib/push'
 import { Logo, BMark } from './Logo'
+import { askBenni, BenniWorking, BenniText, type Step } from './BenniChat'
 import { Comments, Media } from './TicketParts'
 
 type View = 'overview' | 'book' | 'news' | 'tasks' | 'tickets' | 'events' | 'standby' | 'learn' | 'team' | 'studios' | 'wiki'
@@ -711,14 +712,15 @@ function WikiAdmin() {
 /* ---------- KI im Backoffice ---------- */
 type M = { me: boolean; t: string }
 function AdminChat({ onClose }: { onClose: () => void }) {
-  const [msgs, setMsgs] = useState<M[]>([]), [v, setV] = useState(''), [busy, setBusy] = useState(false)
+  const [msgs, setMsgs] = useState<M[]>([]), [v, setV] = useState(''), [busy, setBusy] = useState(false), [steps, setSteps] = useState<Step[]>([])
   const end = useRef<HTMLDivElement>(null)
+  useEffect(() => { if (busy) end.current?.scrollIntoView({ behavior: 'smooth' }) }, [steps, busy])
   const ideas = ['Wie lange wirkt das Desinfektionsmittel?', 'Wie entferne ich Shellac ohne Nagelschaden?']
   const send = async (q = v) => {
     if (!q.trim() || busy) return
-    setMsgs(m => [...m, { me: true, t: q }]); setV(''); setBusy(true)
-    const { data, error } = await supabase!.functions.invoke('assistant', { body: { message: q, history: msgs } })
-    setMsgs(m => [...m, { me: false, t: error || !data?.ok ? 'Gerade nicht erreichbar.' : data.text }]); setBusy(false)
+    setMsgs(m => [...m, { me: true, t: q }]); setV(''); setBusy(true); setSteps([{ step: 'think' }])
+    const data = await askBenni(q, msgs, st => setSteps(x => [...x, st])).catch(() => ({ ok: false, text: '' }))
+    setMsgs(m => [...m, { me: false, t: !data.ok || !data.text ? 'Gerade nicht erreichbar.' : data.text }]); setBusy(false); setSteps([])
     setTimeout(() => end.current?.scrollIntoView({ behavior: 'smooth' }), 50)
   }
   return (
@@ -726,8 +728,8 @@ function AdminChat({ onClose }: { onClose: () => void }) {
       <div className="h-16 px-5 flex items-center justify-between border-b border-line"><p className="font-medium flex items-center gap-2"><BMark className="w-6 h-6 text-[11px]" />{ASSISTANT}</p><button onClick={onClose} className="w-8 h-8 rounded-lg hover:bg-sage-50 flex items-center justify-center"><X size={17} /></button></div>
       <div className="flex-1 overflow-y-auto no-scrollbar p-5 space-y-3">
         {msgs.length === 0 && <div className="border-t border-line">{ideas.map(i => <button key={i} onClick={() => send(i)} className="w-full text-left py-3 text-[14px] border-b border-line hover:text-olive-700">{i}</button>)}</div>}
-        {msgs.map((m, i) => <div key={i} className={m.me ? 'flex justify-end' : ''}><div className={`max-w-[92%] rounded-2xl px-4 py-3 text-[14px] leading-snug ${m.me ? 'bg-olive-700 text-white' : 'bg-sage-50'}`}>{m.t}</div></div>)}
-        {busy && <div className="pl-1 pt-1"><BMark className="w-8 h-8" working /></div>}
+        {msgs.map((m, i) => <div key={i} className={m.me ? 'flex justify-end' : ''}><div className={`max-w-[92%] rounded-2xl px-4 py-3 text-[14px] leading-snug ${m.me ? 'bg-olive-700 text-white' : 'bg-sage-50'}`}>{m.me ? m.t : <BenniText text={m.t} />}</div></div>)}
+        {busy && <BenniWorking steps={steps} />}
         <div ref={end} />
       </div>
       <div className="p-4 flex gap-2 border-t border-line"><input value={v} onChange={e => setV(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} placeholder={`Frag ${ASSISTANT} …`} className="flex-1 h-11 rounded-[10px] bg-sage-50 px-3 text-[14px] outline-none" /><button onClick={() => send()} className="w-11 h-11 rounded-[10px] bg-olive-700 text-white flex items-center justify-center"><Send size={16} /></button></div>
