@@ -2,6 +2,12 @@
 
 Interne Mitarbeiter-App (PWA + Desktop-Backoffice) der Beautylounge AG. Kundin: Renée Baumann. PM-Projekt: `projekt.aleksa.ai`, Key **BLTH** (`d4ee5d5c-4553-436c-bba7-137a03a2b704`). ⚠️ Das Repo `beautyloungeag/Teamhub` ist **öffentlich** — nie Personendaten committen.
 
+### Nachtrag 2026-10-19 spät nachts — Benni-Kugel, Netlify-Credits
+
+- **Benni hat ein Profilbild:** schwebende Kugel wie die Feleo-Agenten, in Olivtönen (`src/BenniOrb.tsx`, CSS `.benni-orb` in `index.css`). `BMark` rendert sie überall; `working` lässt sie schneller laufen (Chat wartet, News-Entwurf). Commit `deb189e`. **Noch nicht live**, siehe nächster Punkt.
+- ⚠️ **Netlify-Credits (Gratis-Plan des Teams „Beautylounge“):** 300 Credits im Monat, jeder Produktions-Deploy kostet 15, also 20 Deploys. Am 19.10. waren es 20 Commits auf main, danach hat Netlify die Produktions-Deploys pausiert. Die Seite bleibt online (Stand Übersetzung, `6b18994`). Weiter geht es erst nach einem Upgrade oder mit dem neuen Abrechnungszeitraum; dann einmal neu pushen oder in Netlify „Trigger deploy“.
+- **Gegenmassnahmen:** `netlify.toml` → `ignore` baut nur, wenn sich `src`, `public`, `index.html`, `package*.json`, `vite.config.ts`, `tsconfig*` oder `netlify.toml` ändern. Doku (`*.md`), `supabase/` (Functions/Migrationen gehen per CLI) und `scripts/` lösen keinen Deploy mehr aus. **Pushes bündeln:** ein Push je fertigem Arbeitsblock, Doku im selben Commit wie der Code, keine Zwischenstände auf main.
+
 ### Nachtrag 2026-10-19 spät nachts — Inhalte automatisch auf EN/FR
 
 - **Function `translate`:** `sync` übersetzt kurze Felder (News, Aufgaben-Vorlagen und -Punkte, Onboarding, Events, Quiz-Titel und -Fragen, im Wissen Titel/Kategorie/Kurzfassung) und legt sie je Zeile in `i18n = {h, EN, FR}` ab (Migration 0013). `h` ist der Hash der deutschen Felder: übersetzt wird nur, was neu oder geändert ist. Läuft per Cron `teamhub-translate` alle 10 Min. (Secret wie `teamhub-notify`) und sofort nach jedem Speichern im Backoffice (`retranslate()`). Quiz-Lösungen und `rubric` gehen nie an die Übersetzung.

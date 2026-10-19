@@ -3,6 +3,11 @@
 [build]
   command = "npm run build"
   publish = "dist"
+  # Jeder Produktions-Deploy kostet Credits (Gratis-Plan: 300 im Monat, 15 je Deploy).
+  # Gebaut wird nur, wenn sich etwas ändert, das in die App einfliesst. Reine Doku (*.md),
+  # Edge Functions/Migrationen (supabase/, per CLI deployt) und scripts/ lösen keinen Deploy aus.
+  # Exit 0 = überspringen, 1 = bauen; fehlt der Vergleichsstand (128), wird gebaut.
+  ignore = "git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- src public index.html package.json package-lock.json vite.config.ts tsconfig.json tsconfig.app.json tsconfig.node.json netlify.toml"
 
 [build.environment]
   NODE_VERSION = "22"
