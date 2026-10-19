@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { LayoutDashboard, Store, ArrowUp, ArrowDown, Newspaper, ListChecks, Lightbulb, CalendarDays, Users, BookOpen, Sparkles, Plus, Check, Camera, Search, CalendarClock, Send, X, Trash2 } from 'lucide-react'
+import { LayoutDashboard, Smartphone, Store, ArrowUp, ArrowDown, Newspaper, ListChecks, Lightbulb, CalendarDays, Users, BookOpen, Sparkles, Plus, Check, Camera, Search, CalendarClock, Send, X, Trash2 } from 'lucide-react'
 import { Terminbuch } from './Calendar'
 import { useApp, isoDay, appliesOn, fmtDate, fmtTime, zurichHour, type Ticket } from './store'
 import { supabase } from './lib/supabase'
@@ -9,20 +9,21 @@ import { notifyNow } from './lib/push'
 type View = 'overview' | 'book' | 'news' | 'tasks' | 'tickets' | 'events' | 'team' | 'studios' | 'wiki'
 const NAV: [View, string, typeof Users][] = [['overview', 'Übersicht', LayoutDashboard], ['book', 'Kundentermine', CalendarClock], ['news', 'News', Newspaper], ['tasks', 'Aufgaben', ListChecks], ['tickets', 'Meldungen & Ideen', Lightbulb], ['events', 'Schulungen & Events', CalendarDays], ['team', 'Team & Skills', Users], ['studios', 'Studios', Store], ['wiki', 'Wissen', BookOpen]]
 
-export default function Backoffice() {
+export default function Backoffice({ onSwitch }: { onSwitch?: () => void }) {
   const { me } = useApp()
   const [v, setV] = useState<View>('overview')
   const [ai, setAi] = useState(false)
   // Filialleitung verwaltet nur ihre Filiale; Inhalte (News, Wissen, Vorlagen, Team) pflegt das Büro.
   const nav = me.app_role === 'buero' ? NAV : NAV.filter(([k]) => ['overview', 'book', 'tasks', 'tickets', 'events'].includes(k))
   return (
-    <div className="flex h-full bg-white rounded-[20px] overflow-hidden border border-sage-200">
+    <div className="flex h-full bg-white overflow-hidden">
       <aside className="w-60 shrink-0 bg-sage-50 p-4 flex flex-col">
         <div className="flex items-center gap-2.5 px-2 py-2"><span className="w-9 h-9 rounded-xl bg-sage-400 text-white flex items-center justify-center font-semibold">bl</span><div><p className="font-semibold leading-tight">TeamHub</p><p className="text-xs text-mute">Backoffice</p></div></div>
         <nav className="mt-6 space-y-0.5">
           {nav.map(([k, l, I]) => <button key={k} onClick={() => setV(k)} className={`w-full h-10 px-3 rounded-xl flex items-center gap-3 text-[14px] ${v === k ? 'bg-white text-ink font-medium' : 'text-sage-800 hover:bg-white/60'}`}><I size={18} />{l}</button>)}
         </nav>
-        <button onClick={() => setAi(!ai)} className={`mt-auto h-11 rounded-xl flex items-center justify-center gap-2 text-[14px] font-medium ${ai ? 'bg-sage-800 text-white' : 'bg-ink text-white'}`}><Sparkles size={17} />{ASSISTANT} fragen</button>
+        {onSwitch && <button onClick={onSwitch} className="mt-auto mb-2 h-10 px-3 rounded-xl flex items-center gap-3 text-[14px] text-sage-800 hover:bg-white/60"><Smartphone size={18} />Mitarbeiterin-App</button>}
+        <button onClick={() => setAi(!ai)} className={`${onSwitch ? '' : 'mt-auto '}h-11 rounded-xl flex items-center justify-center gap-2 text-[14px] font-medium ${ai ? 'bg-sage-800 text-white' : 'bg-ink text-white'}`}><Sparkles size={17} />{ASSISTANT} fragen</button>
       </aside>
       <main className={`flex-1 no-scrollbar p-8 ${v === 'book' ? 'flex flex-col overflow-hidden' : 'overflow-y-auto'}`}>
         {v === 'book' && <><H>Kundentermine</H><div className="flex-1 min-h-0"><Terminbuch /></div></>}

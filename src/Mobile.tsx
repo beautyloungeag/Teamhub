@@ -3,7 +3,7 @@ import { motion } from 'motion/react'
 import {
   Home, ListChecks, BookOpen, LayoutGrid, Sparkles, ChevronLeft, ChevronRight, Check, Camera, MapPin, Users,
   Search, Lightbulb, AlertTriangle, CalendarDays, Inbox, Send, Newspaper, Plane, Play, Flag, Video,
-  ArrowUpRight, LogOut, GraduationCap, Link2, Lock, FileText, Bell, Smartphone, Share, PlusSquare, MoreVertical, ExternalLink,
+  ArrowUpRight, LogOut, GraduationCap, Link2, Lock, FileText, Bell, Smartphone, Share, PlusSquare, MoreVertical, ExternalLink, Monitor,
 } from 'lucide-react'
 import { useAuth } from './lib/auth'
 import { supabase } from './lib/supabase'
@@ -22,9 +22,9 @@ type Sub = null | { k: 'news-list' } | { k: 'news'; item: News } | { k: 'wiki'; 
 
 const ini = (s: { first: string; last: string }) => ((s.first[0] ?? '') + (s.last[0] ?? '')).toUpperCase()
 
-export default function Mobile() {
+export default function Mobile({ onSwitch }: { onSwitch?: () => void }) {
   const { signOut } = useAuth()
-  return <Shell onLogout={signOut} />
+  return <Shell onLogout={signOut} onSwitch={onSwitch} />
 }
 
 /* ---------- Primitives ---------- */
@@ -61,7 +61,7 @@ const SearchBox = ({ value, onChange, placeholder }: { value: string; onChange: 
 const Empty = ({ children }: { children: ReactNode }) => <p className="px-4 py-4 text-[14px] text-mute">{children}</p>
 
 /* ---------- Shell ---------- */
-function Shell({ onLogout }: { onLogout: () => void }) {
+function Shell({ onLogout, onSwitch }: { onLogout: () => void; onSwitch?: () => void }) {
   const { t, read, news, loading } = useApp()
   const [tab, setTab] = useState<Tab>('home')
   const [stack, setStack] = useState<Sub[]>([])
@@ -97,7 +97,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
     case 'tickets': screen = <Tickets />; break
     case 'events': screen = <Events />; break
     case 'conn': screen = <Connections />; break
-    case 'book': screen = <div className="px-5 pb-4 h-[calc(100dvh-150px)] md:h-[640px]"><h1 className="text-[26px] font-semibold tracking-tight mb-3">{t('Kundentermine')}</h1><Terminbuch compact /></div>; break
+    case 'book': screen = <div className="px-5 pb-4 h-[calc(100dvh-150px)] md:h-[calc(100dvh-110px)]"><h1 className="text-[26px] font-semibold tracking-tight mb-3">{t('Kundentermine')}</h1><Terminbuch compact /></div>; break
     case 'inbox': screen = <ExternalTool kind="mail" />; break
     case 'time': screen = <ExternalTool kind="timebutler" />; break
     case 'install': screen = <Install />; break
@@ -108,32 +108,52 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   const key = (sub ? sub.k + ('item' in sub ? String((sub.item as { id?: string }).id) : '') : tab) + stack.length
   const nav: [Tab, string, typeof Home][] = [['home', 'Heute', Home], ['tasks', 'Aufgaben', ListChecks], ['ai', 'KI', Sparkles], ['wiki', 'Wissen', BookOpen], ['menu', 'Menü', LayoutGrid]]
   return (
-    <>
-      <div ref={scroller} className="flex-1 overflow-y-auto no-scrollbar bg-sage-50/60">
-        <div className="h-11" />
-        {sub && <button onClick={back} className="px-4 pb-1 flex items-center gap-0.5 text-sage-800 text-[15px]"><ChevronLeft size={20} />{t('Zurück')}</button>}
-        {loading ? <p className="px-5 pt-10 text-mute">{t('Lädt …')}</p> :
-          <motion.div key={key} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }} className={tab === 'ai' && !sub ? 'h-[calc(100%-44px)]' : ''}>
-            {screen}
-          </motion.div>}
+    <div className="flex-1 min-h-0 flex">
+      {/* Desktop: Navigation als Seitenleiste wie im Backoffice */}
+      <aside className="hidden md:flex w-60 shrink-0 bg-sage-50 p-4 flex-col border-r border-sage-100">
+        <div className="flex items-center gap-2.5 px-2 py-2"><span className="w-9 h-9 rounded-xl bg-sage-400 text-white flex items-center justify-center font-semibold">bl</span><div><p className="font-semibold leading-tight">TeamHub</p><p className="text-xs text-mute">Beautylounge</p></div></div>
+        <nav className="mt-6 space-y-0.5">
+          {nav.map(([x, label, Icon]) => {
+            const on = tab === x && !sub
+            return (
+              <button key={x} onClick={() => go(x)} className={`relative w-full h-10 px-3 rounded-xl flex items-center gap-3 text-[14px] ${on ? 'bg-white text-ink font-medium' : 'text-sage-800 hover:bg-white/60'}`}>
+                <Icon size={18} />{t(label)}
+                {x === 'home' && mustOpen > 0 && <span className="ml-auto w-2 h-2 rounded-full bg-[#C0634B]" />}
+              </button>
+            )
+          })}
+        </nav>
+        {onSwitch && <button onClick={onSwitch} className="mt-auto h-10 px-3 rounded-xl flex items-center gap-3 text-[14px] text-sage-800 hover:bg-white/60"><Monitor size={18} />{t('Büro-Backoffice')}</button>}
+      </aside>
+      <div className="relative flex-1 min-w-0 flex flex-col">
+        <div ref={scroller} className="flex-1 overflow-y-auto no-scrollbar bg-sage-50/60">
+          <div className="w-full md:max-w-[760px] md:mx-auto h-full">
+            <div className="h-11 md:h-8" />
+            {sub && <button onClick={back} className="px-4 pb-1 flex items-center gap-0.5 text-sage-800 text-[15px]"><ChevronLeft size={20} />{t('Zurück')}</button>}
+            {loading ? <p className="px-5 pt-10 text-mute">{t('Lädt …')}</p> :
+              <motion.div key={key} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }} className={tab === 'ai' && !sub ? 'h-[calc(100%-44px)]' : ''}>
+                {screen}
+              </motion.div>}
+          </div>
+        </div>
+        <nav className="md:hidden shrink-0 bg-white px-3 pb-7 pt-2 grid grid-cols-5 items-end">
+          {nav.map(([x, label, Icon]) => {
+            const on = tab === x && !sub
+            if (x === 'ai') return (
+              <button key={x} onClick={() => go(x)} className="flex flex-col items-center gap-1 py-0.5 text-[11px] text-ink">
+                <span className={`w-11 h-8 rounded-full flex items-center justify-center ${on ? 'bg-ink text-white' : 'bg-sage-100 text-ink'}`}><Sparkles size={19} /></span>{t(label)}
+              </button>
+            )
+            return (
+              <button key={x} onClick={() => go(x)} className={`relative flex flex-col items-center gap-1 py-1 text-[11px] ${on ? 'text-ink' : 'text-mute'}`}>
+                <Icon size={22} strokeWidth={on ? 2.2 : 1.7} />{t(label)}
+                {x === 'home' && mustOpen > 0 && <span className="absolute top-0.5 right-[28%] w-2 h-2 rounded-full bg-[#C0634B]" />}
+              </button>
+            )
+          })}
+        </nav>
       </div>
-      <nav className="shrink-0 bg-white px-3 pb-7 pt-2 grid grid-cols-5 items-end">
-        {nav.map(([x, label, Icon]) => {
-          const on = tab === x && !sub
-          if (x === 'ai') return (
-            <button key={x} onClick={() => go(x)} className="flex flex-col items-center gap-1 py-0.5 text-[11px] text-ink">
-              <span className={`w-11 h-8 rounded-full flex items-center justify-center ${on ? 'bg-ink text-white' : 'bg-sage-100 text-ink'}`}><Sparkles size={19} /></span>{t(label)}
-            </button>
-          )
-          return (
-            <button key={x} onClick={() => go(x)} className={`relative flex flex-col items-center gap-1 py-1 text-[11px] ${on ? 'text-ink' : 'text-mute'}`}>
-              <Icon size={22} strokeWidth={on ? 2.2 : 1.7} />{t(label)}
-              {x === 'home' && mustOpen > 0 && <span className="absolute top-0.5 right-[28%] w-2 h-2 rounded-full bg-[#C0634B]" />}
-            </button>
-          )
-        })}
-      </nav>
-    </>
+    </div>
   )
 }
 
@@ -310,9 +330,9 @@ function Tasks({ open }: { open: (s: Sub) => void }) {
 }
 function Sheet({ children, onClose }: { children: ReactNode; onClose: () => void }) {
   return (
-    <div className="absolute inset-0 z-30 flex items-end" onClick={onClose}>
+    <div className="absolute inset-0 z-30 flex items-end md:items-center md:justify-center" onClick={onClose}>
       <div className="absolute inset-0 bg-ink/30" />
-      <motion.div initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="relative w-full bg-paper rounded-t-[28px] p-6 pb-10" onClick={e => e.stopPropagation()}>{children}</motion.div>
+      <motion.div initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="relative w-full md:max-w-[480px] bg-paper rounded-t-[28px] md:rounded-[28px] p-6 pb-10 md:pb-6" onClick={e => e.stopPropagation()}>{children}</motion.div>
     </div>
   )
 }
