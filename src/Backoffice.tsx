@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { LayoutDashboard, Smartphone, Store, ArrowUp, ArrowDown, Newspaper, ListChecks, Lightbulb, CalendarDays, Users, BookOpen, Sparkles, Plus, Check, Camera, Search, CalendarClock, Send, X, Trash2 } from 'lucide-react'
+import { LayoutDashboard, Smartphone, Store, ArrowUp, ArrowDown, Newspaper, ListChecks, Lightbulb, CalendarDays, Users, BookOpen, Plus, Check, Camera, Search, CalendarClock, Send, X, Trash2 } from 'lucide-react'
 import { Terminbuch } from './Calendar'
 import { useApp, isoDay, appliesOn, fmtDate, fmtTime, zurichHour, type Ticket } from './store'
 import { supabase } from './lib/supabase'
 import { Status, ASSISTANT } from './Mobile'
 import { notifyNow } from './lib/push'
+import { Logo, BMark } from './Logo'
 
 type View = 'overview' | 'book' | 'news' | 'tasks' | 'tickets' | 'events' | 'team' | 'studios' | 'wiki'
 const NAV: [View, string, typeof Users][] = [['overview', 'Übersicht', LayoutDashboard], ['book', 'Kundentermine', CalendarClock], ['news', 'News', Newspaper], ['tasks', 'Aufgaben', ListChecks], ['tickets', 'Meldungen & Ideen', Lightbulb], ['events', 'Schulungen & Events', CalendarDays], ['team', 'Team & Skills', Users], ['studios', 'Studios', Store], ['wiki', 'Wissen', BookOpen]]
@@ -17,13 +18,13 @@ export default function Backoffice({ onSwitch }: { onSwitch?: () => void }) {
   const nav = me.app_role === 'buero' ? NAV : NAV.filter(([k]) => ['overview', 'book', 'tasks', 'tickets', 'events'].includes(k))
   return (
     <div className="flex h-full bg-white overflow-hidden">
-      <aside className="w-60 shrink-0 bg-sage-50 p-4 flex flex-col">
-        <div className="flex items-center gap-2.5 px-2 py-2"><span className="w-9 h-9 rounded-xl bg-sage-400 text-white flex items-center justify-center font-semibold">bl</span><div><p className="font-semibold leading-tight">TeamHub</p><p className="text-xs text-mute">Backoffice</p></div></div>
+      <aside className="w-60 shrink-0 bg-olive-800 p-4 flex flex-col">
+        <Logo className="w-32 text-white mx-2 mt-1" />
         <nav className="mt-6 space-y-0.5">
-          {nav.map(([k, l, I]) => <button key={k} onClick={() => setV(k)} className={`w-full h-10 px-3 rounded-xl flex items-center gap-3 text-[14px] ${v === k ? 'bg-white text-ink font-medium' : 'text-sage-800 hover:bg-white/60'}`}><I size={18} />{l}</button>)}
+          {nav.map(([k, l, I]) => <button key={k} onClick={() => setV(k)} className={`w-full h-10 px-3 rounded-[10px] flex items-center gap-3 text-[14px] ${v === k ? 'bg-white/10 text-white' : 'text-sage-200 hover:bg-white/5'}`}><I size={18} strokeWidth={1.6} />{l}</button>)}
         </nav>
-        {onSwitch && <button onClick={onSwitch} className="mt-auto mb-2 h-10 px-3 rounded-xl flex items-center gap-3 text-[14px] text-sage-800 hover:bg-white/60"><Smartphone size={18} />Mitarbeiterin-App</button>}
-        <button onClick={() => setAi(!ai)} className={`${onSwitch ? '' : 'mt-auto '}h-11 rounded-xl flex items-center justify-center gap-2 text-[14px] font-medium ${ai ? 'bg-sage-800 text-white' : 'bg-ink text-white'}`}><Sparkles size={17} />{ASSISTANT} fragen</button>
+        {onSwitch && <button onClick={onSwitch} className="mt-auto mb-1 h-10 px-3 rounded-[10px] flex items-center gap-3 text-[14px] text-sage-200 hover:bg-white/5"><Smartphone size={18} strokeWidth={1.6} />Mitarbeiterin-App</button>}
+        <button onClick={() => setAi(!ai)} className={`${onSwitch ? '' : 'mt-auto '}h-10 px-3 rounded-[10px] flex items-center gap-3 text-[14px] ${ai ? 'bg-white/10 text-white' : 'text-sage-200 hover:bg-white/5'}`}><BMark className="w-[18px] h-[18px] text-[10px]" inverse />Frag {ASSISTANT}</button>
       </aside>
       <main className={`flex-1 no-scrollbar p-8 ${v === 'book' ? 'flex flex-col overflow-hidden' : 'overflow-y-auto'}`}>
         {v === 'book' && <><H>Kundentermine</H><div className="flex-1 min-h-0"><Terminbuch /></div></>}
@@ -35,14 +36,14 @@ export default function Backoffice({ onSwitch }: { onSwitch?: () => void }) {
   )
 }
 
-const H = ({ children, action }: { children: ReactNode; action?: ReactNode }) => <div className="flex items-center justify-between mb-6"><h1 className="text-[26px] font-semibold tracking-tight">{children}</h1>{action}</div>
-const Box = ({ children, className = '' }: { children: ReactNode; className?: string }) => <div className={`rounded-2xl border border-sage-100 ${className}`}>{children}</div>
-const New = ({ children, onClick }: { children: ReactNode; onClick?: () => void }) => <button onClick={onClick} className="h-10 px-4 rounded-xl bg-ink text-white text-[14px] flex items-center gap-1.5"><Plus size={16} />{children}</button>
+const H = ({ children, action }: { children: ReactNode; action?: ReactNode }) => <div className="flex items-center justify-between mb-6"><h1 className="text-[28px]">{children}</h1>{action}</div>
+const Box = ({ children, className = '' }: { children: ReactNode; className?: string }) => <div className={`rounded-[16px] border border-line ${className}`}>{children}</div>
+const New = ({ children, onClick }: { children: ReactNode; onClick?: () => void }) => <button onClick={onClick} className="h-10 px-4 rounded-xl bg-olive-700 text-white text-[14px] flex items-center gap-1.5"><Plus size={16} />{children}</button>
 const Th = ({ children }: { children: ReactNode }) => <th className="text-left font-normal text-xs text-mute px-4 py-3">{children}</th>
-const Bar = ({ p }: { p: number }) => <div className="h-1.5 w-full rounded-full bg-sage-100 overflow-hidden"><div className="h-full bg-sage-600 rounded-full" style={{ width: p + '%' }} /></div>
+const Bar = ({ p }: { p: number }) => <div className="h-1 w-full rounded-full bg-line overflow-hidden"><div className="h-full bg-olive-700 rounded-full" style={{ width: p + '%' }} /></div>
 const Field = ({ label, children }: { label: string; children: ReactNode }) => <label className="block"><span className="block text-xs text-mute mb-1">{label}</span>{children}</label>
 const inp = 'w-full h-10 rounded-xl border border-sage-200 px-3 text-[14px] bg-white outline-none'
-const Err = ({ m }: { m: string }) => m ? <p className="text-[13px] text-[#B5483B]">{m}</p> : null
+const Err = ({ m }: { m: string }) => m ? <p className="text-[13px] text-alert">{m}</p> : null
 
 /* Wer gehört zur Zielgruppe (leer = alle aktiven)? */
 function useAudience() {
@@ -76,14 +77,16 @@ function Overview({ go }: { go: (v: View) => void }) {
     ['Nächster Termin', nextEv ? fmtDate(nextEv.startsAt, { day: '2-digit', month: '2-digit' }) : '–', nextEv ? `${nextEv.title.slice(0, 26)}${nextEv.capacity ? ` · ${nextEv.taken}/${nextEv.capacity}` : ''}` : 'nichts geplant', 'events'],
   ]
   const hour = zurichHour()
+  const rows = me.app_role === 'buero' ? progress : progress.filter(b => b.id === me.branch_id)
   return (<>
-    <H>{hour < 11 ? 'Guten Morgen' : hour < 17 ? 'Hallo' : 'Guten Abend'}, {me.first}</H>
-    <div className="grid grid-cols-4 gap-4">{kpis.map(([l, n, s, to]) => <button key={l} onClick={() => go(to)} className="text-left"><Box className="p-5 hover:border-sage-400 transition"><p className="text-xs text-mute">{l}</p><p className="text-[30px] font-semibold mt-1">{n}</p><p className="text-xs text-mute truncate">{s}</p></Box></button>)}</div>
-    <div className="grid grid-cols-2 gap-4 mt-4">
-      <Box className="p-5"><p className="font-medium mb-4">Tagesaufgaben je Studio</p><div className="space-y-3">{progress.map(b => <div key={b.id} className="grid grid-cols-[90px_1fr_40px] items-center gap-3 text-[14px]"><span>{b.branch}</span><Bar p={b.total ? b.done / b.total * 100 : 0} /><span className="text-right text-mute">{b.done}/{b.total}</span></div>)}</div></Box>
-      <Box className="p-5"><p className="font-medium mb-3">Neueste Meldungen</p><div className="divide-y divide-sage-50">{tickets.length === 0 && <p className="text-[14px] text-mute">Noch keine.</p>}{tickets.slice(0, 5).map(t => <div key={t.id} className="py-2.5 flex justify-between gap-3 text-[14px]"><span className="truncate">{t.title}{t.viaAI && <Sparkles size={12} className="inline ml-1.5 text-sage-600" />}</span><span className="text-xs shrink-0"><Status s={t.status} /></span></div>)}</div></Box>
-      <Readiness />
+    <p className="rubric text-olive-700">{fmtDate(new Date().toISOString(), { weekday: 'long', day: 'numeric', month: 'long' })}</p>
+    <h1 className="text-[28px] mt-2 mb-7">{hour < 11 ? 'Guten Morgen' : hour < 17 ? 'Hallo' : 'Guten Abend'}, {me.first}</h1>
+    <div className="grid grid-cols-4 border-t border-line">{kpis.map(([l, n, s2, to], i) => <button key={l} onClick={() => go(to)} className={`text-left pt-4 pb-2 pr-4 group ${i ? 'pl-5 border-l border-line' : ''}`}><p className="font-display text-[30px] leading-tight group-hover:text-olive-700 transition">{n}</p><p className="text-[13px] text-ink/80 mt-1">{l}</p><p className="text-xs text-mute truncate">{s2}</p></button>)}</div>
+    <div className="grid grid-cols-[1.2fr_1fr] gap-10 mt-10">
+      <div><p className="rubric text-ink/70 mb-2">Tagesaufgaben {rows.length > 1 ? 'je Studio' : rows[0]?.branch ?? ''}</p>{rows.map(b => <div key={b.id} className="grid grid-cols-[90px_1fr_44px] items-center gap-3 text-[14px] py-2.5 border-b border-line"><span>{b.branch}</span><Bar p={b.total ? b.done / b.total * 100 : 0} /><span className="text-right text-mute tabular-nums text-[13px]">{b.done}/{b.total}</span></div>)}</div>
+      <div><div className="flex justify-between items-baseline mb-2"><p className="rubric text-ink/70">Neueste Meldungen</p><button onClick={() => go('tickets')} className="text-[13px] text-olive-700">Alle</button></div>{tickets.length === 0 && <p className="text-[14px] text-mute py-2.5">Keine Meldungen.</p>}{tickets.slice(0, 5).map(t => <div key={t.id} className="py-2.5 flex justify-between gap-3 text-[14px] border-b border-line"><span className="truncate">{t.title}{t.viaAI && <span className="text-mute"> · über {ASSISTANT}</span>}</span><span className="text-[13px] shrink-0"><Status s={t.status} /></span></div>)}</div>
     </div>
+    <div className="mt-10"><Readiness /></div>
   </>)
 }
 
@@ -95,13 +98,14 @@ function Readiness() {
     const p = staff.filter(s => s.active && s.branch_id === b.id)
     return { b, p, inst: p.filter(s => s.appInstalled).length, push: p.filter(s => s.pushEnabled).length }
   })
-  return <Box className="p-5 col-span-2"><p className="font-medium mb-1">Startbereitschaft</p><p className="text-xs text-mute mb-4">App auf dem Home-Bildschirm · Mitteilungen eingeschaltet</p>
-    <div className="space-y-2">{rows.map(r => <div key={r.b.id}>
-      <button onClick={() => setOpen(open === r.b.id ? null : r.b.id)} className="w-full grid grid-cols-[90px_1fr_1fr_24px] items-center gap-3 text-[14px] text-left"><span>{r.b.name}</span>
+  return <div><div className="grid grid-cols-[90px_1fr_1fr_24px] gap-3 items-baseline mb-2"><p className="rubric text-ink/70 col-span-2">Startbereitschaft</p></div>
+    <div className="grid grid-cols-[90px_1fr_1fr_24px] gap-3 text-xs text-mute mb-1"><span /><span>App installiert</span><span>Mitteilungen an</span><span /></div>
+    <div>{rows.map(r => <div key={r.b.id}>
+      <button onClick={() => setOpen(open === r.b.id ? null : r.b.id)} className="w-full grid grid-cols-[90px_1fr_1fr_24px] items-center gap-3 text-[14px] text-left py-2.5 border-b border-line"><span>{r.b.name}</span>
         <span className="flex items-center gap-2"><Bar p={r.p.length ? r.inst / r.p.length * 100 : 0} /><span className="text-xs text-mute w-10">{r.inst}/{r.p.length}</span></span>
         <span className="flex items-center gap-2"><Bar p={r.p.length ? r.push / r.p.length * 100 : 0} /><span className="text-xs text-mute w-10">{r.push}/{r.p.length}</span></span><span className="text-mute text-xs">{open === r.b.id ? '–' : '+'}</span></button>
       {open === r.b.id && <div className="mt-2 mb-3 ml-[102px] grid grid-cols-2 gap-x-6 gap-y-1 text-[13px]">{r.p.map(s => <span key={s.id} className="flex justify-between"><span>{s.first} {s.last}</span><span className="text-mute">{s.appInstalled ? 'App' : '–'} · {s.pushEnabled ? 'Push' : '–'}</span></span>)}</div>}
-    </div>)}</div></Box>
+    </div>)}</div></div>
 }
 
 /* ---------- News ---------- */
@@ -132,22 +136,22 @@ function NewsAdmin() {
         <input value={f.teaser} onChange={e => setF({ ...f, teaser: e.target.value })} placeholder="Kurzfassung für die Karte (optional)" className="w-full text-[15px] outline-none text-mute" />
         <textarea value={f.body} onChange={e => setF({ ...f, body: e.target.value })} rows={8} placeholder="Text. Absätze mit einer Leerzeile trennen." className="w-full resize-none outline-none text-[15px]" /></div>
       <div className="space-y-3 text-[14px]">
-        <Field label="Zielgruppe"><div className="flex flex-wrap gap-1.5">{branches.filter(b => !b.is_office).map(b => <button key={b.id} onClick={() => setF({ ...f, branches: f.branches.includes(b.id) ? f.branches.filter(x => x !== b.id) : [...f.branches, b.id] })} className={`px-2.5 h-8 rounded-full text-[13px] ${f.branches.includes(b.id) ? 'bg-ink text-white' : 'bg-sage-50'}`}>{b.name}</button>)}</div><span className="text-[11px] text-mute">{f.branches.length ? '' : 'Keine Auswahl = alle Studios'}</span></Field>
+        <Field label="Zielgruppe"><div className="flex flex-wrap gap-1.5">{branches.filter(b => !b.is_office).map(b => <button key={b.id} onClick={() => setF({ ...f, branches: f.branches.includes(b.id) ? f.branches.filter(x => x !== b.id) : [...f.branches, b.id] })} className={`px-2.5 h-8 rounded-full text-[13px] ${f.branches.includes(b.id) ? 'bg-olive-700 text-white' : 'bg-sage-50'}`}>{b.name}</button>)}</div><span className="text-[11px] text-mute">{f.branches.length ? '' : 'Keine Auswahl = alle Studios'}</span></Field>
         <Field label="Kategorie"><select value={f.tag} onChange={e => setF({ ...f, tag: e.target.value })} className={inp}>{['Studio', 'Marketing', 'Team', 'Hygiene'].map(x => <option key={x}>{x}</option>)}</select></Field>
         <label className="flex items-center gap-2"><input type="checkbox" checked={f.must} onChange={e => setF({ ...f, must: e.target.checked })} />Pflicht mit Lesebestätigung</label>
         <Field label="Veröffentlichen"><input type="datetime-local" value={f.when} onChange={e => setF({ ...f, when: e.target.value })} className={inp} /><span className="text-[11px] text-mute">Leer = sofort</span></Field>
         <Field label="Auch ins Wissen (Kategorie)"><input value={f.wiki} onChange={e => setF({ ...f, wiki: e.target.value })} placeholder="z. B. Hygiene" className={inp} /></Field>
-        <Err m={err} /><button disabled={busy} onClick={publish} className="w-full h-10 rounded-xl bg-ink text-white disabled:opacity-60">{f.when ? 'Einplanen' : 'Veröffentlichen'}</button>
+        <Err m={err} /><button disabled={busy} onClick={publish} className="w-full h-10 rounded-xl bg-olive-700 text-white disabled:opacity-60">{f.when ? 'Einplanen' : 'Veröffentlichen'}</button>
       </div>
     </Box>}
     <div className="grid grid-cols-[1fr_320px] gap-4">
       <Box><table className="w-full text-[14px]"><thead><tr><Th>Titel</Th><Th>Zielgruppe</Th><Th>Datum</Th><Th>Gelesen</Th></tr></thead>
         <tbody className="divide-y divide-sage-50">{news.map(x => { const p = x.mustRead ? pctOf(x.id, x.audienceBranches) : null, planned = new Date(x.publishAt) > new Date()
-          return <tr key={x.id} onClick={() => setSel(x.id)} className={`cursor-pointer ${sel === x.id ? 'bg-sage-50' : ''}`}><td className="px-4 py-3">{x.title}{x.mustRead && <span className="ml-2 text-xs text-[#C0634B]">Pflicht</span>}{planned && <span className="ml-2 text-xs text-mute">geplant</span>}</td><td className="px-4 text-mute">{x.audience}</td><td className="px-4 text-mute">{x.date}</td><td className="px-4 w-32">{p !== null ? <div className="flex items-center gap-2"><Bar p={p} /><span className="text-xs text-mute">{p}%</span></div> : <span className="text-xs text-mute">–</span>}</td></tr>
+          return <tr key={x.id} onClick={() => setSel(x.id)} className={`cursor-pointer ${sel === x.id ? 'bg-sage-50' : ''}`}><td className="px-4 py-3">{x.title}{x.mustRead && <span className="ml-2 text-xs text-brass">Pflicht</span>}{planned && <span className="ml-2 text-xs text-mute">geplant</span>}</td><td className="px-4 text-mute">{x.audience}</td><td className="px-4 text-mute">{x.date}</td><td className="px-4 w-32">{p !== null ? <div className="flex items-center gap-2"><Bar p={p} /><span className="text-xs text-mute">{p}%</span></div> : <span className="text-xs text-mute">–</span>}</td></tr>
         })}</tbody></table></Box>
       {n && <Box className="p-4"><p className="font-medium">{n.title}</p><p className="text-xs text-mute mt-1">{n.mustRead ? `${people.filter(s => newsReads.some(r => r.news_id === n.id && r.employee_id === s.id && r.confirmed_at)).length} von ${people.length} bestätigt` : 'Ohne Lesebestätigung'}</p>
         {n.mustRead && <div className="mt-3 max-h-[420px] overflow-y-auto no-scrollbar divide-y divide-sage-50">{people.map(s => { const r = newsReads.find(x => x.news_id === n.id && x.employee_id === s.id)
-          return <div key={s.id} className="py-2 flex items-center justify-between text-[13px]"><span>{s.first} {s.last} <span className="text-mute">· {s.branch}</span></span>{r?.confirmed_at ? <Check size={15} className="text-sage-600" /> : <span className="text-xs text-[#C0634B]">{r ? 'geöffnet' : 'offen'}</span>}</div> })}</div>}
+          return <div key={s.id} className="py-2 flex items-center justify-between text-[13px]"><span>{s.first} {s.last} <span className="text-mute">· {s.branch}</span></span>{r?.confirmed_at ? <Check size={15} className="text-sage-600" /> : <span className="text-xs text-brass">{r ? 'geöffnet' : 'offen'}</span>}</div> })}</div>}
         <button onClick={async () => { if (confirm('Diese News löschen?')) { await supabase!.from('news').delete().eq('id', n.id); setSel(null); await reload() } }} className="mt-4 text-[13px] text-mute flex items-center gap-1"><Trash2 size={13} />Löschen</button>
       </Box>}
     </div>
@@ -185,14 +189,14 @@ function TasksAdmin() {
         <Field label="Wiederholung"><select value={f.repeat} onChange={e => setF({ ...f, repeat: e.target.value as typeof f.repeat })} className={inp}><option value="daily">Täglich</option><option value="weekly">Wöchentlich</option><option value="monthly">Monatlich</option></select></Field>
         {f.repeat === 'weekly' && <Field label="Wochentag"><select value={f.weekday} onChange={e => setF({ ...f, weekday: Number(e.target.value) })} className={inp}>{WD.slice(1).map((d, i) => <option key={d} value={i + 1}>{d}</option>)}</select></Field>}
         {f.repeat === 'monthly' && <Field label="Tag im Monat"><input type="number" min={1} max={31} value={f.monthday} onChange={e => setF({ ...f, monthday: Number(e.target.value) })} className={inp} /></Field>}
-        <Field label="Gilt für"><div className="flex flex-wrap gap-1.5">{branches.filter(b => !b.is_office).map(b => <button key={b.id} onClick={() => setF({ ...f, branches: f.branches.includes(b.id) ? f.branches.filter(x => x !== b.id) : [...f.branches, b.id] })} className={`px-2.5 h-8 rounded-full text-[13px] ${f.branches.includes(b.id) ? 'bg-ink text-white' : 'bg-sage-50'}`}>{b.name}</button>)}</div><span className="text-[11px] text-mute">{f.branches.length ? '' : 'Keine Auswahl = alle Studios'}</span></Field>
-        <Err m={err} /><button onClick={save} className="w-full h-10 rounded-xl bg-ink text-white">Speichern</button>
+        <Field label="Gilt für"><div className="flex flex-wrap gap-1.5">{branches.filter(b => !b.is_office).map(b => <button key={b.id} onClick={() => setF({ ...f, branches: f.branches.includes(b.id) ? f.branches.filter(x => x !== b.id) : [...f.branches, b.id] })} className={`px-2.5 h-8 rounded-full text-[13px] ${f.branches.includes(b.id) ? 'bg-olive-700 text-white' : 'bg-sage-50'}`}>{b.name}</button>)}</div><span className="text-[11px] text-mute">{f.branches.length ? '' : 'Keine Auswahl = alle Studios'}</span></Field>
+        <Err m={err} /><button onClick={save} className="w-full h-10 rounded-xl bg-olive-700 text-white">Speichern</button>
       </div>
     </Box>}
     {me.app_role === 'buero' && proposals.length > 0 && <Box className="p-5 mb-6 border-sage-400">
       <div className="flex items-start justify-between gap-4"><div><p className="font-medium">Vorschlag aus dem Wiki · {proposals.length} Vorlagen, {proposals.reduce((a, t) => a + t.items.length, 0)} Punkte</p><p className="text-xs text-mute mt-1">Abgeleitet aus „Tagesabschluss Kasse“, „Reinigung in den Filialen“ und „Ämtlipläne & Wochen-Putzdienste“. Jeder Punkt verlinkt den Artikel. Gilt erst nach Freigabe.</p></div>
-        <button onClick={approve} className="h-10 px-4 rounded-xl bg-ink text-white text-[14px] shrink-0">Freigeben</button></div>
-      <div className="mt-4 grid grid-cols-2 gap-4">{proposals.map(t => <div key={t.id}><p className="text-[14px] font-medium">{t.name} <span className="text-xs text-mute font-normal">· {REP[t.repeat]}{t.repeat === 'weekly' && t.weekday ? `, ${WD[t.weekday]}` : ''}</span></p><ul className="mt-1 text-[13px] text-mute list-disc pl-4 space-y-0.5">{t.items.map(i => <li key={i.id}>{i.title}{i.prio && <span className="text-[#C0634B]"> · wichtig</span>}</li>)}</ul></div>)}</div>
+        <button onClick={approve} className="h-10 px-4 rounded-xl bg-olive-700 text-white text-[14px] shrink-0">Freigeben</button></div>
+      <div className="mt-4 grid grid-cols-2 gap-4">{proposals.map(t => <div key={t.id}><p className="text-[14px] font-medium">{t.name} <span className="text-xs text-mute font-normal">· {REP[t.repeat]}{t.repeat === 'weekly' && t.weekday ? `, ${WD[t.weekday]}` : ''}</span></p><ul className="mt-1 text-[13px] text-mute list-disc pl-4 space-y-0.5">{t.items.map(i => <li key={i.id}>{i.title}{i.prio && <span className="text-brass"> · wichtig</span>}</li>)}</ul></div>)}</div>
     </Box>}
     <div className="grid grid-cols-2 gap-4">
       <Box><p className="font-medium px-4 pt-4">Vorlagen</p><table className="w-full text-[14px]"><thead><tr><Th>Name</Th><Th>Punkte</Th><Th>Wiederholung</Th><Th>Gilt für</Th><Th> </Th></tr></thead>
@@ -216,7 +220,7 @@ function TicketsAdmin() {
       <tbody className="divide-y divide-sage-50">{tickets.length === 0 && <tr><td colSpan={6} className="px-4 py-4 text-mute">Noch keine Meldungen oder Ideen.</td></tr>}
         {tickets.filter(t => f === 'Alle' || t.kind === f).map(t => (
         <tr key={t.id}><td className="px-4 py-3 text-mute">{t.kind}</td>
-          <td className="px-4">{t.title}<span className="ml-2 inline-flex gap-1.5 text-mute align-middle">{t.photo && <a href={t.photo} target="_blank" rel="noreferrer"><Camera size={13} /></a>}{t.viaAI && <Sparkles size={13} className="text-sage-600" />}</span><p className="text-xs text-mute">{t.when}</p></td>
+          <td className="px-4">{t.title}<span className="ml-2 inline-flex gap-1.5 text-mute align-middle">{t.photo && <a href={t.photo} target="_blank" rel="noreferrer"><Camera size={13} /></a>}{t.viaAI && <span className="text-xs">über {ASSISTANT}</span>}</span><p className="text-xs text-mute">{t.when}</p></td>
           <td className="px-4 text-mute">{t.branch}</td><td className="px-4 text-mute">{t.who}</td>
           <td className="px-4">{canEdit ? <select value={t.assignee ?? ''} onChange={e => assign(t.id, e.target.value)} className="h-9 rounded-lg border border-sage-200 px-2 bg-white text-[13px]"><option value="">Zuweisen …</option>{assignees.map(a => <option key={a}>{a}</option>)}</select> : <span className="text-mute">{t.assignee ?? '–'}</span>}</td>
           <td className="px-4">{canEdit ? <select value={t.status} onChange={e => setStatus(t.id, e.target.value as Ticket['status'])} className="h-9 rounded-lg border border-sage-200 px-2 bg-white text-[13px]">{['Neu', 'Zugewiesen', 'In Arbeit', 'Erledigt'].map(s => <option key={s}>{s}</option>)}</select> : <Status s={t.status} />}</td></tr>
@@ -255,9 +259,9 @@ function EventsAdmin() {
       <div className="space-y-3 text-[14px]">
         <Field label="Art"><select value={f.kind} onChange={x => setF({ ...f, kind: x.target.value })} className={inp}>{['Schulung', 'Meeting', 'Team'].map(k => <option key={k}>{k}</option>)}</select></Field>
         <div className="grid grid-cols-2 gap-2"><Field label="Max. Plätze"><input type="number" min={1} value={f.capacity} onChange={x => setF({ ...f, capacity: x.target.value })} placeholder="unbegrenzt" className={inp} /></Field><Field label="Anmeldung bis"><input type="date" value={f.until} onChange={x => setF({ ...f, until: x.target.value })} className={inp} /></Field></div>
-        <Field label="Studios"><div className="flex flex-wrap gap-1.5">{branches.filter(b => !b.is_office).map(b => <button key={b.id} onClick={() => tog('branches', b.id)} className={`px-2.5 h-7 rounded-full text-[12px] ${f.branches.includes(b.id) ? 'bg-ink text-white' : 'bg-sage-50'}`}>{b.name}</button>)}</div></Field>
-        <Field label="Skills (Zielgruppe)"><div className="flex flex-wrap gap-1.5">{skillCatalog.map(s => <button key={s} onClick={() => tog('skills', s)} className={`px-2.5 h-7 rounded-full text-[12px] ${f.skills.includes(s) ? 'bg-ink text-white' : 'bg-sage-50'}`}>{s}</button>)}</div></Field>
-        <Err m={err} /><button onClick={save} className="w-full h-10 rounded-xl bg-ink text-white">Anlegen</button>
+        <Field label="Studios"><div className="flex flex-wrap gap-1.5">{branches.filter(b => !b.is_office).map(b => <button key={b.id} onClick={() => tog('branches', b.id)} className={`px-2.5 h-7 rounded-full text-[12px] ${f.branches.includes(b.id) ? 'bg-olive-700 text-white' : 'bg-sage-50'}`}>{b.name}</button>)}</div></Field>
+        <Field label="Skills (Zielgruppe)"><div className="flex flex-wrap gap-1.5">{skillCatalog.map(s => <button key={s} onClick={() => tog('skills', s)} className={`px-2.5 h-7 rounded-full text-[12px] ${f.skills.includes(s) ? 'bg-olive-700 text-white' : 'bg-sage-50'}`}>{s}</button>)}</div></Field>
+        <Err m={err} /><button onClick={save} className="w-full h-10 rounded-xl bg-olive-700 text-white">Anlegen</button>
       </div>
     </Box>}
     <div className="grid grid-cols-[1fr_320px] gap-4">
@@ -299,7 +303,7 @@ function TeamAdmin() {
       <Field label="Funktion"><input value={f.job_title} onChange={e => setF({ ...f, job_title: e.target.value })} className={inp} /></Field>
       <Field label="Rechte"><select value={f.app_role} onChange={e => setF({ ...f, app_role: e.target.value })} className={inp}><option value="mitarbeiterin">Mitarbeiterin</option><option value="filialleitung">Filialleitung</option><option value="buero">Büro</option></select></Field>
       <Field label="Studio"><select value={f.branch_id} onChange={e => setF({ ...f, branch_id: e.target.value })} className={inp}>{branches.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}</select></Field>
-    </div><div className="mt-4 flex items-center gap-3"><button disabled={busy} onClick={create} className="h-10 px-5 rounded-xl bg-ink text-white disabled:opacity-60">Anlegen</button><Err m={err} /><p className="text-xs text-mute">Es geht keine Einladung raus. Anmelden kann sie sich mit ihrer Firmen-Mail.</p></div></Box>}
+    </div><div className="mt-4 flex items-center gap-3"><button disabled={busy} onClick={create} className="h-10 px-5 rounded-xl bg-olive-700 text-white disabled:opacity-60">Anlegen</button><Err m={err} /><p className="text-xs text-mute">Es geht keine Einladung raus. Anmelden kann sie sich mit ihrer Firmen-Mail.</p></div></Box>}
     <div className="flex gap-3 mb-4"><div className="h-10 flex-1 rounded-xl border border-sage-200 px-3 flex items-center gap-2"><Search size={16} className="text-mute" /><input value={q} onChange={e => setQ(e.target.value)} placeholder="Name, Rolle oder Skill" className="flex-1 outline-none text-[14px]" /></div>
       <select value={b} onChange={e => setB(e.target.value)} className="h-10 rounded-xl border border-sage-200 px-3 text-[14px] bg-white">{['Alle', ...branches.map(x => x.name)].map(x => <option key={x}>{x}</option>)}</select></div>
     <div className="grid grid-cols-[1fr_260px] gap-4">
@@ -308,7 +312,7 @@ function TeamAdmin() {
           <td className="px-2"><button onClick={async () => { if (confirm(s.active ? `${s.first} ${s.last} deaktivieren? Sie kann sich dann nicht mehr anmelden.` : `${s.first} ${s.last} wieder aktivieren?`)) { await call({ action: 'set_active', employee_id: s.id, active: !s.active }); await reload() } }} className="text-xs text-mute underline">{s.active ? 'deaktivieren' : 'aktivieren'}</button></td></tr>)}</tbody></table></Box>
       <Box className="p-4 self-start"><p className="font-medium">Skill-Katalog</p><p className="text-xs text-mute mt-1">Mitarbeiterinnen wählen daraus.</p>
         <div className="mt-3 flex flex-wrap gap-1.5">{skillCatalog.map(k => <span key={k} className="px-2.5 h-7 rounded-full bg-sage-50 text-[12px] flex items-center gap-1">{k}<button onClick={async () => { await supabase!.from('skills').delete().eq('name', k); await reload() }} className="text-mute"><X size={11} /></button></span>)}</div>
-        <div className="mt-3 flex gap-2"><input value={skill} onChange={e => setSkill(e.target.value)} placeholder="Neuer Skill" className={inp} /><button onClick={async () => { if (skill.trim()) { await supabase!.from('skills').insert({ name: skill.trim(), sort: skillCatalog.length }); setSkill(''); await reload() } }} className="h-10 px-3 rounded-xl bg-ink text-white"><Plus size={15} /></button></div></Box>
+        <div className="mt-3 flex gap-2"><input value={skill} onChange={e => setSkill(e.target.value)} placeholder="Neuer Skill" className={inp} /><button onClick={async () => { if (skill.trim()) { await supabase!.from('skills').insert({ name: skill.trim(), sort: skillCatalog.length }); setSkill(''); await reload() } }} className="h-10 px-3 rounded-xl bg-olive-700 text-white"><Plus size={15} /></button></div></Box>
     </div>
   </>)
 }
@@ -357,14 +361,14 @@ function StudiosAdmin() {
     {form && <Box className="p-5 mb-6"><div className="grid grid-cols-2 gap-3">
       <Field label="Name"><input value={f.name} onChange={e => setF({ ...f, name: e.target.value })} placeholder="z. B. Liestal" className={inp} /></Field>
       <Field label="Phorest-Filial-ID (optional)"><input value={f.phorest_branch_id} onChange={e => setF({ ...f, phorest_branch_id: e.target.value })} className={inp} /></Field>
-    </div><div className="mt-4 flex items-center gap-3"><button onClick={add} className="h-10 px-5 rounded-xl bg-ink text-white">Anlegen</button><p className="text-xs text-mute">Ohne Phorest-ID zeigt das Studio keine Termine und Schichten.</p></div></Box>}
+    </div><div className="mt-4 flex items-center gap-3"><button onClick={add} className="h-10 px-5 rounded-xl bg-olive-700 text-white">Anlegen</button><p className="text-xs text-mute">Ohne Phorest-ID zeigt das Studio keine Termine und Schichten.</p></div></Box>}
     <Err m={err} />
     <Box className="mt-2"><table className="w-full text-[14px]"><thead><tr><Th>Studio</Th><Th>Personen</Th><Th>Phorest</Th><Th>Facility-Mail</Th><Th> </Th></tr></thead>
       <tbody className="divide-y divide-sage-50">{(rows ?? []).map((r, i) => edit?.id === r.id
         ? <tr key={r.id}><td className="px-4 py-2"><input value={edit.name} onChange={e => setEdit({ ...edit, name: e.target.value })} className={inp} /></td><td className="px-4 text-mute">{count(r.id)}</td>
             <td className="px-4"><input value={edit.phorest_branch_id ?? ''} onChange={e => setEdit({ ...edit, phorest_branch_id: e.target.value })} className={inp} /></td>
             <td className="px-4"><input value={edit.facility_email ?? ''} onChange={e => setEdit({ ...edit, facility_email: e.target.value })} placeholder="zentrale Adresse" className={inp} /></td>
-            <td className="px-4 whitespace-nowrap"><button onClick={save} className="h-9 px-4 rounded-xl bg-ink text-white text-[13px]">Speichern</button><button onClick={() => setEdit(null)} className="ml-3 text-xs text-mute underline">abbrechen</button></td></tr>
+            <td className="px-4 whitespace-nowrap"><button onClick={save} className="h-9 px-4 rounded-xl bg-olive-700 text-white text-[13px]">Speichern</button><button onClick={() => setEdit(null)} className="ml-3 text-xs text-mute underline">abbrechen</button></td></tr>
         : <tr key={r.id}><td className="px-4 py-2.5">{r.name}{r.is_office && <span className="ml-2 text-xs text-mute">Büro</span>}</td><td className="px-4 text-mute">{count(r.id)}</td>
             <td className="px-4 text-mute text-[13px]">{r.is_office ? '–' : r.phorest_branch_id ? 'verbunden' : 'nicht verbunden'}</td>
             <td className="px-4 text-mute text-[13px]">{r.facility_email || 'zentrale Adresse'}</td>
@@ -401,17 +405,17 @@ function MailSettings() {
         <div><p className="font-medium">E-Mail-Versand</p>
           <p className="text-xs text-mute mt-1">Facility-Meldungen an das Studio, Einladungen zu Schulungen und Erinnerungen an Angemeldete. Absender {st.from}.</p>
           <p className="text-[13px] mt-2">{!st.keySet ? 'Noch kein Resend-Schlüssel hinterlegt: es geht nichts raus.' : st.enabled ? 'Eingeschaltet.' : 'Ausgeschaltet: es geht nichts raus.'}</p></div>
-        <button disabled={!st.keySet} onClick={toggle} className={`h-10 px-4 rounded-xl text-[14px] shrink-0 disabled:opacity-40 ${st.enabled ? 'bg-sage-100 text-sage-800' : 'bg-ink text-white'}`}>{st.enabled ? 'Ausschalten' : 'Einschalten'}</button>
+        <button disabled={!st.keySet} onClick={toggle} className={`h-10 px-4 rounded-xl text-[14px] shrink-0 disabled:opacity-40 ${st.enabled ? 'bg-sage-100 text-sage-800' : 'bg-olive-700 text-white'}`}>{st.enabled ? 'Ausschalten' : 'Einschalten'}</button>
       </div>
       <div className="mt-4 grid grid-cols-[1fr_180px_auto] gap-3 items-end">
         <Field label="Zentrale Facility-Adresse (für Studios ohne eigene)"><input value={central} onChange={e => setCentral(e.target.value)} placeholder="facility@beautylounge.ch" className={inp} /></Field>
         <Field label="Erinnerung vor Schulung (Tage)"><input type="number" min={1} max={14} value={days} onChange={e => setDays(Number(e.target.value))} className={inp} /></Field>
-        <div className="flex items-center gap-3"><button onClick={save} className="h-10 px-4 rounded-xl bg-ink text-white text-[14px]">Speichern</button><button onClick={showPreview} className="text-xs text-mute underline">Vorschau</button></div>
+        <div className="flex items-center gap-3"><button onClick={save} className="h-10 px-4 rounded-xl bg-olive-700 text-white text-[14px]">Speichern</button><button onClick={showPreview} className="text-xs text-mute underline">Vorschau</button></div>
       </div>
       {msg && <p className="mt-2 text-[13px] text-sage-800">{msg}</p>}
       {preview && <div className="mt-4 rounded-xl border border-sage-100 overflow-hidden"><div className="flex justify-between px-3 py-2 text-xs text-mute bg-sage-50"><span>Vorschau einer Facility-Meldung (wird nicht versendet)</span><button onClick={() => setPreview(null)}><X size={13} /></button></div><iframe title="Vorschau" srcDoc={preview} className="w-full h-[420px] bg-white" /></div>}
       {st.log.length > 0 && <table className="mt-5 w-full text-[13px]"><thead><tr><Th>Zeit</Th><Th>Art</Th><Th>An</Th><Th>Betreff</Th><Th>Status</Th></tr></thead>
-        <tbody className="divide-y divide-sage-50">{st.log.map((l, i) => <tr key={i}><td className="px-4 py-2 text-mute">{fmtDate(l.at, { day: '2-digit', month: '2-digit' })} {fmtTime(l.at)}</td><td className="px-4">{l.kind}</td><td className="px-4 text-mute">{l.recipient}</td><td className="px-4">{l.subject}</td><td className={`px-4 ${l.status === 'fehler' ? 'text-[#B5483B]' : 'text-mute'}`} title={l.error ?? ''}>{l.status}</td></tr>)}</tbody></table>}
+        <tbody className="divide-y divide-sage-50">{st.log.map((l, i) => <tr key={i}><td className="px-4 py-2 text-mute">{fmtDate(l.at, { day: '2-digit', month: '2-digit' })} {fmtTime(l.at)}</td><td className="px-4">{l.kind}</td><td className="px-4 text-mute">{l.recipient}</td><td className="px-4">{l.subject}</td><td className={`px-4 ${l.status === 'fehler' ? 'text-alert' : 'text-mute'}`} title={l.error ?? ''}>{l.status}</td></tr>)}</tbody></table>}
     </Box>
   )
 }
@@ -461,12 +465,12 @@ function WikiAdmin() {
           {edit.media_kind === 'youtube' && <Field label="YouTube-Link"><input value={edit.media_url} onChange={e => setEdit({ ...edit, media_url: e.target.value })} placeholder="https://youtu.be/…" className={inp} /></Field>}
           {(edit.media_kind === 'photo' || edit.media_kind === 'video') && <><button onClick={() => file.current?.click()} className="w-full h-10 rounded-xl border border-sage-200">{edit.media_url ? 'Datei ersetzen' : 'Datei hochladen'}</button><input ref={file} type="file" accept="image/*,video/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) upload(f) }} />{edit.media_url && <p className="text-[11px] text-mute truncate">{edit.media_url}</p>}</>}</>}
         <label className="flex items-center gap-2"><input type="checkbox" checked={edit.published} onChange={e => setEdit({ ...edit, published: e.target.checked })} />Freigegeben</label>
-        <Err m={err} /><div className="flex gap-2"><button onClick={save} className="flex-1 h-10 rounded-xl bg-ink text-white">Speichern</button><button onClick={() => setEdit(null)} className="h-10 px-3 rounded-xl border border-sage-200">Abbrechen</button></div>
+        <Err m={err} /><div className="flex gap-2"><button onClick={save} className="flex-1 h-10 rounded-xl bg-olive-700 text-white">Speichern</button><button onClick={() => setEdit(null)} className="h-10 px-3 rounded-xl border border-sage-200">Abbrechen</button></div>
       </div>
     </Box>}
     {obProposal.length > 0 && <Box className="p-5 mb-6 border-sage-400">
       <div className="flex items-start justify-between gap-4"><div><p className="font-medium">Vorschlag: Onboarding für Neue · {obProposal.length} Schritte aus dem Wiki</p><p className="text-xs text-mute mt-1">Jeder Schritt öffnet den Artikel. Ersetzt nach Freigabe die {steps.length} Beispielschritte.</p></div>
-        <button onClick={async () => { if (confirm('Onboarding-Vorschlag freigeben?')) { await supabase!.rpc('approve_wiki_proposals', { p_kind: 'onboarding' }); await reload() } }} className="h-10 px-4 rounded-xl bg-ink text-white text-[14px] shrink-0">Freigeben</button></div>
+        <button onClick={async () => { if (confirm('Onboarding-Vorschlag freigeben?')) { await supabase!.rpc('approve_wiki_proposals', { p_kind: 'onboarding' }); await reload() } }} className="h-10 px-4 rounded-xl bg-olive-700 text-white text-[14px] shrink-0">Freigeben</button></div>
       <ol className="mt-3 text-[13px] text-mute list-decimal pl-5 columns-2 gap-6">{obProposal.map(x => <li key={x.id}>{x.title} · {x.minutes} Min.</li>)}</ol>
     </Box>}
     <div className="h-10 mb-4 rounded-xl border border-sage-200 px-3 flex items-center gap-2"><Search size={16} className="text-mute" /><input value={q} onChange={e => setQ(e.target.value)} placeholder="Titel, Kategorie oder Stichwort" className="flex-1 outline-none text-[14px]" /><span className="text-xs text-mute">{list.length} Artikel</span></div>
@@ -491,15 +495,15 @@ function AdminChat({ onClose }: { onClose: () => void }) {
   }
   return (
     <aside className="w-[380px] shrink-0 border-l border-sage-100 flex flex-col bg-paper">
-      <div className="h-16 px-5 flex items-center justify-between border-b border-sage-100"><p className="font-medium flex items-center gap-2"><Sparkles size={17} />{ASSISTANT}</p><button onClick={onClose} className="w-8 h-8 rounded-lg hover:bg-sage-50 flex items-center justify-center"><X size={17} /></button></div>
+      <div className="h-16 px-5 flex items-center justify-between border-b border-sage-100"><p className="font-medium flex items-center gap-2"><BMark className="w-6 h-6 text-[11px]" />{ASSISTANT}</p><button onClick={onClose} className="w-8 h-8 rounded-lg hover:bg-sage-50 flex items-center justify-center"><X size={17} /></button></div>
       <div className="flex-1 overflow-y-auto no-scrollbar p-5 space-y-3">
         {msgs.length === 0 && <><p className="text-[14px] text-mute">{ASSISTANT} beantwortet Fragen aus dem freigegebenen Wissen und kennt deinen Tag aus Phorest.</p>
           {ideas.map(i => <button key={i} onClick={() => send(i)} className="w-full text-left rounded-2xl bg-white px-4 py-3 text-[14px]">{i}</button>)}</>}
-        {msgs.map((m, i) => <div key={i} className={m.me ? 'flex justify-end' : ''}><div className={`max-w-[92%] rounded-[18px] px-4 py-3 text-[14px] leading-snug ${m.me ? 'bg-ink text-white' : 'bg-white'}`}>{m.t}</div></div>)}
-        {busy && <div className="w-16 rounded-[18px] bg-white px-4 py-3 flex gap-1">{[0, 1, 2].map(i => <span key={i} className="w-1.5 h-1.5 rounded-full bg-sage-400 animate-pulse" />)}</div>}
+        {msgs.map((m, i) => <div key={i} className={m.me ? 'flex justify-end' : ''}><div className={`max-w-[92%] rounded-2xl px-4 py-3 text-[14px] leading-snug ${m.me ? 'bg-olive-700 text-white' : 'bg-white'}`}>{m.t}</div></div>)}
+        {busy && <div className="w-16 rounded-2xl bg-white px-4 py-3 flex gap-1">{[0, 1, 2].map(i => <span key={i} className="w-1.5 h-1.5 rounded-full bg-sage-400 animate-pulse" />)}</div>}
         <div ref={end} />
       </div>
-      <div className="p-4 flex gap-2 border-t border-sage-100"><input value={v} onChange={e => setV(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} placeholder={`Frag ${ASSISTANT} …`} className="flex-1 h-11 rounded-xl bg-white border border-sage-200 px-3 text-[14px] outline-none" /><button onClick={() => send()} className="w-11 h-11 rounded-xl bg-ink text-white flex items-center justify-center"><Send size={16} /></button></div>
+      <div className="p-4 flex gap-2 border-t border-sage-100"><input value={v} onChange={e => setV(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} placeholder={`Frag ${ASSISTANT} …`} className="flex-1 h-11 rounded-xl bg-white border border-sage-200 px-3 text-[14px] outline-none" /><button onClick={() => send()} className="w-11 h-11 rounded-xl bg-olive-700 text-white flex items-center justify-center"><Send size={16} /></button></div>
     </aside>
   )
 }

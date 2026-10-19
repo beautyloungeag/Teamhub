@@ -1,16 +1,27 @@
 @import "tailwindcss";
 @theme {
-  --color-sage-50: #F4F5F2;
-  --color-sage-100: #E8EBE5;
-  --color-sage-200: #D3D8CF;
-  --color-sage-400: #9EA79B;
-  --color-sage-600: #77816F;
-  --color-sage-800: #5C6656;
-  --color-ink: #0B0D12;
-  --color-mute: #6B7280;
-  --color-paper: #FBFAF7;
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  /* Beautylounge Design System (19.10.2026): Olive aus der Website, Stein statt Creme, Messing nur für „heute wichtig“ */
+  --color-sage-50: #F5F5F2;
+  --color-sage-100: #E3E6E0;
+  --color-sage-200: #C8CDC5;
+  --color-sage-400: #979E92;
+  --color-sage-600: #6F7D66;
+  --color-sage-800: #495940;
+  --color-olive-700: #495940;
+  --color-olive-800: #2F3A2A;
+  --color-olive-900: #252E22;
+  --color-line: #E6E8E3;
+  --color-brass: #B08A52;
+  --color-alert: #A9493A;
+  --color-ok: #4F7A4A;
+  --color-ink: #1D221C;
+  --color-mute: #7A8176;
+  --color-paper: #FFFFFF;
+  --font-sans: "Albert Sans", "Avenir Next", -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-display: "Jost", "Futura", "Avenir Next", sans-serif;
 }
 html,body,#root{height:100%}
-body{margin:0;background:#ECEBE6;color:var(--color-ink);font-family:var(--font-sans);-webkit-font-smoothing:antialiased}
+body{margin:0;background:#F5F5F2;color:var(--color-ink);font-family:var(--font-sans);-webkit-font-smoothing:antialiased}
+h1,h2,h3{font-family:var(--font-display);font-weight:500;letter-spacing:-0.01em}
+.rubric{font-family:var(--font-display);font-weight:500;font-size:11px;letter-spacing:.2em;text-transform:uppercase}
 .no-scrollbar::-webkit-scrollbar{display:none}

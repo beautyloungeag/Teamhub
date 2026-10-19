@@ -1,5 +1,6 @@
 // Schlüssel = deutscher Text, Werte [Englisch, Französisch].
 export default {
+  'Frag {name}': ['Ask {name}', 'Demande à {name}'],
   'Webmail': ['Webmail', 'Webmail'],
   'Ferien, Anträge und Stempeluhr laufen in Timebutler': ['Holidays, requests and the time clock are in Timebutler', 'Congés, demandes et pointeuse sont dans Timebutler'],
   'Deine Firmen-Mails liest du im Webmail': ['You read your work emails in webmail', 'Tu lis tes e-mails professionnels dans le webmail'],

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Logo } from './Logo'
 import { supabase } from './lib/supabase'
 import { tr, savedLang, setCurrentLang, type Lang } from './lib/i18n'
 
@@ -48,30 +49,29 @@ export default function Login({ notice }: { notice?: string }) {
   return (
     <div className="flex-1 flex flex-col px-7 pt-14 pb-10">
       <div className="flex justify-end gap-1 text-xs">
-        {(['DE', 'EN', 'FR'] as Lang[]).map(l => <button key={l} onClick={() => setLang(l)} className={`px-2.5 py-1 rounded-full ${lang === l ? 'bg-ink text-white' : 'text-mute'}`}>{l}</button>)}
+        {(['DE', 'EN', 'FR'] as Lang[]).map(l => <button key={l} onClick={() => setLang(l)} className={`px-2.5 py-1 rounded-full ${lang === l ? 'bg-olive-700 text-white' : 'text-mute'}`}>{l}</button>)}
       </div>
-      <div className="mt-20">
-        <div className="w-14 h-14 rounded-2xl bg-sage-400 flex items-center justify-center text-white text-xl font-semibold">bl</div>
-        <h1 className="mt-6 text-[34px] leading-tight font-semibold tracking-tight">TeamHub</h1>
-        <p className="mt-1 text-mute">Beautylounge · {t('intern')}</p>
+      <div className="mt-14">
+        <Logo className="w-44 text-olive-800 -ml-1" />
+        <p className="mt-8 rubric text-olive-700">TeamHub</p>
       </div>
       <div className="mt-auto space-y-4">
         {step === 'mail' ? <>
           <label className="block"><span className="block text-sm text-mute mb-2">{t('E-Mail')}</span>
             <input type="email" inputMode="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()}
-              placeholder={t('vorname@beautylounge.ch')} className="w-full h-12 rounded-2xl bg-white px-4 text-[15px] outline-none placeholder:text-mute" /></label>
-          <button disabled={busy} onClick={send} className="w-full h-12 rounded-2xl font-medium bg-ink text-white disabled:opacity-60">{busy ? '…' : t('Anmeldecode senden')}</button>
+              placeholder={t('vorname@beautylounge.ch')} className="w-full h-12 rounded-[10px] bg-sage-50 px-4 text-[15px] outline-none placeholder:text-mute" /></label>
+          <button disabled={busy} onClick={send} className="w-full h-12 rounded-[10px] font-medium bg-olive-700 text-white disabled:opacity-60">{busy ? '…' : t('Anmeldecode senden')}</button>
           <p className="text-xs text-mute text-center">{t('Kein Passwort. Du bekommst einen Code per E-Mail.')}</p>
           <button onClick={() => { const e = email.trim().toLowerCase(); if (!e) { setErr('Bitte gib zuerst deine E-Mail-Adresse ein.'); return } setEmail(e); setErr(''); setStep('code') }} className="w-full text-sm text-mute">{t('Ich habe schon einen Code')}</button>
         </> : <>
           <p className="text-[15px]">{sentA}<span className="font-medium">{email}</span>{sentB}</p>
           <label className="block"><span className="block text-sm text-mute mb-2">{t('Code')}</span>
             <input inputMode="numeric" autoComplete="one-time-code" maxLength={8} value={code} onChange={e => setCode(e.target.value)} onKeyDown={e => e.key === 'Enter' && verify()}
-              className="w-full h-12 rounded-2xl bg-white px-4 text-lg tracking-[0.4em] outline-none" /></label>
-          <button disabled={busy} onClick={verify} className="w-full h-12 rounded-2xl font-medium bg-ink text-white disabled:opacity-60">{busy ? '…' : t('Anmelden')}</button>
+              className="w-full h-12 rounded-[10px] bg-sage-50 px-4 text-lg tracking-[0.4em] outline-none" /></label>
+          <button disabled={busy} onClick={verify} className="w-full h-12 rounded-[10px] font-medium bg-olive-700 text-white disabled:opacity-60">{busy ? '…' : t('Anmelden')}</button>
           <button onClick={() => { setStep('mail'); setCode(''); setErr('') }} className="w-full text-sm text-mute">{t('Andere E-Mail verwenden')}</button>
         </>}
-        {err && <p role="alert" className="text-sm text-center text-[#B5483B]">{t(err)}</p>}
+        {err && <p role="alert" className="text-sm text-center text-alert">{t(err)}</p>}
       </div>
     </div>
   )

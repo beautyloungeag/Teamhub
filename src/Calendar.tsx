@@ -6,7 +6,7 @@ import { tr, locale } from './lib/i18n'
 
 /* ---------- Kundentermine (lesend aus Phorest) ---------- */
 const START = 8, END = 20, SLOT = 44 // px je halbe Stunde
-const COLORS = ['#7FB77E', '#E8837A', '#F2D64B', '#8EC3E6', '#B58FD6', '#F29BC0', '#5BB5A2']
+const COLORS = ['#8FA382', '#C29A6B', '#93A9B3', '#B9A27A', '#A693A6', '#7E9C93', '#C2A39B']
 const colorFor = (service: string) => COLORS[[...service].reduce((a, c) => a + c.charCodeAt(0), 0) % COLORS.length]
 const fmt = (h: number) => `${String(Math.floor(h)).padStart(2, '0')}:${String(Math.round((h % 1) * 60)).padStart(2, '0')}`
 const dayOffset = (n: number) => isoDay(new Date(Date.now() + n * 864e5))
@@ -51,7 +51,7 @@ export function Terminbuch({ compact }: { compact?: boolean }) {
 
       <div className="mt-3 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
         <button onClick={() => setDay(Math.max(0, day - 1))} className="w-9 h-9 rounded-lg bg-white border border-sage-200 flex items-center justify-center shrink-0"><ChevronLeft size={16} /></button>
-        {Array.from({ length: 7 }, (_, i) => <button key={i} onClick={() => setDay(i)} className={`h-9 px-3 rounded-lg text-[13px] shrink-0 ${day === i ? 'bg-ink text-white' : 'bg-white border border-sage-200'}`}>{dayLabel(i)}</button>)}
+        {Array.from({ length: 7 }, (_, i) => <button key={i} onClick={() => setDay(i)} className={`h-9 px-3 rounded-lg text-[13px] shrink-0 ${day === i ? 'bg-olive-700 text-white' : 'bg-white border border-sage-200'}`}>{dayLabel(i)}</button>)}
         <button onClick={() => setDay(Math.min(6, day + 1))} className="w-9 h-9 rounded-lg bg-white border border-sage-200 flex items-center justify-center shrink-0"><ChevronRight size={16} /></button>
       </div>
 
@@ -79,10 +79,10 @@ export function Terminbuch({ compact }: { compact?: boolean }) {
                   {from > START && <div className="absolute inset-x-0 top-0 bg-sage-100/70" style={{ height: (Math.min(from, END) - START) * 2 * SLOT }}>{!c.shift && <p className="p-2 text-xs text-mute">{t('Nicht eingeplant')}</p>}</div>}
                   {c.shift && to < END && <div className="absolute inset-x-0 bg-sage-100/70" style={{ top: (to - START) * 2 * SLOT, bottom: 0 }} />}
                   {blocks.map((b, i) => { const s = toHours(b.start), e = toHours(b.end)
-                    return <div key={i} className="absolute left-1 right-1 rounded-lg px-2 py-1 overflow-hidden text-[11px] leading-tight" style={{ top: (s - START) * 2 * SLOT + 1, height: Math.max((e - s) * 2 * SLOT - 2, 18), background: colorFor(b.service), color: '#0B0D12' }}>
-                      <p className="font-semibold truncate">{b.client}</p><p className="truncate">{b.service}</p><p className="opacity-70">{b.start}–{b.end}</p>
+                    return <div key={i} className="absolute left-1 right-1 rounded-lg px-2 py-1 overflow-hidden text-[11px] leading-tight" style={{ top: (s - START) * 2 * SLOT + 1, height: Math.max((e - s) * 2 * SLOT - 2, 18), background: colorFor(b.service) + '33', borderLeft: `3px solid ${colorFor(b.service)}`, color: '#1D221C' }}>
+                      <p className="font-medium truncate">{b.client}</p><p className="truncate">{b.service}</p><p className="opacity-70">{b.start}–{b.end}</p>
                     </div> })}
-                  {day === 0 && nowH > START && nowH < END && <div className="absolute inset-x-0 h-0.5 bg-[#D93A2B]" style={{ top: (nowH - START) * 2 * SLOT }} />}
+                  {day === 0 && nowH > START && nowH < END && <div className="absolute inset-x-0 h-0.5 bg-alert" style={{ top: (nowH - START) * 2 * SLOT }} />}
                 </div>
               </div>
             )
@@ -96,7 +96,7 @@ export function Terminbuch({ compact }: { compact?: boolean }) {
 
 /* ---------- Mein Kalender: Phorest-Termine + Schulungen/Events ---------- */
 type Item = { time: string; end?: string; title: string; sub: string; src: 'phorest' | 'event'; color: string; ev?: Ev }
-const SRC = { phorest: { label: 'Termine', color: '#7FB77E' }, event: { label: 'Schulungen & Events', color: '#C0634B' } } as const
+const SRC = { phorest: { label: 'Termine', color: '#7FB77E' }, event: { label: 'Schulungen & Events', color: '#B08A52' } } as const
 const ymd = (y: number, m: number, d: number) => `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
 
 export function EventCalendar() {
@@ -127,8 +127,8 @@ export function EventCalendar() {
           </button>
         ))}
       </div>
-      <div className="rounded-[20px] bg-white p-4">
-        <div className="flex items-center justify-between"><p className="font-semibold text-[17px]">{monthName} {y}</p>
+      <div className="rounded-[16px] bg-white p-4">
+        <div className="flex items-center justify-between"><p className="font-medium text-[17px]">{monthName} {y}</p>
           <div className="flex gap-1"><button onClick={() => shiftMonth(-1)} className="w-8 h-8 rounded-lg bg-sage-50 flex items-center justify-center"><ChevronLeft size={16} /></button><button onClick={() => shiftMonth(1)} className="w-8 h-8 rounded-lg bg-sage-50 flex items-center justify-center"><ChevronRight size={16} /></button></div></div>
         <div className="mt-3 grid grid-cols-7 text-center text-[11px] text-mute">{['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].map(d => <span key={d}>{t(d)}</span>)}</div>
         <div className="mt-1 grid grid-cols-7 gap-y-0.5">
@@ -136,14 +136,14 @@ export function EventCalendar() {
             const valid = d >= 1 && d <= days, key = valid ? ymd(y, m, d) : ''
             const hasEv = valid && show.event && evByDay.has(key)
             return <button key={i} disabled={!valid} onClick={() => setSel(key)} className="h-11 flex flex-col items-center justify-center">
-              <span className={`w-8 h-8 rounded-full flex items-center justify-center text-[14px] ${!valid ? 'text-transparent' : sel === key ? 'bg-ink text-white' : key === t0 ? 'text-[#C0634B] font-semibold' : ''}`}>{valid ? d : ''}</span>
+              <span className={`w-8 h-8 rounded-full flex items-center justify-center text-[14px] ${!valid ? 'text-transparent' : sel === key ? 'bg-olive-700 text-white' : key === t0 ? 'text-brass font-medium' : ''}`}>{valid ? d : ''}</span>
               <span className="flex gap-0.5 h-1.5 mt-0.5">{hasEv && <span className="w-1 h-1 rounded-full" style={{ background: SRC.event.color }} />}</span>
             </button>
           })}
         </div>
       </div>
       <p className="mt-5 mb-2 px-1 text-[13px] font-medium text-sage-800">{sel === t0 ? `${t('Heute')}, ` : ''}{selLabel} · {t('{n} Einträge', { n: list.length })}</p>
-      <div className="rounded-[20px] bg-white divide-y divide-sage-50 overflow-hidden">
+      <div className="rounded-[16px] bg-white divide-y divide-sage-50 overflow-hidden">
         {!day && show.phorest && <p className="px-4 py-3 text-[13px] text-mute">{t('Termine laden …')}</p>}
         {day && list.length === 0 && <p className="px-4 py-4 text-[14px] text-mute">{t('Nichts eingetragen.')}</p>}
         {list.map((x, i) => { const j = x.ev ? joined.has(x.ev.id) : false
@@ -155,8 +155,8 @@ export function EventCalendar() {
               {x.ev?.description && <p className="text-[13px] mt-1">{x.ev.description}</p>}
               {x.ev?.link && <a href={x.ev.link} target="_blank" rel="noreferrer" className="text-[13px] text-sage-800 underline">{t('Zum Meeting')}</a>}
               <p className="text-[11px] mt-0.5" style={{ color: SRC[x.src].color }}>{x.src === 'phorest' ? 'Phorest' : 'TeamHub'}</p>
-              {x.ev && <button disabled={!j && (full || closed)} onClick={async () => { const r = await toggleEvent(x.ev!.id); setMsg(v => ({ ...v, [x.ev!.id]: r ?? '' })) }} className={`mt-2 h-8 px-3.5 rounded-full text-[12px] disabled:opacity-50 ${j ? 'bg-sage-100 text-sage-800' : 'bg-ink text-white'}`}>{j ? t('Angemeldet · abmelden') : full ? t('Ausgebucht') : closed ? t('Anmeldung geschlossen') : t('Anmelden|event')}</button>}
-              {x.ev && msg[x.ev.id] && <p className="mt-1 text-[12px] text-[#B5483B]">{t(msg[x.ev.id])}</p>}
+              {x.ev && <button disabled={!j && (full || closed)} onClick={async () => { const r = await toggleEvent(x.ev!.id); setMsg(v => ({ ...v, [x.ev!.id]: r ?? '' })) }} className={`mt-2 h-8 px-3.5 rounded-full text-[12px] disabled:opacity-50 ${j ? 'bg-sage-100 text-sage-800' : 'bg-olive-700 text-white'}`}>{j ? t('Angemeldet · abmelden') : full ? t('Ausgebucht') : closed ? t('Anmeldung geschlossen') : t('Anmelden|event')}</button>}
+              {x.ev && msg[x.ev.id] && <p className="mt-1 text-[12px] text-alert">{t(msg[x.ev.id])}</p>}
             </div>
           </div>
         })}
