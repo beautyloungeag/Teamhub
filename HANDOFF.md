@@ -4,6 +4,7 @@ Interne Mitarbeiter-App (PWA + Desktop-Backoffice) der Beautylounge AG. Kundin: 
 
 ### Nachtrag 2026-10-19
 
+- **Live:** `https://teamhub.beautylounge.ch` ist öffentlich, Login per Code dort getestet (Test-Filialleitung). Supabase-URL, Anon-Key und VAPID-Public-Key stehen seit `ad3fb25` als Standard im Code (alle öffentlich), Netlify-Variablen sind dafür nicht mehr nötig. Auf dem Desktop zeigt die Mitarbeiterin-Ansicht bewusst einen Handyrahmen, auf dem Handy (< 768 px) läuft sie randlos.
 - **Testkonten für die Demo-Übung:** `info+mitarbeiterin@aleksa.ai` (Rolle Mitarbeiterin) und `info+filialleitung@aleksa.ai` (Rolle Filialleitung), beide Studio Basel 1, Name „Test …“. Codes landen per Plus-Adresse im Postfach info@aleksa.ai (geprüft). Test-Mitarbeiterin hängt in `employee_phorest` an Sabrinas Spalte in Basel 1 (`-gjTnLQl-VV0D6xYT9s5LQ`), „Mein Tag“ zeigt damit echte Termine (19.10.: Schicht 10:30–19:00, 7 Termine). ⚠️ Ein `sync_staff` löscht diese Zeile wieder. Test-Filialleitung ohne Phorest-Spalte. ⚠️ **Vor dem Pilot löschen** (Zeile in `employees` + Auth-Konto), sonst zählen sie in Listen und Startbereitschaft mit.
 
 ### Nachtrag 2026-10-09
