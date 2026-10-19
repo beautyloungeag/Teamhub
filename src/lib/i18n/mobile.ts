@@ -1,5 +1,13 @@
 // Schlüssel = deutscher Text, Werte [Englisch, Französisch].
 export default {
+  "Pflicht": ["Required", "Obligatoire"],
+  "Studio": ["Studio", "Studio"],
+  "Marketing": ["Marketing", "Marketing"],
+  "Hygiene": ["Hygiene", "Hygiène"],
+  "Wird übersetzt …": ["Translating …", "Traduction …"],
+  "Übersetzung gerade nicht möglich, Original wird angezeigt.": ["Translation not available right now, showing the original.", "Traduction indisponible pour le moment, voici l’original."],
+  "Übersetzung anzeigen": ["Show translation", "Afficher la traduction"],
+  "Automatisch übersetzt · Original": ["Translated automatically · Original", "Traduit automatiquement · Original"],
   "Lass uns mit dem Onboarding weiterlernen.": ["Let's continue with onboarding.", "Continuons l’onboarding."],
   "Mit Benni lernen": ["Learn with Benni", "Apprendre avec Benni"],
   "Schritt für Schritt, mit kurzer Kontrollfrage": ["Step by step, with a short check question", "Pas à pas, avec une petite question de contrôle"],

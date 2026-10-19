@@ -5,7 +5,7 @@ import { useApp, type Quiz, type QuizQuestion, type QuizResult } from './store'
 
 // Quiz am Ende einer News oder eines Wissensartikels. Lösungen kennt nur der Server (submit_quiz).
 export function QuizRunner({ quiz }: { quiz: Quiz }) {
-  const { attempts, me, submitQuiz, t } = useApp()
+  const { attempts, me, submitQuiz, lang, t } = useApp()
   const mine = attempts.filter(a => a.quizId === quiz.id && a.employeeId === me.id)
   const passed = mine.find(a => a.passed)
   const last = mine[mine.length - 1]
@@ -19,7 +19,11 @@ export function QuizRunner({ quiz }: { quiz: Quiz }) {
     const { data, error } = await supabase!.rpc('quiz_for_me', { p_quiz: quiz.id })
     setBusy(false)
     if (error) { setErr(t('Das Quiz lässt sich gerade nicht laden.')); return }
-    setQs((data ?? []) as QuizQuestion[])
+    // Frage und Antworten in der Profilsprache; Reihenfolge der Antworten bleibt gleich (Lösung zählt nach Position)
+    setQs(((data ?? []) as (QuizQuestion & { i18n?: Record<string, { prompt?: string; options?: string[] }> })[]).map(q => {
+      const x = lang !== 'DE' ? q.i18n?.[lang] : undefined
+      return { ...q, prompt: x?.prompt || q.prompt, options: x?.options?.length === q.options.length ? x.options : q.options }
+    }))
   }
   const pick = (q: QuizQuestion, i: number) => setAns(a => {
     const cur = (a[q.id] ?? []) as number[]

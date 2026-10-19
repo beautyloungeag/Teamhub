@@ -271,16 +271,18 @@ function NewsList({ open }: { open: (s: Sub) => void }) {
 function NewsDetail({ n }: { n: News }) {
   const { read, confirm, openNews, quizzes, t } = useApp()
   const quiz = quizzes.find(q => q.newsId === n.id)
+  const [orig, setOrig] = useState(false)
+  const v = orig && n.orig ? n.orig : n
   const [busy, setBusy] = useState(false)
   // „Gelesen & verstanden“ geht erst, nachdem die News geöffnet wurde — das Öffnen wird hier gespeichert.
   useEffect(() => { openNews(n.id) }, [n.id]) // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <article className="px-5 pb-10">
-      <p className="text-xs text-mute mt-3">{n.tag} · {n.audience} · {n.date}</p>
-      <h1 className="mt-2 text-[26px] font-medium tracking-tight leading-tight">{n.title}</h1>
-      <p className="mt-2 text-[13px] text-mute">{t('von {name}', { name: n.author })}</p>
+      <p className="text-xs text-mute mt-3">{t(n.tag)} · {n.audience} · {n.date}</p>
+      <h1 className="mt-2 text-[26px] font-medium tracking-tight leading-tight">{v.title}</h1>
+      <p className="mt-2 text-[13px] text-mute">{t('von {name}', { name: n.author })}{n.orig && <> · <button onClick={() => setOrig(!orig)} className="text-olive-700">{orig ? t('Übersetzung anzeigen') : t('Automatisch übersetzt · Original')}</button></>}</p>
       {n.image && <img src={n.image} alt="" className="mt-5 w-full aspect-[3/2] object-cover rounded-[16px] bg-sage-100" />}
-      <div className="mt-5 space-y-4 text-[16px] leading-relaxed">{n.body.split('\n\n').map((p, i) => <p key={i}>{p}</p>)}</div>
+      <div className="mt-5 space-y-4 text-[16px] leading-relaxed">{v.body.split('\n\n').map((p, i) => <p key={i}>{p}</p>)}</div>
       {n.wikiCategory && <p className="mt-4 text-[13px] text-sage-800 flex items-center gap-1"><BookOpen size={14} />{t('Auch im Wissen unter {cat} abgelegt', { cat: n.wikiCategory })}</p>}
       {n.mustRead && read.has(n.id) && <div className="mt-8 h-12 rounded-[10px] bg-sage-100 text-olive-800 flex items-center justify-center gap-2 font-medium"><Check size={18} />{t('Gelesen und bestätigt')}</div>}
       {n.mustRead && !read.has(n.id) && !quiz && <div className="mt-8"><Btn disabled={busy} onClick={async () => { setBusy(true); await confirm(n.id); setBusy(false) }}>{t('Gelesen und verstanden')}</Btn></div>}
@@ -436,14 +438,21 @@ function Rich({ text }: { text: string }) {
   })}</>
 }
 function WikiDetail({ a }: { a: WikiArticle }) {
-  const { quizzes, t } = useApp()
+  const { quizzes, lang, t } = useApp()
+  const [tr8, setTr8] = useState<{ body: string; blocks: WikiBlock[] | null } | null | 'loading' | 'failed'>(null)
+  const [orig, setOrig] = useState(false)
+  useEffect(() => {
+    if (lang === 'DE' || a.fromNews || !supabase) { setTr8(null); return }
+    setTr8('loading')
+    supabase.functions.invoke('translate', { body: { action: 'article', id: a.id, lang } }).then(({ data, error }) => setTr8(error || !data?.ok ? 'failed' : { body: data.body, blocks: data.blocks }))
+  }, [a.id, lang]) // eslint-disable-line react-hooks/exhaustive-deps
   const quiz = quizzes.find(q => a.fromNews ? q.newsId === a.id.slice(5) : q.articleId === a.id)
-  const [full, setFull] = useState<{ body: string; blocks: WikiBlock[] | null } | null>(a.fromNews ? { body: a.body.join('\n\n'), blocks: null } : null)
+  const [full, setFull] = useState<{ body: string; blocks: WikiBlock[] | null; title?: string; intro?: string } | null>(a.fromNews ? { body: a.body.join('\n\n'), blocks: null } : null)
   const [urls, setUrls] = useState<Record<string, string>>({})
   useEffect(() => {
     if (a.fromNews || !supabase) return
-    supabase.from('wiki_articles').select('body, blocks').eq('id', a.id).maybeSingle().then(async ({ data }) => {
-      setFull({ body: data?.body ?? '', blocks: (data?.blocks as WikiBlock[] | null) ?? null })
+    supabase.from('wiki_articles').select('title, intro, body, blocks').eq('id', a.id).maybeSingle().then(async ({ data }) => {
+      setFull({ body: data?.body ?? '', blocks: (data?.blocks as WikiBlock[] | null) ?? null, title: data?.title, intro: data?.intro ?? '' })
       const paths = [...new Set(((data?.blocks ?? []) as WikiBlock[]).filter(b => (b.t === 'img' || b.t === 'file') && b.src).map(b => b.src!))]
       if (a.mediaUrl && !/^https?:/.test(a.mediaUrl)) paths.push(a.mediaUrl)
       if (paths.length) {
@@ -452,18 +461,22 @@ function WikiDetail({ a }: { a: WikiArticle }) {
       }
     })
   }, [a])
+  const shown = full && !orig && tr8 && typeof tr8 === 'object' ? { body: tr8.body, blocks: tr8.blocks } : full
+  // Im Original auch Titel und Kurzfassung auf Deutsch
+  const title = orig && full?.title ? full.title : a.title, intro = orig && full?.title ? full.intro : a.intro
   const yt = a.mediaKind === 'youtube' && a.mediaUrl ? ytId(a.mediaUrl) : null
   const own = a.mediaUrl ? (urls[a.mediaUrl] ?? (/^https?:/.test(a.mediaUrl) ? a.mediaUrl : null)) : null
   return (
     <article className="px-5 pb-10">
       <p className="text-xs text-mute mt-3">{a.cat} · {t('{n} Min. · aktualisiert {date}', { n: a.minutes, date: a.updated })}{a.accessLevel !== 'alle' && <span className="ml-1.5 inline-flex items-center gap-0.5"><Lock size={11} />{a.accessLevel === 'buero' ? t('Büro') : t('Filialleitung')}</span>}</p>
-      <h1 className="mt-2 text-[26px] font-medium tracking-tight leading-tight">{a.title}</h1>
-      {a.intro && <p className="mt-2 text-[15px] text-mute leading-snug">{a.intro}</p>}
+      <h1 className="mt-2 text-[26px] font-medium tracking-tight leading-tight">{title}</h1>
+      {intro && <p className="mt-2 text-[15px] text-mute leading-snug">{intro}</p>}
+      {lang !== 'DE' && !a.fromNews && <p className="mt-2 text-[13px] text-mute">{tr8 === 'loading' ? t('Wird übersetzt …') : tr8 === 'failed' ? t('Übersetzung gerade nicht möglich, Original wird angezeigt.') : <button onClick={() => setOrig(!orig)} className="text-olive-700">{orig ? t('Übersetzung anzeigen') : t('Automatisch übersetzt · Original')}</button>}</p>}
       {yt ? <iframe className="mt-5 w-full aspect-video rounded-[16px]" src={`https://www.youtube-nocookie.com/embed/${yt}`} title={a.title} allow="encrypted-media; picture-in-picture" allowFullScreen />
         : a.mediaKind === 'video' && own ? <video className="mt-5 w-full rounded-[16px] bg-olive-700" src={own} controls playsInline />
         : a.mediaKind === 'photo' && own ? <img className="mt-5 w-full rounded-[16px]" src={own} alt="" /> : null}
       {!full && <p className="mt-6 text-mute">{t('Lädt …')}</p>}
-      {full?.blocks ? <div className="mt-5 space-y-3 text-[16px] leading-relaxed">{full.blocks.map((b, i) => {
+      {shown?.blocks ? <div className="mt-5 space-y-3 text-[16px] leading-relaxed">{shown.blocks.map((b, i) => {
         switch (b.t) {
           case 'h': return <h2 key={i} className={`${b.level && b.level >= 3 ? 'text-[17px]' : 'text-[20px]'} font-medium tracking-tight pt-3`}>{b.text}</h2>
           case 'p': return <p key={i}><Rich text={b.text ?? ''} /></p>
@@ -477,7 +490,7 @@ function WikiDetail({ a }: { a: WikiArticle }) {
           case 'file': return <a key={i} href={urls[b.src!] ?? '#'} target="_blank" rel="noreferrer" className="flex items-center gap-3 rounded-2xl bg-white px-4 py-3 text-[15px]"><span className="w-9 h-9 rounded-xl bg-sage-50 flex items-center justify-center text-sage-800 shrink-0"><FileText size={17} /></span><span className="flex-1 min-w-0 truncate">{b.name ?? t('Datei')}</span><ArrowUpRight size={16} className="text-sage-400" /></a>
           default: return null
         }
-      })}</div> : full && <div className="mt-5 space-y-3 text-[16px] leading-relaxed">{full.body.split(/\n\n+/).filter(Boolean).map((p, i) => <p key={i}>{p}</p>)}</div>}
+      })}</div> : shown && <div className="mt-5 space-y-3 text-[16px] leading-relaxed">{shown.body.split(/\n\n+/).filter(Boolean).map((p, i) => <p key={i}>{p}</p>)}</div>}
       {quiz && full && <QuizRunner quiz={quiz} />}
     </article>
   )

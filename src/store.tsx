@@ -7,7 +7,7 @@ export type { Lang }
 
 /* ---------- Typen ---------- */
 export type Staff = { id: string; first: string; last: string; branch: string; branch_id: string; role: string; skills: string[]; photo: string | null; app_role: string; active: boolean; email: string; phone?: string | null; appInstalled?: boolean; pushEnabled?: boolean }
-export type News = { id: string; title: string; teaser: string; body: string; author: string; date: string; tag: string; mustRead: boolean; audience: string; audienceBranches: string[]; audienceGroups: string[]; audienceSkills: string[]; audiencePeople: string[]; publishAt: string; wikiCategory: string | null; image: string | null }
+export type News = { id: string; title: string; teaser: string; body: string; author: string; date: string; tag: string; mustRead: boolean; audience: string; audienceBranches: string[]; audienceGroups: string[]; audienceSkills: string[]; audiencePeople: string[]; publishAt: string; wikiCategory: string | null; image: string | null; orig: { title: string; teaser: string; body: string } | null }
 export type TaskItem = { id: string; title: string; time: string; group: string; prio: boolean; proof: boolean; articleId: string | null }
 export type Template = { id: string; name: string; repeat: 'daily' | 'weekly' | 'monthly'; weekday: number | null; monthday: number | null; branchIds: string[]; items: TaskItem[]; active: boolean; proposed: boolean; sample: boolean }
 export type Done = { by: string; at: string; photo: string | null }
@@ -76,6 +76,8 @@ type Ctx = {
   signedUrl: (bucket: string, path: string) => Promise<string | null>
 }
 const C = createContext<Ctx | null>(null)
+// Automatische Übersetzung (Function translate): Feld in der Profilsprache, sonst Deutsch
+const tx = (row: any, field: string, lang: Lang) => (lang !== 'DE' && row?.i18n?.[lang]?.[field]) || row?.[field]
 export const useApp = () => useContext(C)!
 
 const toStaff = (e: any, branches: Branch[], photos: Map<string, string>): Staff => ({
@@ -112,7 +114,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Wissen: nur Liste laden (ohne Inhalte), einmal beim Start und nach Änderungen im Backoffice
   const reloadWiki = useCallback(async () => {
     if (!supabase || !employee) return
-    const { data } = await supabase.from('wiki_articles').select('id, category, title, minutes, updated_at, media_kind, media_url, published, access_level, tags, intro, source_id, is_sample').order('category').order('sort').order('title')
+    const { data } = await supabase.from('wiki_articles').select('id, category, title, minutes, updated_at, media_kind, media_url, published, access_level, tags, intro, source_id, is_sample, i18n_en:i18n->EN, i18n_fr:i18n->FR').order('category').order('sort').order('title')
     setWikiRows(data ?? [])
   }, [employee])
 
@@ -147,7 +149,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       sb.from('ticket_comments').select('id, ticket_id, author_id, author_name, body, created_at').order('created_at'),
       sb.from('ticket_votes').select('ticket_id, employee_id'),
       sb.from('standby_days').select('employee_id, day, note').gte('day', today).order('day'),
-      sb.from('quizzes').select('id, news_id, article_id, title, pass_pct, is_sample'),
+      sb.from('quizzes').select('id, news_id, article_id, title, pass_pct, is_sample, i18n'),
       sb.from('quiz_attempts').select('quiz_id, employee_id, score_pct, passed, created_at').order('created_at'),
     ])
     const demo = (fl.data as any)?.demo_data !== false
@@ -169,22 +171,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const np = keep(nw.data).map((n: any) => n.image_path).filter(Boolean)
     if (np.length) { const { data } = await sb.storage.from('media').createSignedUrls(np, 3600); for (const x of data ?? []) if (x.signedUrl && x.path) nImgs.set(x.path, x.signedUrl) }
     setNews(keep(nw.data).map((n: any) => ({
-      id: n.id, title: n.title, teaser: n.teaser, body: n.body, author: n.author_name || 'Büro', tag: n.tag, mustRead: n.must_read,
-      date: fmtDate(n.publish_at), audience: n.audience_people?.length ? `${n.audience_people.length} ${n.audience_people.length === 1 ? 'Person' : 'Personen'}` : [n.audience_branches?.length ? n.audience_branches.map(bname).join(', ') : 'Alle Studios', ...(n.audience_groups ?? []), ...(n.audience_skills ?? [])].join(' · '),
+      id: n.id, title: tx(n, 'title', lang), teaser: tx(n, 'teaser', lang), body: tx(n, 'body', lang), author: n.author_name || tr('Büro'), tag: n.tag, mustRead: n.must_read,
+      date: fmtDate(n.publish_at), audience: n.audience_people?.length ? `${n.audience_people.length} ${n.audience_people.length === 1 ? 'Person' : 'Personen'}` : [n.audience_branches?.length ? n.audience_branches.map(bname).join(', ') : tr('Alle Studios'), ...(n.audience_groups ?? []), ...(n.audience_skills ?? [])].join(' · '),
       audienceBranches: n.audience_branches ?? [], audienceGroups: n.audience_groups ?? [], audienceSkills: n.audience_skills ?? [], audiencePeople: n.audience_people ?? [],
       publishAt: n.publish_at, wikiCategory: n.wiki_category, image: n.image_path ? nImgs.get(n.image_path) ?? null : null,
+      orig: lang !== 'DE' && n.i18n?.[lang] ? { title: n.title, teaser: n.teaser, body: n.body } : null,
     })))
     setNewsReads((rd.data ?? []) as Ctx['newsReads'])
     const items = (ti.data ?? []) as any[]
     setTemplates(keep(tt.data).map((x: any) => ({
-      id: x.id, name: x.name, repeat: x.repeat, weekday: x.weekday, monthday: x.monthday, branchIds: x.branch_ids ?? [],
-      items: items.filter(i => i.template_id === x.id).map(i => ({ id: i.id, title: i.title, time: i.due_time ? String(i.due_time).slice(0, 5) : '', group: x.name, prio: i.prio, proof: i.proof_photo, articleId: i.article_id ?? null })),
+      id: x.id, name: tx(x, 'name', lang), repeat: x.repeat, weekday: x.weekday, monthday: x.monthday, branchIds: x.branch_ids ?? [],
+      items: items.filter(i => i.template_id === x.id).map(i => ({ id: i.id, title: tx(i, 'title', lang), time: i.due_time ? String(i.due_time).slice(0, 5) : '', group: tx(x, 'name', lang), prio: i.prio, proof: i.proof_photo, articleId: i.article_id ?? null })),
       active: x.active, proposed: x.proposed, sample: x.is_sample,
     })))
     setCompletions(tc.data ?? [])
     const counts = new Map(((cnt.data ?? []) as any[]).map(c => [c.event_id, c.taken]))
     setEvents(keep(ev.data).map((e: any) => ({
-      id: e.id, title: e.title, kind: e.kind, description: e.description, startsAt: e.starts_at, endsAt: e.ends_at, place: e.place, link: e.link,
+      id: e.id, title: tx(e, 'title', lang), kind: e.kind, description: tx(e, 'description', lang), startsAt: e.starts_at, endsAt: e.ends_at, place: tx(e, 'place', lang), link: e.link,
       capacity: e.capacity, registerUntil: e.register_until, audienceBranches: e.audience_branches ?? [], audienceSkills: e.audience_skills ?? [], taken: counts.get(e.id) ?? 0,
     })))
     setRegistrations((rg.data ?? []) as Ctx['registrations'])
@@ -201,15 +204,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
       comments: coms.filter(c => c.ticket_id === x.id).map(c => ({ id: c.id, author: c.author_name, authorId: c.author_id, body: c.body, when: relWhen(c.created_at) })),
     })))
     setStandby((sbd.data ?? []) as Ctx['standby'])
-    setQuizzes(keep(qz.data).map((q: any) => ({ id: q.id, newsId: q.news_id, articleId: q.article_id, title: q.title, passPct: q.pass_pct, sample: q.is_sample })))
+    setQuizzes(keep(qz.data).map((q: any) => ({ id: q.id, newsId: q.news_id, articleId: q.article_id, title: tx(q, 'title', lang), passPct: q.pass_pct, sample: q.is_sample })))
     setAttempts((qa.data ?? []).map((a: any) => ({ quizId: a.quiz_id, employeeId: a.employee_id, scorePct: a.score_pct, passed: a.passed, at: a.created_at })))
-    newsForWiki.current = nw.data ?? []
+    newsForWiki.current = (nw.data ?? []).map((n: any) => ({ ...n, title: tx(n, 'title', lang), teaser: tx(n, 'teaser', lang), body: tx(n, 'body', lang) }))
     void wk
-    setAllSteps(keep(ob.data).map((s: any) => ({ id: s.id, title: s.title, minutes: s.minutes, articleId: s.article_id, proposed: !!s.proposed })))
+    setAllSteps(keep(ob.data).map((s: any) => ({ id: s.id, title: tx(s, 'title', lang), minutes: s.minutes, articleId: s.article_id, proposed: !!s.proposed })))
     setObDone(new Set((obp.data ?? []).map((x: any) => x.step_id)))
     setMyPhorest((mp.data ?? []) as Ctx['myPhorest'])
     setLoading(false)
-  }, [employee])
+  }, [employee, lang])
 
   useEffect(() => {
     if (!employee) return
@@ -231,8 +234,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const wiki = useMemo<WikiArticle[]>(() => {
     const arts: WikiArticle[] = wikiRows.filter((a: any) => demoData || !a.is_sample).map((a: any) => ({
-      id: a.id, cat: a.category, title: a.title, minutes: a.minutes, updated: fmtDate(a.updated_at, { day: '2-digit', month: '2-digit', year: 'numeric' }),
-      body: [], mediaKind: a.media_kind, mediaUrl: a.media_url, published: a.published, intro: a.intro ?? '', tags: a.tags ?? [], accessLevel: a.access_level, imported: !!a.source_id,
+      id: a.id, cat: lang === 'EN' ? a.i18n_en?.category ?? a.category : lang === 'FR' ? a.i18n_fr?.category ?? a.category : a.category,
+      title: lang === 'EN' ? a.i18n_en?.title ?? a.title : lang === 'FR' ? a.i18n_fr?.title ?? a.title : a.title, minutes: a.minutes, updated: fmtDate(a.updated_at, { day: '2-digit', month: '2-digit', year: 'numeric' }),
+      body: [], mediaKind: a.media_kind, mediaUrl: a.media_url, published: a.published, intro: (lang === 'EN' ? a.i18n_en?.intro : lang === 'FR' ? a.i18n_fr?.intro : null) || a.intro || '', tags: a.tags ?? [], accessLevel: a.access_level, imported: !!a.source_id,
     }))
     // News mit Wissens-Kategorie erscheinen auch im Wissen (BLTH-16 News-zu-Wiki)
     for (const n of newsForWiki.current) if (n.wiki_category && new Date(n.publish_at) <= new Date()) arts.push({
@@ -241,7 +245,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       intro: n.teaser ?? '', tags: [], accessLevel: 'alle', imported: false,
     })
     return arts
-  }, [wikiRows, news, demoData]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [wikiRows, news, demoData, lang]) // eslint-disable-line react-hooks/exhaustive-deps
   const today = isoDay()
   const myBranch = employee?.branch_id ?? ''
   // „Alle Studios“ meint die Studios, nicht das Büro: das Büro bekommt nur ausdrücklich zugewiesene Vorlagen

@@ -50,6 +50,8 @@ const Field = ({ label, children }: { label: string; children: ReactNode }) => <
 const inp = 'w-full h-10 rounded-[10px] border border-transparent focus:border-sage-400 px-3 text-[14px] bg-white outline-none transition'
 const btn = 'h-10 px-4 rounded-[10px] bg-olive-700 hover:bg-olive-800 transition text-white text-[14px] disabled:opacity-60'
 const btn2 = 'h-10 px-4 rounded-[10px] bg-sage-50 hover:bg-sage-100 transition text-[14px]'
+// Neue oder geänderte Inhalte sofort übersetzen lassen (sonst übernimmt der 10-Minuten-Takt)
+const retranslate = () => { supabase?.functions.invoke('translate', { body: { action: 'sync' } }) }
 const Err = ({ m }: { m: string }) => m ? <p className="text-[13px] text-alert">{m}</p> : null
 
 /* Wer gehört zur Zielgruppe (leer = alle aktiven)? */
@@ -159,7 +161,7 @@ function NewsAdmin() {
     })
     setBusy(false)
     if (error) { setErr('Veröffentlichen hat nicht geklappt.'); return }
-    setCompose(false); setF(blank); setPq(''); setBrief(''); setImgPrompt(''); setPreview(null); await reload(); notifyNow()
+    setCompose(false); setF(blank); setPq(''); setBrief(''); setImgPrompt(''); setPreview(null); await reload(); notifyNow(); retranslate()
   }
   const people = n ? audience(n) : []
   return (<>
@@ -222,7 +224,7 @@ function TasksAdmin() {
   const [f, setF] = useState({ name: '', repeat: 'daily' as 'daily' | 'weekly' | 'monthly', weekday: 1, monthday: 1, branches: [] as string[], items: '' })
   const [err, setErr] = useState('')
   const proposals = templates.filter(t => t.proposed)
-  const approve = async () => { if (confirm('Vorschläge freigeben? Die Beispielvorlagen aus dem Prototyp werden dabei abgeschaltet.')) { await supabase!.rpc('approve_wiki_proposals', { p_kind: 'tasks' }); await reload() } }
+  const approve = async () => { if (confirm('Vorschläge freigeben? Die Beispielvorlagen aus dem Prototyp werden dabei abgeschaltet.')) { await supabase!.rpc('approve_wiki_proposals', { p_kind: 'tasks' }); await reload(); retranslate() } }
   const save = async () => {
     const lines = f.items.split('\n').map(l => l.trim()).filter(Boolean)
     if (!f.name.trim() || !lines.length) { setErr('Name und mindestens ein Punkt sind nötig.'); return }
@@ -232,7 +234,7 @@ function TasksAdmin() {
     const rows = lines.map((l, i) => { const m = l.match(/^(\d{1,2}:\d{2})\s+(.*)$/); const text = (m ? m[2] : l)
       return { template_id: data.id, title: text.replace(/!foto|!wichtig/gi, '').trim(), due_time: m ? m[1] : null, proof_photo: /!foto/i.test(text), prio: /!wichtig/i.test(text), sort: i } })
     await supabase!.from('task_items').insert(rows)
-    setForm(false); setErr(''); setF({ name: '', repeat: 'daily', weekday: 1, monthday: 1, branches: [], items: '' }); await reload()
+    setForm(false); setErr(''); setF({ name: '', repeat: 'daily', weekday: 1, monthday: 1, branches: [], items: '' }); await reload(); retranslate()
   }
   return (<>
     <H action={me.app_role === 'buero' && <New onClick={() => setForm(!form)}>Neue Vorlage</New>}>Aufgaben</H>
@@ -317,7 +319,7 @@ function EventsAdmin() {
       audience_branches: f.branches, audience_skills: f.skills,
     })
     if (error) { setErr('Speichern hat nicht geklappt.'); return }
-    setForm(false); setErr(''); await reload(); notifyNow()
+    setForm(false); setErr(''); await reload(); notifyNow(); retranslate()
   }
   const tog = (k: 'branches' | 'skills', v: string) => setF({ ...f, [k]: f[k].includes(v) ? f[k].filter(x => x !== v) : [...f[k], v] })
   return (<>
@@ -432,7 +434,7 @@ function LearnAdmin() {
       if (q.kind === 'text') return { quiz_id: data.id, sort: i, kind: 'text', prompt: q.prompt.trim(), options: [], correct: [], rubric: q.rubric.trim() }
       const keep = q.options.map((o, j) => o ? j : -1).filter(j => j >= 0)
       return { quiz_id: data.id, sort: i, kind: q.kind, prompt: q.prompt.trim(), options: keep.map(j => q.options[j]), correct: q.correct.filter(c => keep.includes(c)).map(c => keep.indexOf(c)), rubric: '' } }))
-    setBusy(false); setEdit(null); setSel(data.id); await reload()
+    setBusy(false); setEdit(null); setSel(data.id); await reload(); retranslate()
   }
   const taken = new Set(quizzes.filter(q => q.id !== edit?.id).map(q => q.newsId ?? q.articleId))
   const q = quizzes.find(x => x.id === sel)
@@ -669,7 +671,7 @@ function WikiAdmin() {
     const row = edit.imported ? meta : { ...meta, body: edit.body.trim(), media_kind: edit.media_kind, media_url: edit.media_url || null }
     const { error } = edit.id ? await supabase!.from('wiki_articles').update(row).eq('id', edit.id) : await supabase!.from('wiki_articles').insert({ ...row, sort: own.length })
     if (error) { setErr('Speichern hat nicht geklappt.'); return }
-    setEdit(null); setErr(''); await reloadWiki()
+    setEdit(null); setErr(''); await reloadWiki(); retranslate()
   }
   const upload = async (f: File) => {
     const path = `wiki/${edit?.access_level ?? 'alle'}/${Date.now()}-${f.name.replace(/[^\w.-]/g, '_')}`
@@ -697,7 +699,7 @@ function WikiAdmin() {
     </Panel>}
     {obProposal.length > 0 && <Panel className="p-6 mb-8">
       <div className="flex items-start justify-between gap-4"><div><p className="rubric text-brass">Vorschlag aus dem Wiki</p><p className="font-medium mt-2">Onboarding für Neue · {obProposal.length} Schritte</p></div>
-        <button onClick={async () => { if (confirm('Onboarding-Vorschlag freigeben?')) { await supabase!.rpc('approve_wiki_proposals', { p_kind: 'onboarding' }); await reload() } }} className={`${btn} shrink-0`}>Freigeben</button></div>
+        <button onClick={async () => { if (confirm('Onboarding-Vorschlag freigeben?')) { await supabase!.rpc('approve_wiki_proposals', { p_kind: 'onboarding' }); await reload(); retranslate() } }} className={`${btn} shrink-0`}>Freigeben</button></div>
       <ol className="mt-3 text-[13px] text-mute list-decimal pl-5 columns-2 gap-6">{obProposal.map(x => <li key={x.id}>{x.title} · {x.minutes} Min.</li>)}</ol>
     </Panel>}
     <div className="h-10 mb-4 rounded-[10px] bg-sage-50 px-3 flex items-center gap-2"><Search size={16} className="text-mute" /><input value={q} onChange={e => setQ(e.target.value)} placeholder="Titel, Kategorie oder Stichwort" className="flex-1 outline-none text-[14px] bg-transparent" /><span className="text-xs text-mute">{list.length} Artikel</span></div>
