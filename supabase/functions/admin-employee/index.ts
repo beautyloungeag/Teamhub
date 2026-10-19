@@ -22,6 +22,9 @@ Deno.serve(async (req) => {
   const mine: string[] = [me.branch_id, ...(me.extra_branch_ids ?? [])].filter((b: string) => b && b !== 'buero')
   const admin = createClient(url, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
   const b = await req.json().catch(() => ({}))
+  // Protokoll: Änderungen an Personen laufen hier mit Dienstrechten, deshalb trägt die Function sie selbst ein
+  const log = (action: 'insert' | 'update' | 'delete', id: string, title: string, branches: string[], changes: unknown = null) =>
+    admin.from('audit_log').insert({ actor_id: me.id, actor_name: `${me.first_name ?? ''} ${me.last_name ?? ''}`.trim(), action, entity: 'employees', entity_id: id, title, branch_ids: branches, changes })
 
   if (b.action === 'create') {
     const email = String(b.email ?? '').trim().toLowerCase()
@@ -36,17 +39,19 @@ Deno.serve(async (req) => {
     // Trigger link_auth_user verknüpft das Konto per E-Mail. Ohne Login-Konto keine halbe Person zurücklassen.
     const { error: ae } = await admin.auth.admin.createUser({ email, email_confirm: true })
     if (ae && !/already/i.test(ae.message)) { await admin.from('employees').delete().eq('id', emp.id); return json({ ok: false, error: 'auth_failed', detail: ae.message }, 500) }
+    await log('insert', emp.id, `${String(b.first_name).trim()} ${String(b.last_name).trim()}`, [b.branch_id], { job_title: String(b.job_title ?? '').trim(), app_role: role })
     return json({ ok: true, employee_id: emp.id })
   }
 
   // Für set_active und delete: Zielperson laden und Rechte prüfen
-  const { data: target } = await admin.from('employees').select('id, auth_user_id, branch_id, app_role').eq('id', String(b.employee_id ?? '')).maybeSingle()
+  const { data: target } = await admin.from('employees').select('id, auth_user_id, branch_id, extra_branch_ids, app_role, first_name, last_name, active').eq('id', String(b.employee_id ?? '')).maybeSingle()
   if (!target) return json({ ok: false, error: 'not_found' }, 404)
   if (target.id === me.id && (b.action === 'delete' || !b.active)) return json({ ok: false, error: 'self' }, 400)
   if (lead && (!mine.includes(target.branch_id) || target.app_role === 'buero')) return json({ ok: false, error: 'forbidden' }, 403)
 
   if (b.action === 'set_active') {
     const { error } = await admin.from('employees').update({ active: !!b.active, updated_at: new Date().toISOString() }).eq('id', target.id)
+    if (!error) await log('update', target.id, `${target.first_name} ${target.last_name}`, [target.branch_id, ...(target.extra_branch_ids ?? [])], { active: [target.active, !!b.active] })
     return error ? json({ ok: false, error: error.message }, 400) : json({ ok: true })
   }
   if (b.action === 'delete') {
@@ -55,6 +60,7 @@ Deno.serve(async (req) => {
     const { error } = await admin.from('employees').delete().eq('id', target.id)
     if (error) return json({ ok: false, error: error.message }, 400)
     if (target.auth_user_id) await admin.auth.admin.deleteUser(target.auth_user_id).catch(() => null)
+    await log('delete', target.id, `${target.first_name} ${target.last_name}`, [target.branch_id, ...(target.extra_branch_ids ?? [])])
     return json({ ok: true })
   }
   return json({ ok: false, error: 'unknown_action' }, 400)

@@ -4,6 +4,7 @@ import {
   Home, ListChecks, BookOpen, LayoutGrid, Sparkles, ChevronLeft, ChevronRight, Check, Camera, MapPin, Users,
   Search, Lightbulb, AlertTriangle, CalendarDays, Send, Newspaper, Plane, Play, Video,
   ArrowUp, ArrowUpRight, LogOut, Phone, ArrowBigUp, GraduationCap, Link2, Lock, FileText, Smartphone, Share, PlusSquare, MoreVertical, ExternalLink, Monitor,
+  TrendingUp,
 } from 'lucide-react'
 import { useAuth } from './lib/auth'
 import { supabase } from './lib/supabase'
@@ -15,6 +16,8 @@ import { tr, locale } from './lib/i18n'
 import { BMark } from './Logo'
 import { Comments, Media } from './TicketParts'
 import { QuizRunner } from './QuizRunner'
+import { PollForm } from './Poll'
+import { MyPerformance } from './Performance'
 import { BenniChat, openNewBenniChat, askBenniOnce, BenniWorking, BenniText, type Step } from './BenniChat'
 import { MyTodos, useTodos, isForMe, isLate, useDue, reloadTodos } from './Todos'
 import { Avatar, ContactRow } from './People'
@@ -28,7 +31,7 @@ export const ASSISTANT = 'Benni'
 
 type Tab = 'home' | 'tasks' | 'ai' | 'wiki' | 'menu'
 type Sub = null | { k: 'news-list' } | { k: 'news'; item: News } | { k: 'wiki'; item: WikiArticle } | { k: 'wiki-cat'; key: string; name: string } | { k: 'onboarding' } | { k: 'team' } | { k: 'profile'; item: Staff }
-  | { k: 'me' } | { k: 'conn' } | { k: 'book' } | { k: 'tickets' } | { k: 'ticket'; id: string } | { k: 'clients'; cid?: string } | { k: 'events' } | { k: 'inbox' } | { k: 'time' } | { k: 'install' }
+  | { k: 'me' } | { k: 'conn' } | { k: 'book' } | { k: 'tickets' } | { k: 'ticket'; id: string } | { k: 'clients'; cid?: string } | { k: 'events' } | { k: 'inbox' } | { k: 'time' } | { k: 'install' } | { k: 'perf' }
 
 
 export default function Mobile({ onSwitch }: { onSwitch?: () => void }) {
@@ -97,6 +100,8 @@ function Shell({ onLogout, onSwitch }: { onLogout: () => void; onSwitch?: () => 
     else if (o.startsWith('events')) open({ k: 'events' }); else if (o === 'tickets') open({ k: 'tickets' })
     else if (o === 'todos') { tasksView = 'me'; reloadTodos(); go('tasks') }
     else if (o === 'standby') { reloadStandby(); go('home') }
+    else if (o === 'tasks') { tasksView = 'studio'; go('tasks') }
+    else if (o === 'perf') open({ k: 'perf' })
   }
   // „Mit Benni lernen“ aus dem Onboarding: in den Benni-Reiter wechseln, die Frage stellt der Reiter selbst
   useEffect(() => { const f = () => go('ai'); window.addEventListener('th-benni', f); return () => window.removeEventListener('th-benni', f) }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -127,6 +132,7 @@ function Shell({ onLogout, onSwitch }: { onLogout: () => void; onSwitch?: () => 
     case 'inbox': screen = <ExternalTool kind="mail" />; break
     case 'time': screen = <ExternalTool kind="timebutler" />; break
     case 'install': screen = <Install />; break
+    case 'perf': screen = <MyPerformance />; break
     default:
       screen = tab === 'home' ? <Today open={open} go={go} /> : tab === 'tasks' ? <Tasks open={open} /> : tab === 'ai' ? <AI open={open} />
         : tab === 'wiki' ? <Wiki open={open} /> : <MenuView open={open} onLogout={onLogout} />
@@ -332,8 +338,8 @@ function NewsList({ open }: { open: (s: Sub) => void }) {
   )
 }
 function NewsDetail({ n }: { n: News }) {
-  const { read, confirm, openNews, quizzes, t } = useApp()
-  const quiz = quizzes.find(q => q.newsId === n.id)
+  const { read, confirm, openNews, quizzes, polls, t } = useApp()
+  const quiz = quizzes.find(q => q.newsId === n.id), poll = polls.find(p => p.newsId === n.id)
   const [orig, setOrig] = useState(false)
   const v = orig && n.orig ? n.orig : n
   const [busy, setBusy] = useState(false)
@@ -347,6 +353,7 @@ function NewsDetail({ n }: { n: News }) {
       {n.image && <img src={n.image} alt="" className="mt-5 w-full aspect-[3/2] object-cover rounded-[16px] bg-sage-100" />}
       <div className="mt-5 space-y-4 text-[16px] leading-relaxed">{v.body.split('\n\n').map((p, i) => <p key={i}>{p}</p>)}</div>
       {n.wikiCategory && <p className="mt-4 text-[13px] text-sage-800 flex items-center gap-1"><BookOpen size={14} />{t('Auch im Wissen unter {cat} abgelegt', { cat: n.wikiCategory })}</p>}
+      {poll && <PollForm poll={poll} />}
       {n.mustRead && read.has(n.id) && <div className="mt-8 h-12 rounded-[10px] bg-sage-100 text-olive-800 flex items-center justify-center gap-2 font-medium"><Check size={18} />{t('Gelesen und bestätigt')}</div>}
       {n.mustRead && !read.has(n.id) && !quiz && <div className="mt-8"><Btn disabled={busy} onClick={async () => { setBusy(true); await confirm(n.id); setBusy(false) }}>{t('Gelesen und verstanden')}</Btn></div>}
       {quiz && <QuizRunner quiz={quiz} />}
@@ -622,6 +629,7 @@ function MenuView({ open, onLogout }: { open: (s: Sub) => void; onLogout: () => 
         <div className="mt-3"><List>
           <Row icon={<CalendarDays size={19} strokeWidth={1.6} />} title={t('Kundentermine')} sub={`${me.app_role === 'buero' ? t('Alle Studios') : t('Dein Studio')} · ${t('live aus Phorest')}`} onClick={() => open({ k: 'book' })} />
           <Row icon={<Search size={19} strokeWidth={1.6} />} title={t('Kundenhistorie')} sub={t('Besuche und Notizen einer Kundin')} onClick={() => open({ k: 'clients' })} />
+          {me.app_role !== 'buero' && <Row icon={<TrendingUp size={19} strokeWidth={1.6} />} title={t('Meine Performance')} sub={t('Kennzahlen, Ziele und Bewertungen')} onClick={() => open({ k: 'perf' })} />}
           {tiles.map(([title, sub, Icon, target]) => <Row key={title} icon={<Icon size={19} strokeWidth={1.6} />} title={t(title)} sub={sub} onClick={() => open(target)} />)}
         </List></div>
         <div className="mt-3"><List>

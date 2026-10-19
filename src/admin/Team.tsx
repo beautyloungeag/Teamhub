@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase'
 import { phorest, type StaffWeek } from '../lib/phorest'
 import { Avatar, ContactRow } from '../People'
 import { toast } from '../Toast'
+import { PersonPerformance } from '../Performance'
 import { H, New, Sec, Th, Bar, Field, inpStone, btn, btn2, Err, isTest, inBranch, Select, Modal, Dot, InfoTip } from './kit'
 
 // Team: Liste mit Filtern über die ganze Breite; ein Klick öffnet die Seite der Person (mit Blättern).
@@ -208,6 +209,8 @@ function PersonPage({ p, pos, onBack, onStep }: { p: Staff; pos: { i: number; n:
           </div></section>
       </div>
     </div>
+
+    {p.app_role !== 'buero' && <div className="mt-10 pt-6 border-t border-line"><PersonPerformance key={p.id} person={p} /></div>}
 
     {!self && (office || p.app_role !== 'buero') && <div className="mt-10 pt-5 border-t border-line flex items-center gap-3 text-[14px]">
       <button onClick={async () => { if (!confirm(p.active ? `${p.first} ${p.last} deaktivieren? Sie kann sich dann nicht mehr anmelden. Ihr Verlauf bleibt.` : `${p.first} ${p.last} wieder aktivieren?`)) return; const r = await call({ action: 'set_active', employee_id: p.id, active: !p.active }); toast(r?.ok ? (p.active ? 'Deaktiviert' : 'Aktiviert') : 'Das hat nicht geklappt', r?.ok ? 'ok' : 'error'); await reload() }} className={btn2}>{p.active ? 'Deaktivieren' : 'Wieder aktivieren'}</button>

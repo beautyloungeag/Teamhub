@@ -147,7 +147,7 @@ type Filter = 'all' | 'phorest' | 'event'
 const ymd = (y: number, m: number, d: number) => `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
 
 export function EventCalendar() {
-  const { joined, declined, toggleEvent, declineEvent, events, myPhorest, t } = useApp()
+  const { joined, declined, waiting, registrations, me, toggleEvent, declineEvent, events, myPhorest, t } = useApp()
   const mapped = myPhorest.length > 0
   const t0 = isoDay()
   const [y, setY] = useState(Number(t0.slice(0, 4))), [m, setM] = useState(Number(t0.slice(5, 7))), [sel, setSel] = useState(t0)
@@ -225,7 +225,10 @@ export function EventCalendar() {
                 {x.ev?.link && <a href={x.ev.link} target="_blank" rel="noreferrer" className="text-[13px] text-sage-800 underline">{t('Zum Meeting')}</a>}
                 {x.ev && past && <p className="mt-1.5 text-[12px] text-mute">{j ? t('Du warst angemeldet.') : t('Vorbei')}</p>}
                 {x.ev && !past && <div className="mt-2 flex gap-1.5 items-center">
-                  <button disabled={!j && (full || closed)} onClick={async () => { const r = j ? null : await toggleEvent(x.ev!.id); setMsg(v => ({ ...v, [x.ev!.id]: r ?? '' })) }} className={`h-8 px-3.5 rounded-[8px] text-[12px] transition disabled:opacity-50 ${j ? 'bg-olive-700 text-white' : 'bg-sage-50 text-ink'}`}>{j ? <span className="inline-flex items-center gap-1"><Check size={13} strokeWidth={2.6} />{t('Ich komme')}</span> : full ? t('Ausgebucht') : closed ? t('Anmeldung geschlossen') : t('Ich komme')}</button>
+                  {(() => { const w = x.ev ? waiting.has(x.ev.id) : false
+                    const pos = w ? registrations.filter(r => r.event_id === x.ev!.id && r.coming && r.waitlist).findIndex(r => r.employee_id === me.id) + 1 : 0
+                    return <button disabled={!j && closed} onClick={async () => { if (j && !w) return; const r = await toggleEvent(x.ev!.id); setMsg(v => ({ ...v, [x.ev!.id]: r ?? '' })) }} className={`h-8 px-3.5 rounded-[8px] text-[12px] transition disabled:opacity-50 ${j && !w ? 'bg-olive-700 text-white' : w ? 'bg-brass/15 text-ink' : 'bg-sage-50 text-ink'}`}>
+                      {w ? t('Warteliste · Platz {n}', { n: pos || 1 }) : j ? <span className="inline-flex items-center gap-1"><Check size={13} strokeWidth={2.6} />{t('Ich komme')}</span> : closed ? t('Anmeldung geschlossen') : full ? t('Auf die Warteliste') : t('Ich komme')}</button> })()}
                   {<button onClick={async () => { await declineEvent(x.ev!.id); setMsg(v => ({ ...v, [x.ev!.id]: '' })) }} className={`h-8 px-3.5 rounded-[8px] text-[12px] transition ${no ? 'bg-olive-800 text-white' : 'bg-sage-50 text-ink'}`}>{t('Ich komme nicht')}</button>}
                 </div>}
                 {x.ev && msg[x.ev.id] && <p className="mt-1 text-[12px] text-alert">{t(msg[x.ev.id])}</p>}

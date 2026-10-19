@@ -9,6 +9,7 @@
 //   client_search {q}            Kundin suchen (Name, E-Mail oder Telefon), protokolliert
 //   client_history {client_id, months?, summary?} Besuche + Notizen der letzten Monate, auf Wunsch mit KI-Zusammenfassung, protokolliert
 //   services    {branch?, q?}    Behandlungskatalog (Dauer, Preis CHF, Kategorie), alle Rollen
+//   performance {from, to, employee_id? | branch?, totals_only?} Kennzahlen + Bewertungen, Vergleich zum Vorzeitraum
 //   read        {path}           freie GET-Abfrage für Benni (Filialleitung: eigene Filiale ohne Umsätze, Büro alles)
 //   sync_staff  {}               Zuordnung per Firmen-Mail neu aufbauen (nur Büro)
 import { createClient } from 'jsr:@supabase/supabase-js@2'
@@ -261,6 +262,98 @@ Deno.serve(async (req) => {
       const words = String(body.q ?? '').toLowerCase().split(/\s+/).filter((w: string) => w.length >= 3)
       const hits = words.length ? list.filter((x: any) => words.some((w: string) => `${x.name} ${x.categoryName ?? ''}`.toLowerCase().includes(w))) : list
       return json({ ok: true, branch: b, total: hits.length, services: hits.slice(0, 60).map((x: any) => ({ name: String(x.name ?? '').trim(), minuten: x.duration, preis_chf: x.price, kategorie: x.categoryName ?? '', online_buchbar: !!x.internetEnabled, nur_zusatz: !!x.isAddonOnly })) })
+    }
+
+    // Meine Performance (Wunsch Renée 25.09., Vorbild „Meine Performance“ in PhorestGo).
+    // Person: eigene Zahlen (Leitung: Personen ihres Studios, Büro: alle). Studio: je Person + gesamt (Leitung/Büro),
+    // mit totals_only auch für Mitarbeiterinnen des Studios (Teamziele, ohne Einzelzahlen).
+    if (body.action === 'performance') {
+      const okd = (d: unknown) => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d)
+      if (!okd(body.from) || !okd(body.to) || body.to < body.from || (Date.parse(body.to) - Date.parse(body.from)) / 864e5 > 92) return json({ ok: false, error: 'bad_range' }, 400)
+      const from = body.from as string, to = body.to as string
+      const studio = typeof body.branch === 'string' ? body.branch : null
+      const { data: maps0 } = await admin.from('employee_phorest').select('employee_id, branch_id, staff_id')
+      const maps = maps0 ?? []
+      let targets: { branch_id: string; staff_id: string }[] = []
+      if (studio) {
+        const lead = me.app_role === 'buero' || (me.app_role === 'filialleitung' && myBranches.includes(studio))
+        if (!lead && !(body.totals_only && myBranches.includes(studio))) return json({ ok: false, error: 'forbidden' }, 403)
+        if (!pb(studio)) return json({ ok: false, error: 'no_phorest_branch' }, 400)
+      } else {
+        const who = typeof body.employee_id === 'string' ? body.employee_id : me.id
+        if (who !== me.id && me.app_role !== 'buero') {
+          const { data: emp } = await admin.from('employees').select('branch_id, extra_branch_ids').eq('id', who).maybeSingle()
+          const theirs = emp ? [emp.branch_id, ...(emp.extra_branch_ids ?? [])] : []
+          if (me.app_role !== 'filialleitung' || !theirs.some((b) => b !== 'buero' && myBranches.includes(b))) return json({ ok: false, error: 'forbidden' }, 403)
+        }
+        targets = maps.filter((m) => m.employee_id === who).map((m) => ({ branch_id: m.branch_id, staff_id: m.staff_id }))
+        if (!targets.length) return json({ ok: true, mapped: false })
+      }
+      const branchesUsed = studio ? [studio] : [...new Set(targets.map((t) => t.branch_id))]
+      // Vorzeitraum gleicher Länge direkt davor
+      const days = Math.round((Date.parse(to) - Date.parse(from)) / 864e5) + 1
+      const shift = (d: string, n: number) => new Date(Date.parse(d + 'T12:00:00Z') + n * 864e5).toISOString().slice(0, 10)
+      const pFrom = shift(from, -days), pTo = shift(from, -1)
+      // Termine seitenweise, in Fenstern von höchstens 31 Tagen
+      const fetchAppts = async (pbid: string, f: string, t: string) => {
+        const out: any[] = []
+        for (let s = f; s <= t; s = shift(s, 31)) {
+          const e = shift(s, 30) < t ? shift(s, 30) : t
+          for (let page = 0; page < 20; page++) {
+            const r = await ph(`/branch/${pbid}/appointment?from_date=${s}&to_date=${e}&fetch_canceled=false&size=500&page=${page}`)
+            out.push(...(r?._embedded?.appointments ?? []))
+            if (page + 1 >= (r?.page?.totalPages ?? 1)) break
+          }
+        }
+        return out.filter((a) => !a.deleted && a.activationState !== 'CANCELED')
+      }
+      const metrics = (list: any[]) => {
+        const paid = list.filter((a) => a.state === 'PAID')
+        const revenue = Math.round(paid.reduce((s, a) => s + Number(a.price ?? 0), 0) * 100) / 100
+        const visits = new Set(paid.map((a) => `${a.clientId}|${a.appointmentDate}`)).size
+        return {
+          treatments: paid.length, revenue, clients: new Set(paid.map((a) => a.clientId)).size, visits,
+          avg_ticket: visits ? Math.round(revenue / visits * 100) / 100 : 0,
+          requested: paid.filter((a) => a.staffRequest).length, requested_pct: paid.length ? Math.round(paid.filter((a) => a.staffRequest).length / paid.length * 100) : 0,
+          booked: list.length, online_pct: list.length ? Math.round(list.filter((a) => a.source === 'ECOMM_WEB_APP').length / list.length * 100) : 0,
+        }
+      }
+      // Bewertungen: Phorest filtert weder nach Person noch nach Datum; neueste zuerst, bis vor den Zeitraum
+      const fetchReviews = async (pbid: string) => {
+        const out: any[] = []
+        for (let page = 0; page < 12; page++) {
+          const r = await ph(`/branch/${pbid}/review?size=100&page=${page}`)
+          const list = r?._embedded?.reviews ?? []
+          out.push(...list)
+          if (!list.length || String(list[list.length - 1].reviewDate ?? '').slice(0, 10) < pFrom || page + 1 >= (r?.page?.totalPages ?? 1)) break
+        }
+        return out
+      }
+      const curA: any[] = [], prevA: any[] = [], revs: any[] = []
+      const names = new Map<string, string>()
+      await Promise.all(branchesUsed.map(async (b) => {
+        const pbid = pb(b)!
+        const [c, p, rv, st] = await Promise.all([fetchAppts(pbid, from, to), fetchAppts(pbid, pFrom, pTo), fetchReviews(pbid), studio ? ph(`/branch/${pbid}/staff?size=200`) : Promise.resolve(null)])
+        curA.push(...c.map((a) => ({ ...a, _b: b }))); prevA.push(...p.map((a) => ({ ...a, _b: b }))); revs.push(...rv.map((r: any) => ({ ...r, _b: b })))
+        for (const s of st?._embedded?.staffs ?? []) names.set(s.staffId, String(s.firstName ?? '').trim())  // Nachnamen tragen in Phorest oft Sprachkürzel wie (F/TR)
+      }))
+      const mine = (a: any) => studio ? true : targets.some((t) => t.branch_id === a._b && t.staff_id === a.staffId)
+      const inRange = (d: string, f: string, t: string) => d >= f && d <= t
+      const rvSum = (list: any[]) => ({ count: list.length, avg: list.length ? Math.round(list.reduce((s, r) => s + Number(r.rating ?? 0), 0) / list.length * 10) / 10 : null })
+      const rvCur = revs.filter((r) => mine(r) && inRange(String(r.reviewDate ?? '').slice(0, 10), from, to))
+      const rvPrev = revs.filter((r) => mine(r) && inRange(String(r.reviewDate ?? '').slice(0, 10), pFrom, pTo))
+      const item = (r: any) => ({ date: String(r.reviewDate ?? '').slice(0, 10), rating: r.rating, text: String(r.text ?? '').trim(), client: `${(r.clientFirstName ?? '').trim()} ${(r.clientLastName ?? '').trim().slice(0, 1)}.`.trim(), staff: `${r.staffFirstName ?? ''}`.trim() })
+      const cur = curA.filter(mine), prev = prevA.filter(mine)
+      const total = { ...metrics(cur), reviews: rvSum(rvCur) }, prevTotal = { ...metrics(prev), reviews: rvSum(rvPrev) }
+      if (!studio) return json({ ok: true, mapped: true, from, to, prev_from: pFrom, prev_to: pTo, metrics: total, prev: prevTotal, reviews: rvCur.slice(0, 30).map(item) })
+      const lead = me.app_role === 'buero' || (me.app_role === 'filialleitung' && myBranches.includes(studio))
+      if (!lead) return json({ ok: true, from, to, metrics: total, prev: prevTotal })
+      const staffIds = [...new Set(cur.map((a) => a.staffId).concat(rvCur.map((r) => r.staffId)))].filter(Boolean)
+      const people = staffIds.map((sid) => {
+        const m = maps.find((x) => x.branch_id === studio && x.staff_id === sid)
+        return { staff_id: sid, employee_id: m?.employee_id ?? null, name: names.get(sid) ?? 'Unbekannt', ...metrics(cur.filter((a) => a.staffId === sid)), reviews: rvSum(rvCur.filter((r) => r.staffId === sid)) }
+      }).sort((a, b) => b.revenue - a.revenue)
+      return json({ ok: true, from, to, prev_from: pFrom, prev_to: pTo, metrics: total, prev: prevTotal, people, reviews: rvCur.slice(0, 30).map(item) })
     }
 
     // Freie Leseabfrage für Benni (nur Filialleitung und Büro). Nur GET, nur unterhalb des eigenen Business.

@@ -14,10 +14,10 @@ const KINDS = ['Schulung', 'Meeting', 'Team']
 export function EventsAdmin() {
   const { events, registrations, staff, me } = useApp()
   const office = me.app_role === 'buero'
-  const [when, setWhen] = useState<'kommend' | 'vergangen'>('kommend')
+  const [when, setWhen] = useState<'kommend' | 'vergangen' | 'jahr'>('kommend')
   const now = new Date()
-  const list = events.filter(e => when === 'kommend' ? new Date(e.endsAt ?? e.startsAt) >= now : new Date(e.endsAt ?? e.startsAt) < now)
-    .filter(e => office || e.audienceBranches.length === 0 || e.audienceBranches.some(b => [me.branch_id, ...(me.extra ?? [])].includes(b)))
+  const visible = events.filter(e => office || e.audienceBranches.length === 0 || e.audienceBranches.some(b => [me.branch_id, ...(me.extra ?? [])].includes(b)))
+  const list = visible.filter(e => when === 'vergangen' ? new Date(e.endsAt ?? e.startsAt) < now : new Date(e.endsAt ?? e.startsAt) >= now)
     .sort((a, b) => when === 'kommend' ? a.startsAt.localeCompare(b.startsAt) : b.startsAt.localeCompare(a.startsAt))
   const [sel, setSel] = useState<string | null>(null), [form, setForm] = useState<Ev | 'neu' | null>(null)
   const e = list.find(x => x.id === sel) ?? list[0]
@@ -25,12 +25,12 @@ export function EventsAdmin() {
   const audience = (ev: Ev) => staff.filter(s => real(s) && s.branch_id !== 'buero' && (ev.audienceBranches.length === 0 || ev.audienceBranches.some(b => inBranch(s, b)))
     && (ev.audienceSkills.length === 0 || s.skills.some(k => ev.audienceSkills.includes(k))) && (office || [me.branch_id, ...(me.extra ?? [])].some(b => inBranch(s, b))))
   const stats = (ev: Ev) => { const regs = registrations.filter(r => r.event_id === ev.id), aud = audience(ev)
-    return { yes: regs.filter(r => r.coming).length, no: regs.filter(r => !r.coming).length, open: aud.filter(s => !regs.some(r => r.employee_id === s.id)).length } }
+    return { yes: regs.filter(r => r.coming && !r.waitlist).length, wait: regs.filter(r => r.coming && r.waitlist).length, no: regs.filter(r => !r.coming).length, open: aud.filter(s => !regs.some(r => r.employee_id === s.id)).length } }
   return (<>
     <H info="Termine für dein Team: Schulungen, Meetings, Teamanlässe. Die Zielgruppe bekommt eine Mitteilung und sagt in der App zu oder ab."
       action={<New onClick={() => setForm('neu')}>Neuer Termin</New>}>Schulungen & Events</H>
-    <div className="mb-5"><Seg value={when} onChange={v => { setWhen(v); setSel(null) }} items={[['kommend', 'Kommend'], ['vergangen', 'Vergangen']]} /></div>
-    {list.length === 0 ? <p className="text-[14px] text-mute">{when === 'kommend' ? 'Keine kommenden Termine. Oben rechts legst du einen an.' : 'Noch keine vergangenen Termine.'}</p> : (
+    <div className="mb-5"><Seg value={when} onChange={v => { setWhen(v); setSel(null) }} items={[['kommend', 'Kommend'], ['vergangen', 'Vergangen'], ['jahr', 'Jahresplan']]} /></div>
+    {when === 'jahr' ? <YearPlan events={visible} onOpen={x => { setWhen(new Date(x.endsAt ?? x.startsAt) < now ? 'vergangen' : 'kommend'); setSel(x.id) }} /> : list.length === 0 ? <p className="text-[14px] text-mute">{when === 'kommend' ? 'Keine kommenden Termine. Oben rechts legst du einen an.' : 'Noch keine vergangenen Termine.'}</p> : (
     <div className="grid grid-cols-[minmax(0,1fr)_400px] gap-8">
       <div className="space-y-2">{list.map(x => { const st = stats(x), on = x.id === e?.id
         return <button key={x.id} onClick={() => setSel(x.id)} className={`w-full text-left rounded-[16px] p-4 flex gap-4 items-center transition ${on ? 'bg-sage-50 shadow-[inset_0_0_0_1.5px_#C8CDC5]' : 'hover:bg-sage-50/70'}`}>
@@ -41,6 +41,7 @@ export function EventsAdmin() {
           </span>
           <span className="flex items-center gap-3 text-[13px] tabular-nums shrink-0">
             <span className="flex items-center gap-1 text-ok" title="Zusagen"><span className="w-2 h-2 rounded-full bg-ok" />{st.yes}</span>
+            {st.wait > 0 && <span className="flex items-center gap-1 text-brass" title="Warteliste"><span className="w-2 h-2 rounded-full bg-brass" />{st.wait}</span>}
             <span className="flex items-center gap-1 text-alert" title="Absagen"><span className="w-2 h-2 rounded-full bg-alert" />{st.no}</span>
             <span className="flex items-center gap-1 text-mute" title="Noch keine Antwort"><span className="w-2 h-2 rounded-full bg-sage-400" />{st.open}</span>
           </span>
@@ -55,10 +56,11 @@ function EventDetail({ e, people, onEdit }: { e: Ev; people: Staff[]; onEdit: ()
   const { registrations, staff, me, reload, branches } = useApp()
   const can = me.app_role === 'buero' || (me.app_role === 'filialleitung' && e.createdBy === me.id)
   const regs = registrations.filter(r => r.event_id === e.id)
-  const yes = regs.filter(r => r.coming).map(r => staff.find(s => s.id === r.employee_id)).filter((s): s is Staff => !!s)
+  const yes = regs.filter(r => r.coming && !r.waitlist).map(r => staff.find(s => s.id === r.employee_id)).filter((s): s is Staff => !!s)
+  const wait = regs.filter(r => r.coming && r.waitlist).map(r => staff.find(s => s.id === r.employee_id)).filter((s): s is Staff => !!s)
   const no = regs.filter(r => !r.coming).map(r => staff.find(s => s.id === r.employee_id)).filter((s): s is Staff => !!s)
   const open = people.filter(s => !regs.some(r => r.employee_id === s.id))
-  const [tab, setTab] = useState<'yes' | 'no' | 'open'>(open.length && !yes.length ? 'open' : 'yes')
+  const [tab, setTab] = useState<'yes' | 'wait' | 'no' | 'open'>(open.length && !yes.length ? 'open' : 'yes')
   const [busy, setBusy] = useState(false)
   const past = new Date(e.endsAt ?? e.startsAt) < new Date()
   const remind = async () => {
@@ -67,7 +69,7 @@ function EventDetail({ e, people, onEdit }: { e: Ev; people: Staff[]; onEdit: ()
     setBusy(false)
     toast(data?.ok ? (data.sent ? `Erinnerung an ${data.people} ${data.people === 1 ? 'Person' : 'Personen'} geschickt` : 'Erinnerung gesendet, aber niemand hat Mitteilungen eingeschaltet') : 'Das hat nicht geklappt', data?.ok ? 'ok' : 'error')
   }
-  const list = { yes, no, open }[tab]
+  const list = { yes, wait, no, open }[tab]
   const meta: [typeof Clock, string][] = [
     [Clock, `${fmtDate(e.startsAt, { weekday: 'long', day: 'numeric', month: 'long' })}, ${fmtTime(e.startsAt)}${e.endsAt ? `–${fmtTime(e.endsAt)}` : ''}`],
     ...(e.place ? [[MapPin, e.place] as [typeof Clock, string]] : []),
@@ -85,21 +87,42 @@ function EventDetail({ e, people, onEdit }: { e: Ev; people: Staff[]; onEdit: ()
       </div>
       <ul className="mt-3 space-y-1.5 text-[13.5px] text-ink/80">{meta.map(([I, t], i) => <li key={i} className="flex gap-2"><I size={15} className="text-mute mt-0.5 shrink-0" />{t}</li>)}</ul>
       {e.description && <p className="mt-3 text-[13.5px] text-ink/80 whitespace-pre-wrap">{e.description}</p>}
+      {wait.length > 0 && <p className="mt-3 text-[12.5px] text-mute">Sagt jemand ab, rückt die Nächste auf der Warteliste automatisch nach und bekommt eine Mitteilung.</p>}
       {e.capacity && <div className="mt-4"><div className="flex justify-between text-[12.5px] mb-1"><span className="text-mute">Plätze</span><span className="tabular-nums">{yes.length} / {e.capacity}</span></div><Bar p={yes.length / e.capacity * 100} /></div>}
       {e.registerUntil && <p className="mt-2 text-[12.5px] text-mute">Anmeldung bis {fmtDate(e.registerUntil, { day: 'numeric', month: 'long' })}</p>}
 
-      <div className="mt-5 grid grid-cols-3 gap-1 p-1 rounded-[12px] bg-sage-50">
-        {([['yes', 'Zusagen', yes.length, 'bg-ok'], ['no', 'Absagen', no.length, 'bg-alert'], ['open', 'Offen', open.length, 'bg-sage-400']] as const).map(([k, l, n, c]) =>
+      <div className={`mt-5 grid ${wait.length ? 'grid-cols-4' : 'grid-cols-3'} gap-1 p-1 rounded-[12px] bg-sage-50`}>
+        {([['yes', 'Zusagen', yes.length, 'bg-ok'], ...(wait.length ? [['wait', 'Warteliste', wait.length, 'bg-brass']] : []), ['no', 'Absagen', no.length, 'bg-alert'], ['open', 'Offen', open.length, 'bg-sage-400']] as ['yes' | 'wait' | 'no' | 'open', string, number, string][]).map(([k, l, n, c]) =>
           <button key={k} onClick={() => setTab(k)} className={`h-12 rounded-[9px] flex flex-col items-center justify-center transition ${tab === k ? 'bg-white shadow-[0_1px_2px_rgba(29,34,28,.08)]' : 'hover:bg-white/60'}`}>
             <span className="font-display text-[18px] leading-none tabular-nums">{n}</span><span className="text-[11.5px] text-mute mt-1 flex items-center gap-1"><span className={`w-1.5 h-1.5 rounded-full ${c}`} />{l}</span></button>)}
       </div>
       <ul className="mt-3 max-h-[360px] overflow-y-auto no-scrollbar divide-y divide-line">
         {list.length === 0 && <li className="py-3 text-[13.5px] text-mute">{tab === 'open' ? 'Alle haben geantwortet.' : 'Noch niemand.'}</li>}
-        {list.map(p => <li key={p.id} className="py-2 flex items-center gap-3 text-[13.5px]"><Avatar s={p} photo={p.photo} size="w-7 h-7 text-[11px]" /><span className="flex-1 min-w-0 truncate">{p.first} {p.last}</span><span className="text-mute text-[12.5px]">{p.branch}</span></li>)}
+        {list.map((p, i) => <li key={p.id} className="py-2 flex items-center gap-3 text-[13.5px]"><Avatar s={p} photo={p.photo} size="w-7 h-7 text-[11px]" /><span className="flex-1 min-w-0 truncate">{tab === 'wait' && <span className="text-mute tabular-nums mr-1.5">{i + 1}.</span>}{p.first} {p.last}</span><span className="text-mute text-[12.5px]">{p.branch}</span></li>)}
       </ul>
       {tab === 'open' && open.length > 0 && !past && <button disabled={busy} onClick={remind} className={`${btn2} w-full mt-3 flex items-center justify-center gap-2`}><Bell size={15} />{busy ? 'Sendet …' : `${open.length} ${open.length === 1 ? 'Person' : 'Personen'} erinnern`}</button>}
     </aside>
   )
+}
+
+const KIND_TONE: Record<string, string> = { Schulung: 'bg-brass', Meeting: 'bg-olive-700', Team: 'bg-ok' }
+function YearPlan({ events, onOpen }: { events: Ev[]; onOpen: (e: Ev) => void }) {
+  const [y, setY] = useState(new Date().getFullYear())
+  const thisMonth = isoDay().slice(0, 7)
+  return <div>
+    <div className="flex items-center gap-3 mb-4"><button onClick={() => setY(y - 1)} className={btn2}>‹</button><p className="font-display text-[22px] tabular-nums">{y}</p><button onClick={() => setY(y + 1)} className={btn2}>›</button>
+      <span className="ml-auto flex gap-4 text-[12.5px] text-mute">{KINDS.map(k => <span key={k} className="flex items-center gap-1.5"><span className={`w-2 h-2 rounded-full ${KIND_TONE[k]}`} />{k}</span>)}</span></div>
+    <div className="grid grid-cols-4 gap-3">{Array.from({ length: 12 }, (_, i) => {
+      const key = `${y}-${String(i + 1).padStart(2, '0')}`
+      const evs = events.filter(e => isoDay(new Date(e.startsAt)).startsWith(key)).sort((a, b) => a.startsAt.localeCompare(b.startsAt))
+      return <div key={key} className={`rounded-[14px] p-3 min-h-[132px] ${key === thisMonth ? 'bg-sage-50 shadow-[inset_0_0_0_1.5px_#C8CDC5]' : key < thisMonth ? 'bg-sage-50/50' : 'bg-sage-50'}`}>
+        <p className={`text-[13px] capitalize ${key < thisMonth ? 'text-mute' : 'text-ink/80'}`}>{new Intl.DateTimeFormat('de-CH', { month: 'long' }).format(new Date(key + '-15T12:00:00Z'))}</p>
+        <ul className="mt-2 space-y-1">{evs.length === 0 && <li className="text-[12px] text-mute">–</li>}{evs.map(e => <li key={e.id}><button onClick={() => onOpen(e)} className="w-full text-left flex items-center gap-2 rounded-[8px] bg-white px-2 py-1.5 hover:shadow-[0_1px_3px_rgba(29,34,28,.12)] transition">
+          <span className={`w-1.5 h-6 rounded-full shrink-0 ${KIND_TONE[e.kind] ?? 'bg-sage-400'}`} />
+          <span className="min-w-0 flex-1"><span className="block text-[12.5px] truncate">{e.title}</span><span className="block text-[11px] text-mute tabular-nums">{fmtDate(e.startsAt, { day: '2-digit', month: '2-digit' })}{e.capacity ? ` · ${e.taken}/${e.capacity}` : ''}</span></span>
+        </button></li>)}</ul>
+      </div> })}</div>
+  </div>
 }
 
 const day = (iso: string) => isoDay(new Date(iso))

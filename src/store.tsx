@@ -14,7 +14,7 @@ export type Template = { id: string; name: string; repeat: 'daily' | 'weekly' | 
 export type Done = { by: string; byId: string | null; at: string; photo: string | null }
 export type Ticket = { id: string; kind: 'Meldung' | 'Idee'; title: string; body: string; branch: string; branchId: string; status: 'Neu' | 'Zugewiesen' | 'In Arbeit' | 'Erledigt'; who: string; when: string; assignee: string | null; photo: string | null; mediaKind: 'photo' | 'video'; viaAI: boolean; mine: boolean; votes: number; voted: boolean; comments: Comment[] }
 export type Comment = { id: string; author: string; authorId: string | null; body: string; when: string }
-export type Ev = { id: string; title: string; kind: string; description: string; startsAt: string; endsAt: string | null; place: string; link: string | null; capacity: number | null; registerUntil: string | null; audienceBranches: string[]; audienceSkills: string[]; taken: number; createdBy: string | null; raw: { title: string; description: string; place: string } }
+export type Ev = { id: string; title: string; kind: string; description: string; startsAt: string; endsAt: string | null; place: string; link: string | null; capacity: number | null; registerUntil: string | null; audienceBranches: string[]; audienceSkills: string[]; taken: number; waiting: number; createdBy: string | null; raw: { title: string; description: string; place: string } }
 export type WikiBlock = { t: 'h' | 'p' | 'ul' | 'ol' | 'quote' | 'img' | 'video' | 'file'; text?: string; items?: string[]; src?: string; url?: string; name?: string; level?: number }
 export type WikiArticle = { id: string; cat: string; catKey: string; title: string; minutes: number; updated: string; body: string[]; mediaKind: string; mediaUrl: string | null; published: boolean; fromNews?: boolean; intro: string; tags: string[]; accessLevel: 'alle' | 'filialleitung' | 'buero'; imported: boolean }
 export type Step = { id: string; title: string; minutes: number; articleId: string | null; proposed: boolean }
@@ -22,6 +22,9 @@ export type Branch = { id: string; name: string; is_office: boolean }
 export type Quiz = { id: string; newsId: string | null; articleId: string | null; title: string; passPct: number; sample: boolean }
 export type Attempt = { quizId: string; employeeId: string; scorePct: number; passed: boolean; at: string }
 export type QuizQuestion = { id: string; sort: number; kind: 'single' | 'multi' | 'text'; prompt: string; options: string[] }
+export type PollQ = { id: string; kind: 'single' | 'multi' | 'scale' | 'text'; prompt: string; options: string[] }
+export type Poll = { id: string; newsId: string; anonymous: boolean; showResults: boolean; closesAt: string | null; questions: PollQ[] }
+export type PollValue = number | number[] | string
 export type QuizResult = { score_pct: number; passed: boolean; pass_pct: number; correct: number; total: number; results: Record<string, boolean>; feedback?: Record<string, string>; error?: string }
 
 // Gruppen aus der Funktion – gleiche Regel wie public.job_groups() in der Datenbank
@@ -67,8 +70,9 @@ type Ctx = {
   tickets: Ticket[]; addTicket: (t: { kind: 'Meldung' | 'Idee'; title: string; body?: string; photo?: File; viaAI?: boolean; branchId?: string }) => Promise<boolean>
   addComment: (ticketId: string, body: string) => Promise<boolean>; toggleVote: (ticketId: string) => Promise<void>
   assign: (id: string, a: string) => Promise<void>; setStatus: (id: string, s: Ticket['status']) => Promise<void>
-  events: Ev[]; joined: Set<string>; declined: Set<string>; toggleEvent: (id: string) => Promise<string | null>; declineEvent: (id: string) => Promise<void>
-  registrations: { event_id: string; employee_id: string; coming: boolean }[]
+  events: Ev[]; joined: Set<string>; declined: Set<string>; waiting: Set<string>; toggleEvent: (id: string) => Promise<string | null>; declineEvent: (id: string) => Promise<void>
+  registrations: { event_id: string; employee_id: string; coming: boolean; waitlist: boolean }[]
+  polls: Poll[]; pollAnswers: Map<string, PollValue>; submitPoll: (pollId: string, answers: Record<string, PollValue>) => Promise<boolean>
   standby: { employee_id: string; day: string; note: string }[]; toggleStandby: (day: string) => Promise<void>
   demoData: boolean; setDemoData: (on: boolean) => Promise<void>
   quizzes: Quiz[]; attempts: Attempt[]; submitQuiz: (quizId: string, answers: Record<string, number[] | string>) => Promise<QuizResult | null>
@@ -106,6 +110,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [registrations, setRegistrations] = useState<Ctx['registrations']>([])
   const [standby, setStandby] = useState<Ctx['standby']>([])
   const [quizzes, setQuizzes] = useState<Quiz[]>([])
+  const [polls, setPolls] = useState<Poll[]>([])
+  const [pollAnswers, setPollAnswers] = useState<Map<string, PollValue>>(new Map())
   const [attempts, setAttempts] = useState<Attempt[]>([])
   const [demoData, setDemoState] = useState(true)
   const [allSteps, setAllSteps] = useState<Step[]>([])
@@ -133,7 +139,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const today = isoDay()
     // Alle Seiten holen: PostgREST gibt höchstens 1000 Zeilen je Abfrage zurück
     const all = async (q: () => any) => { const out: any[] = []; for (let from = 0; from < 50000; from += 1000) { const { data, error } = await q().range(from, from + 999); if (error || !data) break; out.push(...data); if (data.length < 1000) break } return { data: out } }
-    const [br, em, sk, nw, rd, tt, ti, tc, tk, ev, cnt, rg, wk, ob, obp, mp, fl, tcm, tvt, sbd, qz, qa] = await Promise.all([
+    const [br, em, sk, nw, rd, tt, ti, tc, tk, ev, cnt, rg, wk, ob, obp, mp, fl, tcm, tvt, sbd, qz, qa, pl, plq, pla] = await Promise.all([
       sb.from('branches').select('id, name, is_office').order('sort'),
       sb.from('employees').select('id, email, phone, first_name, last_name, job_title, app_role, branch_id, extra_branch_ids, skills, photo_path, active, app_installed_at, push_enabled').order('first_name'),
       sb.from('skills').select('name').order('sort'),
@@ -145,7 +151,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       sb.from('tickets').select('*').order('created_at', { ascending: false }),
       sb.from('events').select('*').order('starts_at'),
       sb.rpc('event_counts'),
-      all(() => sb.from('event_registrations').select('event_id, employee_id, coming').order('event_id')),
+      all(() => sb.from('event_registrations').select('event_id, employee_id, coming, waitlist, created_at').order('created_at')),
       Promise.resolve({ data: null }),
       sb.from('onboarding_steps').select('*').order('sort'),
       sb.from('onboarding_progress').select('step_id').eq('employee_id', employee.id),
@@ -156,6 +162,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       sb.from('standby_days').select('employee_id, day, note').gte('day', today).order('day'),
       sb.from('quizzes').select('id, news_id, article_id, title, pass_pct, is_sample, i18n'),
       all(() => sb.from('quiz_attempts').select('quiz_id, employee_id, score_pct, passed, created_at').order('created_at')),
+      sb.from('polls').select('id, news_id, anonymous, show_results, closes_at'),
+      sb.from('poll_questions').select('id, poll_id, sort, kind, prompt, options, i18n').order('sort'),
+      sb.from('poll_answers').select('question_id, value').eq('employee_id', employee.id),
     ])
     const demo = (fl.data as any)?.demo_data !== false
     setDemoState(demo)
@@ -195,6 +204,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setEvents(keep(ev.data).filter((e: any) => employee.app_role === 'buero' || !(e.audience_skills ?? []).length || (e.audience_skills as string[]).some(k => mySkills.includes(k))).map((e: any) => ({
       id: e.id, title: tx(e, 'title', lang), kind: e.kind, description: tx(e, 'description', lang), startsAt: e.starts_at, endsAt: e.ends_at, place: tx(e, 'place', lang), link: e.link, createdBy: e.created_by ?? null, raw: { title: e.title, description: e.description ?? '', place: e.place ?? '' },
       capacity: e.capacity, registerUntil: e.register_until, audienceBranches: e.audience_branches ?? [], audienceSkills: e.audience_skills ?? [], taken: counts.get(e.id) ?? 0,
+      waiting: ((rg.data ?? []) as any[]).filter(r => r.event_id === e.id && r.coming && r.waitlist).length,
     })))
     setRegistrations((rg.data ?? []) as Ctx['registrations'])
     const tkPhotos = new Map<string, string>()
@@ -211,6 +221,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     })))
     setStandby((sbd.data ?? []) as Ctx['standby'])
     setQuizzes(keep(qz.data).map((q: any) => ({ id: q.id, newsId: q.news_id, articleId: q.article_id, title: tx(q, 'title', lang), passPct: q.pass_pct, sample: q.is_sample })))
+    const pqs = (plq.data ?? []) as any[]
+    setPolls(((pl.data ?? []) as any[]).map(p => ({ id: p.id, newsId: p.news_id, anonymous: p.anonymous, showResults: p.show_results, closesAt: p.closes_at,
+      questions: pqs.filter(q => q.poll_id === p.id).map(q => ({ id: q.id, kind: q.kind, prompt: tx(q, 'prompt', lang), options: (lang !== 'DE' && q.i18n?.[lang]?.options) || q.options || [] })) })))
+    setPollAnswers(new Map(((pla.data ?? []) as any[]).map(a => [a.question_id, a.value])))
     setAttempts((qa.data ?? []).map((a: any) => ({ quizId: a.quiz_id, employeeId: a.employee_id, scorePct: a.score_pct, passed: a.passed, at: a.created_at })))
     newsForWiki.current = keep(nw.data).map((n: any) => ({ ...n, title: tx(n, 'title', lang), teaser: tx(n, 'teaser', lang), body: tx(n, 'body', lang) }))
     void wk
@@ -269,6 +283,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const read = useMemo(() => new Set(myReads.filter(r => r.confirmed_at).map(r => r.news_id)), [myReads])
   const opened = useMemo(() => new Set(myReads.map(r => r.news_id)), [myReads])
   const joined = useMemo(() => new Set(registrations.filter(r => r.employee_id === employee?.id && r.coming).map(r => r.event_id)), [registrations, employee])
+  const waiting = useMemo(() => new Set(registrations.filter(r => r.employee_id === employee?.id && r.coming && r.waitlist).map(r => r.event_id)), [registrations, employee])
   const declined = useMemo(() => new Set(registrations.filter(r => r.employee_id === employee?.id && !r.coming).map(r => r.event_id)), [registrations, employee])
 
   if (!employee) return <C.Provider value={null}>{children}</C.Provider>
@@ -326,7 +341,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       await sb.from('tickets').update({ assignee: a || null, status }).eq('id', id); await reload()
     },
     setStatus: async (id, s) => { await sb.from('tickets').update({ status: s }).eq('id', id); await reload() },
-    events, joined, declined, registrations, standby, demoData, quizzes, attempts,
+    events, joined, declined, waiting, registrations, standby, demoData, quizzes, attempts, polls, pollAnswers,
+    submitPoll: async (pollId, answers) => {
+      const rows = Object.entries(answers).filter(([, v]) => v !== '' && !(Array.isArray(v) && !v.length)).map(([question_id, value]) => ({ question_id, poll_id: pollId, employee_id: employee.id, value }))
+      if (!rows.length) return false
+      const { error } = await sb.from('poll_answers').upsert(rows, { onConflict: 'question_id,employee_id' })
+      if (!error) await reload()
+      return !error
+    },
     submitQuiz: async (quizId, answers) => {
       // Auswertung in der Function `quiz` (Freitext bewertet die KI); Lösungen bleiben auf dem Server
       const { data, error } = await sb.functions.invoke('quiz', { body: { quiz_id: quizId, answers } })
@@ -335,11 +357,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return data as QuizResult
     },
     toggleEvent: async (id) => {
-      const { error } = joined.has(id)
-        ? await sb.from('event_registrations').delete().match({ event_id: id, employee_id: employee.id })
+      const { data, error } = joined.has(id)
+        ? await sb.from('event_registrations').delete().match({ event_id: id, employee_id: employee.id }).then(r => ({ data: null, error: r.error }))
         : await sb.rpc('register_event', { p_event: id })
       await reload()
-      if (!error) { toast(joined.has(id) ? tr('Abgemeldet') : tr('Angemeldet')); return null }
+      if (!error) { toast(joined.has(id) ? (waiting.has(id) ? tr('Von der Warteliste genommen') : tr('Abgemeldet')) : data === 'waitlist' ? tr('Auf der Warteliste') : tr('Angemeldet')); return null }
       return /full/.test(error.message) ? 'Leider ausgebucht.' : /deadline/.test(error.message) ? 'Die Anmeldefrist ist vorbei.' : 'Das hat nicht geklappt.'
     },
     declineEvent: async (id) => { const { error } = await sb.rpc('decline_event', { p_event: id }); await reload(); toast(error ? tr('Das hat nicht geklappt') : tr('Abgesagt'), error ? 'error' : 'ok') },

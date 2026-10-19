@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { LayoutDashboard, LifeBuoy, GraduationCap, Smartphone, Store, ArrowUp, ArrowDown, Newspaper, ListChecks, Lightbulb, CalendarDays, Users, BookOpen, Search, CalendarClock, X } from 'lucide-react'
+import { LayoutDashboard, LifeBuoy, GraduationCap, Smartphone, Newspaper, ListChecks, Lightbulb, CalendarDays, Users, BookOpen, Search, CalendarClock, TrendingUp, Settings as SettingsIcon } from 'lucide-react'
 import { Terminbuch } from './Calendar'
-import { useApp, isoDay, appliesOn, fmtDate, fmtTime, zurichHour, type Ticket } from './store'
+import { useApp, isoDay, addDays, appliesOn, fmtDate, zurichHour, type Ticket } from './store'
 import { supabase } from './lib/supabase'
 import { Status, ASSISTANT } from './Mobile'
 
@@ -15,12 +15,14 @@ import { EventsAdmin } from './admin/Events'
 import { StandbyAdmin } from './admin/Standby'
 import { LearnAdmin } from './admin/Learn'
 import { NewsAdmin, useAudience } from './admin/News'
+import { SettingsAdmin } from './admin/Settings'
+import { StudioPerformance } from './Performance'
 
 import { Comments, Media } from './TicketParts'
-import { H, New, Panel, Side, Sec, Th, Bar, Field, inp, btn, btn2, Err, retranslate, real, inBranch, Select } from './admin/kit'
+import { H, New, Panel, Side, Sec, Th, Bar, Field, inp, btn, Err, retranslate, real, inBranch, Select, Seg, InfoTip } from './admin/kit'
 
-type View = 'overview' | 'book' | 'news' | 'tasks' | 'tickets' | 'events' | 'standby' | 'learn' | 'team' | 'studios' | 'wiki'
-const NAV: [View, string, typeof Users][] = [['overview', 'Übersicht', LayoutDashboard], ['book', 'Kundentermine', CalendarClock], ['news', 'News', Newspaper], ['tasks', 'Aufgaben', ListChecks], ['tickets', 'Meldungen & Ideen', Lightbulb], ['events', 'Schulungen & Events', CalendarDays], ['standby', 'Aushilfe', LifeBuoy], ['learn', 'Lernen', GraduationCap], ['team', 'Team', Users], ['studios', 'Studios', Store], ['wiki', 'Wissen', BookOpen]]
+type View = 'overview' | 'book' | 'news' | 'tasks' | 'tickets' | 'events' | 'standby' | 'learn' | 'team' | 'performance' | 'wiki' | 'settings'
+const NAV: [View, string, typeof Users][] = [['overview', 'Übersicht', LayoutDashboard], ['book', 'Kundentermine', CalendarClock], ['news', 'News', Newspaper], ['tasks', 'Aufgaben', ListChecks], ['tickets', 'Meldungen & Ideen', Lightbulb], ['events', 'Schulungen & Events', CalendarDays], ['standby', 'Aushilfe', LifeBuoy], ['learn', 'Lernen', GraduationCap], ['team', 'Team', Users], ['performance', 'Performance', TrendingUp], ['wiki', 'Wissen', BookOpen], ['settings', 'Einstellungen', SettingsIcon]]
 
 export default function Backoffice({ onSwitch }: { onSwitch?: () => void }) {
   const { me } = useApp()
@@ -28,7 +30,7 @@ export default function Backoffice({ onSwitch }: { onSwitch?: () => void }) {
   const [v, setV] = useState<View>('overview')
   const [ai, setAi] = useState(false)
   // Filialleitung gestaltet für ihr Studio (News, Termine, Checklisten, Quiz zu eigenen News); Wissen und Studios pflegt das Büro.
-  const nav = me.app_role === 'buero' ? NAV : NAV.filter(([k]) => ['overview', 'book', 'news', 'tasks', 'tickets', 'events', 'standby', 'learn', 'team'].includes(k))
+  const nav = me.app_role === 'buero' ? NAV : NAV.filter(([k]) => ['overview', 'book', 'news', 'tasks', 'tickets', 'events', 'standby', 'learn', 'team', 'performance', 'settings'].includes(k))
   const allowed = new Set(nav.map(([k]) => k))
   const go = (k: View) => { if (allowed.has(k)) setV(k) }
   return (
@@ -41,7 +43,7 @@ export default function Backoffice({ onSwitch }: { onSwitch?: () => void }) {
       <main className={`flex-1 no-scrollbar p-8 ${v === 'book' ? 'flex flex-col overflow-hidden' : 'overflow-y-auto'}`}>
         {v === 'book' && <><H>Kundentermine</H><div className="flex-1 min-h-0"><Terminbuch /></div></>}
         {v === 'overview' && <Overview go={go} can={k => allowed.has(k)} />}{allowed.has('news') && v === 'news' && <NewsAdmin />}{v === 'tasks' && <TasksAdmin />}
-        {v === 'tickets' && <TicketsAdmin />}{v === 'standby' && <StandbyAdmin />}{v === 'learn' && <LearnAdmin />}{v === 'events' && <EventsAdmin />}{allowed.has('team') && v === 'team' && <TeamAdmin />}{allowed.has('studios') && v === 'studios' && <StudiosAdmin />}{allowed.has('wiki') && v === 'wiki' && <WikiAdmin />}
+        {v === 'tickets' && <TicketsAdmin />}{v === 'standby' && <StandbyAdmin />}{v === 'learn' && <LearnAdmin />}{v === 'events' && <EventsAdmin />}{allowed.has('team') && v === 'team' && <TeamAdmin />}{v === 'performance' && <StudioPerformance header={a => <H info="Kennzahlen aus Phorest je Person, Teamziele und neueste Bewertungen. Mitarbeiterinnen sehen in der App nur ihre eigenen Zahlen und die Teamziele." action={a}>Performance</H>} />}{allowed.has('wiki') && v === 'wiki' && <WikiAdmin />}{v === 'settings' && <SettingsAdmin />}
       </main>
       {ai && <BenniChat variant="panel" onClose={() => setAi(false)} />}
     </div>
@@ -142,132 +144,14 @@ function TicketsAdmin() {
   </>)
 }
 
-/* ---------- Studios (nur Büro; RLS branches_write) ---------- */
-type StudioRow = { id: string; name: string; is_office: boolean; sort: number; phorest_branch_id: string | null; facility_email: string | null }
-const slug = (n: string) => n.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
-function StudiosAdmin() {
-  const { staff, reload } = useApp()
-  const [rows, setRows] = useState<StudioRow[] | null>(null), [err, setErr] = useState(''), [form, setForm] = useState(false)
-  const [f, setF] = useState({ name: '', phorest_branch_id: '' }), [edit, setEdit] = useState<StudioRow | null>(null)
-  const load = async () => { const { data } = await supabase!.from('branches').select('id, name, is_office, sort, phorest_branch_id, facility_email').order('sort'); setRows((data ?? []) as StudioRow[]) }
-  useEffect(() => { load() }, [])
-  const count = (id: string) => staff.filter(s => real(s) && s.branch_id === id).length
-  const done = async (error: { message: string } | null, msg: string) => { if (error) { setErr(msg); return false } setErr(''); await load(); await reload(); return true }
-  const add = async () => {
-    const name = f.name.trim(), id = slug(name)
-    if (!name || !id) { setErr('Bitte einen Namen eingeben.'); return }
-    if (rows?.some(r => r.id === id || r.name.toLowerCase() === name.toLowerCase())) { setErr('Dieses Studio gibt es schon.'); return }
-    const sort = Math.max(0, ...(rows ?? []).filter(r => !r.is_office).map(r => r.sort)) + 1
-    const { error } = await supabase!.from('branches').insert({ id, name, sort, phorest_branch_id: f.phorest_branch_id.trim() || null })
-    // Büro bleibt unten
-    if (!error) for (const o of (rows ?? []).filter(r => r.is_office && r.sort <= sort)) await supabase!.from('branches').update({ sort: sort + 1 }).eq('id', o.id)
-    if (await done(error, 'Anlegen hat nicht geklappt.')) { setF({ name: '', phorest_branch_id: '' }); setForm(false) }
-  }
-  const save = async () => {
-    if (!edit || !edit.name.trim()) return
-    const { error } = await supabase!.from('branches').update({ name: edit.name.trim(), phorest_branch_id: edit.phorest_branch_id?.trim() || null, facility_email: edit.facility_email?.trim() || null }).eq('id', edit.id)
-    if (await done(error, 'Speichern hat nicht geklappt. Gibt es den Namen schon?')) setEdit(null)
-  }
-  const move = async (i: number, d: -1 | 1) => {
-    if (!rows) return
-    const a = rows[i], b = rows[i + d]; if (!a || !b) return
-    await supabase!.from('branches').update({ sort: b.sort }).eq('id', a.id)
-    const { error } = await supabase!.from('branches').update({ sort: a.sort }).eq('id', b.id)
-    await done(error, 'Reihenfolge konnte nicht gespeichert werden.')
-  }
-  const remove = async (r: StudioRow) => {
-    if (count(r.id) > 0 || staff.some(s => s.branch_id === r.id)) { setErr(`${r.name} hat noch Personen. Bitte zuerst umziehen oder deaktivieren.`); return }
-    if (!confirm(`${r.name} löschen?`)) return
-    const { error } = await supabase!.from('branches').delete().eq('id', r.id)
-    await done(error, `${r.name} wird noch verwendet (Aufgaben, Meldungen oder Phorest) und kann nicht gelöscht werden.`)
-  }
-  return (<>
-    <H action={<New onClick={() => setForm(!form)}>Studio anlegen</New>}>Studios</H>
-    {form && <Panel className="p-6 mb-8"><div className="grid grid-cols-2 gap-3">
-      <Field label="Name"><input value={f.name} onChange={e => setF({ ...f, name: e.target.value })} placeholder="z. B. Liestal" className={inp} /></Field>
-      <Field label="Phorest-Filial-ID (optional)"><input value={f.phorest_branch_id} onChange={e => setF({ ...f, phorest_branch_id: e.target.value })} className={inp} /></Field>
-    </div><div className="mt-4 flex items-center gap-3"><button onClick={add} className={btn}>Anlegen</button></div></Panel>}
-    <Err m={err} />
-    <div className="mt-2"><table className="tbl w-full text-[14px]"><thead><tr><Th>Studio</Th><Th>Personen</Th><Th>Phorest</Th><Th>Facility-Mail</Th><Th> </Th></tr></thead>
-      <tbody className="divide-y divide-line">{(rows ?? []).map((r, i) => edit?.id === r.id
-        ? <tr key={r.id}><td className="px-4 py-2"><input value={edit.name} onChange={e => setEdit({ ...edit, name: e.target.value })} className={`${inp} !bg-sage-50`} /></td><td className="px-4 text-mute">{count(r.id)}</td>
-            <td className="px-4"><input value={edit.phorest_branch_id ?? ''} onChange={e => setEdit({ ...edit, phorest_branch_id: e.target.value })} className={`${inp} !bg-sage-50`} /></td>
-            <td className="px-4"><input value={edit.facility_email ?? ''} onChange={e => setEdit({ ...edit, facility_email: e.target.value })} placeholder="zentrale Adresse" className={`${inp} !bg-sage-50`} /></td>
-            <td className="px-4 whitespace-nowrap"><button onClick={save} className="h-8 px-3 rounded-[8px] bg-olive-700 text-white text-[13px]">Speichern</button><button onClick={() => setEdit(null)} className="ml-3 text-[13px] text-mute hover:text-ink">Abbrechen</button></td></tr>
-        : <tr key={r.id}><td className="px-4 py-2.5">{r.name}{r.is_office && <span className="ml-2 text-xs text-mute">Büro</span>}</td><td className="px-4 text-mute">{count(r.id)}</td>
-            <td className="px-4 text-mute text-[13px]">{r.is_office ? '–' : <span className="inline-flex items-center gap-1.5"><span className={`w-[7px] h-[7px] rounded-full ${r.phorest_branch_id ? 'bg-ok' : 'bg-sage-400'}`} />{r.phorest_branch_id ? 'verbunden' : 'nicht verbunden'}</span>}</td>
-            <td className="px-4 text-mute text-[13px]">{r.facility_email || 'zentrale Adresse'}</td>
-            <td className="px-4 whitespace-nowrap text-right"><button aria-label="nach oben" disabled={i === 0} onClick={() => move(i, -1)} className="p-1 text-mute disabled:opacity-30"><ArrowUp size={15} /></button><button aria-label="nach unten" disabled={i === (rows?.length ?? 0) - 1} onClick={() => move(i, 1)} className="p-1 text-mute disabled:opacity-30"><ArrowDown size={15} /></button>
-              <button onClick={() => setEdit(r)} className="ml-3 text-[13px] text-mute hover:text-ink">Bearbeiten</button>{!r.is_office && <button onClick={() => remove(r)} className="ml-3 text-[13px] text-mute hover:text-ink">Löschen</button>}</td></tr>)}</tbody></table></div>
-    <DemoSwitch />
-    <MailSettings />
-  </>)
-}
-
-/* ---------- Beispielinhalte ein/aus (gilt für alle) ---------- */
-function DemoSwitch() {
-  const { demoData, setDemoData } = useApp()
-  const [busy, setBusy] = useState(false)
-  return (
-    <div className="mt-12 pt-6 border-t border-line flex items-start justify-between gap-4">
-      <div><p className="rubric text-ink/70">Beispielinhalte</p>
-        <p className="text-[14px] mt-3">Beispiel-News, -Schulungen, -Aufgaben und -Artikel {demoData ? 'werden angezeigt' : 'sind ausgeblendet'}</p>
-        <p className="text-xs text-mute mt-1">Gilt für alle. Vor dem Pilot ausschalten. Gelöscht wird nichts.</p></div>
-      <button disabled={busy} role="switch" aria-checked={demoData} onClick={async () => { if (!confirm(demoData ? 'Beispielinhalte für alle ausblenden?' : 'Beispielinhalte für alle wieder einblenden?')) return; setBusy(true); await setDemoData(!demoData); setBusy(false) }}
-        className={`relative shrink-0 w-11 h-6 rounded-full transition disabled:opacity-50 ${demoData ? 'bg-olive-700' : 'bg-sage-200'}`}><span className={`absolute top-[3px] w-[18px] h-[18px] rounded-full bg-white transition-all ${demoData ? 'left-[23px]' : 'left-[3px]'}`} /></button>
-    </div>
-  )
-}
-
-/* ---------- E-Mail-Versand (Facility, Einladungen, Erinnerungen) ---------- */
-type MailLog = { at: string; kind: string; recipient: string; subject: string; status: string; error: string | null }
-function MailSettings() {
-  const [st, setSt] = useState<{ keySet: boolean; enabled: boolean; from: string; log: MailLog[] } | null>(null)
-  const [central, setCentral] = useState(''), [days, setDays] = useState(2), [msg, setMsg] = useState(''), [preview, setPreview] = useState<string | null>(null)
-  const load = async () => {
-    const { data } = await supabase!.functions.invoke('mailer', { body: { action: 'status' } })
-    setSt(data?.ok ? data : { keySet: false, enabled: false, from: '', log: [] })
-    const { data: rows } = await supabase!.from('app_settings').select('key, value')
-    for (const r of rows ?? []) { if (r.key === 'facility_email') setCentral(String(r.value ?? '')); if (r.key === 'event_reminder_days') setDays(Number(r.value) || 2) }
-  }
-  useEffect(() => { load() }, [])
-  const put = (key: string, value: unknown) => supabase!.from('app_settings').upsert({ key, value, updated_at: new Date().toISOString() })
-  const toggle = async () => {
-    if (!st) return
-    if (!st.enabled && !confirm('E-Mail-Versand einschalten? Ab dann gehen echte Mails an Facility und Mitarbeiterinnen (Einladungen, Erinnerungen).')) return
-    await put('mail_enabled', !st.enabled); await load()
-  }
-  const save = async () => {
-    const [a, b] = await Promise.all([put('facility_email', central.trim()), put('event_reminder_days', Math.max(1, Math.min(14, days)))])
-    setMsg(a.error || b.error ? 'Speichern hat nicht geklappt.' : 'Gespeichert.'); setTimeout(() => setMsg(''), 2500)
-  }
-  const showPreview = async () => { const { data } = await supabase!.functions.invoke('mailer', { body: { action: 'preview' } }); setPreview(data?.html ?? null) }
-  if (!st) return null
-  return (
-    <div className="mt-12 pt-6 border-t border-line">
-      <div className="flex items-start justify-between gap-4">
-        <div><p className="rubric text-ink/70">E-Mail-Versand</p>
-          <p className="text-[14px] mt-3 inline-flex items-center gap-2"><span className={`w-[7px] h-[7px] rounded-full ${st.keySet && st.enabled ? 'bg-ok' : 'bg-sage-400'}`} />{!st.keySet ? 'Kein Resend-Schlüssel, es geht nichts raus' : st.enabled ? `Eingeschaltet · Absender ${st.from}` : 'Ausgeschaltet, es geht nichts raus'}</p></div>
-        <button disabled={!st.keySet} onClick={toggle} className={`${st.enabled ? btn2 : btn} shrink-0 disabled:opacity-40`}>{st.enabled ? 'Ausschalten' : 'Einschalten'}</button>
-      </div>
-      <div className="mt-4 grid grid-cols-[1fr_180px_auto] gap-3 items-end">
-        <Field label="Zentrale Facility-Adresse (für Studios ohne eigene)"><input value={central} onChange={e => setCentral(e.target.value)} placeholder="facility@beautylounge.ch" className={`${inp} !bg-sage-50`} /></Field>
-        <Field label="Erinnerung vor Schulung (Tage)"><input type="number" min={1} max={14} value={days} onChange={e => setDays(Number(e.target.value))} className={`${inp} !bg-sage-50`} /></Field>
-        <div className="flex items-center gap-3"><button onClick={save} className={btn}>Speichern</button><button onClick={showPreview} className="text-[13px] text-olive-700">Vorschau</button></div>
-      </div>
-      {msg && <p className="mt-2 text-[13px] text-sage-800">{msg}</p>}
-      {preview && <div className="mt-4 rounded-[16px] border border-line overflow-hidden"><div className="flex justify-between px-3 py-2 text-xs text-mute bg-sage-50"><span>Vorschau einer Facility-Meldung (wird nicht versendet)</span><button onClick={() => setPreview(null)}><X size={13} /></button></div><iframe title="Vorschau" srcDoc={preview} className="w-full h-[420px] bg-white" /></div>}
-      {st.log.length > 0 && <table className="tbl mt-6 w-full text-[13px]"><thead><tr><Th>Zeit</Th><Th>Art</Th><Th>An</Th><Th>Betreff</Th><Th>Status</Th></tr></thead>
-        <tbody className="divide-y divide-line">{st.log.map((l, i) => <tr key={i}><td className="px-4 py-2 text-mute">{fmtDate(l.at, { day: '2-digit', month: '2-digit' })} {fmtTime(l.at)}</td><td className="px-4">{l.kind}</td><td className="px-4 text-mute">{l.recipient}</td><td className="px-4">{l.subject}</td><td className={`px-4 ${l.status === 'fehler' ? 'text-alert' : 'text-mute'}`} title={l.error ?? ''}>{l.status}</td></tr>)}</tbody></table>}
-    </div>
-  )
-}
-
 /* ---------- Wissen ---------- */
-type Edit = { id?: string; imported: boolean; category: string; title: string; intro: string; body: string; minutes: number; media_kind: string; media_url: string; published: boolean; access_level: string }
+type Edit = { id?: string; imported: boolean; category: string; title: string; intro: string; body: string; minutes: number; media_kind: string; media_url: string; published: boolean; access_level: string; owner_id: string; review_due: string }
 const LEVEL = { alle: 'Alle', filialleitung: 'Filialleitung + Büro', buero: 'Nur Büro' } as Record<string, string>
 function WikiAdmin() {
-  const { wiki, allSteps, reloadWiki, reload } = useApp()
+  const { wiki, allSteps, reloadWiki, reload, staff } = useApp()
+  const [review, setReview] = useState<Record<string, { owner: string | null; due: string | null }>>({})
+  const [only, setOnly] = useState<'alle' | 'faellig'>('alle')
+  useEffect(() => { supabase!.from('wiki_articles').select('id, owner_id, review_due').then(({ data }) => setReview(Object.fromEntries((data ?? []).map((r: any) => [r.id, { owner: r.owner_id, due: r.review_due }])))) }, [wiki])
   const obProposal = allSteps.filter(x => x.proposed)
   const own = wiki.filter(a => !a.fromNews)
   const [q, setQ] = useState('')
@@ -276,11 +160,11 @@ function WikiAdmin() {
   const file = useRef<HTMLInputElement>(null)
   const openEdit = async (id: string) => {
     const { data } = await supabase!.from('wiki_articles').select('*').eq('id', id).single()
-    if (data) setEdit({ id: data.id, imported: !!data.blocks, category: data.category, title: data.title, intro: data.intro ?? '', body: data.body ?? '', minutes: data.minutes, media_kind: data.media_kind, media_url: data.media_url ?? '', published: data.published, access_level: data.access_level })
+    if (data) setEdit({ id: data.id, imported: !!data.blocks, category: data.category, title: data.title, intro: data.intro ?? '', body: data.body ?? '', minutes: data.minutes, media_kind: data.media_kind, media_url: data.media_url ?? '', published: data.published, access_level: data.access_level, owner_id: data.owner_id ?? '', review_due: data.review_due ?? '' })
   }
   const save = async () => {
     if (!edit || !edit.title.trim() || !edit.category.trim()) { setErr('Titel und Kategorie sind nötig.'); return }
-    const meta = { category: edit.category.trim(), title: edit.title.trim(), intro: edit.intro.trim(), minutes: edit.minutes, published: edit.published, access_level: edit.access_level, updated_at: new Date().toISOString() }
+    const meta = { category: edit.category.trim(), title: edit.title.trim(), intro: edit.intro.trim(), minutes: edit.minutes, published: edit.published, access_level: edit.access_level, owner_id: edit.owner_id || null, review_due: edit.review_due || null, updated_at: new Date().toISOString() }
     // Importierte Artikel behalten ihren Aufbau (Bilder, Listen, Dateien); hier nur Rahmendaten
     const row = edit.imported ? meta : { ...meta, body: edit.body.trim(), media_kind: edit.media_kind, media_url: edit.media_url || null }
     const { error } = edit.id ? await supabase!.from('wiki_articles').update(row).eq('id', edit.id) : await supabase!.from('wiki_articles').insert({ ...row, sort: own.length })
@@ -292,9 +176,10 @@ function WikiAdmin() {
     const { error } = await supabase!.storage.from('media').upload(path, f, { contentType: f.type })
     if (!error && edit) setEdit({ ...edit, media_url: path, media_kind: f.type.startsWith('video') ? 'video' : 'photo' })
   }
-  const list = own.filter(a => [a.title, a.cat, ...a.tags].join(' ').toLowerCase().includes(q.toLowerCase()))
+  const due = (id: string) => { const d = review[id]?.due; return !!d && d <= isoDay() }
+  const list = own.filter(a => [a.title, a.cat, ...a.tags].join(' ').toLowerCase().includes(q.toLowerCase()) && (only === 'alle' || due(a.id) || !review[a.id]?.due))
   return (<>
-    <H action={<New onClick={() => setEdit({ imported: false, category: '', title: '', intro: '', body: '', minutes: 3, media_kind: 'none', media_url: '', published: true, access_level: 'alle' })}>Neuer Artikel</New>}>Wissen</H>
+    <H action={<New onClick={() => setEdit({ imported: false, category: '', title: '', intro: '', body: '', minutes: 3, media_kind: 'none', media_url: '', published: true, access_level: 'alle', owner_id: '', review_due: addDays(365) })}>Neuer Artikel</New>}>Wissen</H>
     {edit && <Panel className="p-6 mb-8 grid grid-cols-[1fr_260px] gap-6">
       <div className="space-y-3"><input value={edit.title} onChange={e => setEdit({ ...edit, title: e.target.value })} placeholder="Titel" className="w-full text-[18px] font-medium outline-none" />
         <input value={edit.intro} onChange={e => setEdit({ ...edit, intro: e.target.value })} placeholder="Kurzfassung (optional)" className="w-full text-[14px] text-mute outline-none" />
@@ -304,6 +189,8 @@ function WikiAdmin() {
         <Field label="Kategorie"><input value={edit.category} onChange={e => setEdit({ ...edit, category: e.target.value })} list="wiki-cats" placeholder="z. B. Hygiene" className={inp} /><datalist id="wiki-cats">{[...new Set(own.map(a => a.cat))].map(c => <option key={c} value={c} />)}</datalist></Field>
         <Select label="Sichtbar für" value={edit.access_level} onChange={v => setEdit({ ...edit, access_level: v })} options={Object.entries(LEVEL).map(([k, l]) => ({ value: k, label: l }))} />
         <Field label="Lesezeit (Min.)"><input type="number" min={1} value={edit.minutes} onChange={e => setEdit({ ...edit, minutes: Number(e.target.value) })} className={inp} /></Field>
+        <Select label="Verantwortlich" value={edit.owner_id} onChange={v => setEdit({ ...edit, owner_id: v })} placeholder="Niemand" options={[{ value: '', label: 'Niemand' }, ...staff.filter(x => x.active && x.app_role !== 'mitarbeiterin').map(x => ({ value: x.id, label: `${x.first} ${x.last}`, hint: x.branch }))]} />
+        <Field label="Nächste Prüfung"><input type="date" value={edit.review_due} onChange={e => setEdit({ ...edit, review_due: e.target.value })} className={inp} /></Field>
         {!edit.imported && <><Select label="Medien" value={edit.media_kind} onChange={v => setEdit({ ...edit, media_kind: v })} options={[{ value: 'none', label: 'Keine' }, { value: 'photo', label: 'Foto' }, { value: 'video', label: 'Internes Video' }, { value: 'youtube', label: 'YouTube' }]} />
           {edit.media_kind === 'youtube' && <Field label="YouTube-Link"><input value={edit.media_url} onChange={e => setEdit({ ...edit, media_url: e.target.value })} placeholder="https://youtu.be/…" className={inp} /></Field>}
           {(edit.media_kind === 'photo' || edit.media_kind === 'video') && <><button onClick={() => file.current?.click()} className="w-full h-10 rounded-[10px] bg-white">{edit.media_url ? 'Datei ersetzen' : 'Datei hochladen'}</button><input ref={file} type="file" accept="image/*,video/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) upload(f) }} />{edit.media_url && <p className="text-[11px] text-mute truncate">{edit.media_url}</p>}</>}</>}
@@ -316,8 +203,9 @@ function WikiAdmin() {
         <button onClick={async () => { if (confirm('Onboarding-Vorschlag freigeben? Die Beispiel-Schritte aus dem Prototyp und der Fortschritt dazu werden dabei entfernt.')) { await supabase!.rpc('approve_wiki_proposals', { p_kind: 'onboarding' }); await reload(); retranslate() } }} className={`${btn} shrink-0`}>Freigeben</button></div>
       <ol className="mt-3 text-[13px] text-mute list-decimal pl-5 columns-2 gap-6">{obProposal.map(x => <li key={x.id}>{x.title} · {x.minutes} Min.</li>)}</ol>
     </Panel>}
+    <div className="mb-4 flex gap-3 items-center"><Seg value={only} onChange={setOnly} items={[['alle', 'Alle'], ['faellig', `Prüfung fällig · ${own.filter(a => due(a.id) || !review[a.id]?.due).length}`]]} /><InfoTip text="Laut Wiki-Format wird jeder Artikel mindestens einmal im Jahr geprüft. „Prüfung fällig“ zeigt Artikel, deren Datum erreicht ist oder die noch keins haben." /></div>
     <div className="h-10 mb-4 rounded-[10px] bg-sage-50 px-3 flex items-center gap-2"><Search size={16} className="text-mute" /><input value={q} onChange={e => setQ(e.target.value)} placeholder="Titel, Kategorie oder Stichwort" className="flex-1 outline-none text-[14px] bg-transparent" /><span className="text-xs text-mute">{list.length} Artikel</span></div>
-    <div><table className="tbl w-full text-[14px]"><thead><tr><Th>Artikel</Th><Th>Kategorie</Th><Th>Sichtbar für</Th><Th>Aktualisiert</Th><Th>Status</Th></tr></thead>
-      <tbody className="divide-y divide-line">{list.map(a => <tr key={a.id} onClick={() => openEdit(a.id)} className="cursor-pointer hover:bg-sage-50/70"><td className="px-4 py-3">{a.title}</td><td className="px-4 text-mute">{a.cat}</td><td className="px-4 text-mute">{LEVEL[a.accessLevel]}</td><td className="px-4 text-mute">{a.updated}</td><td className="px-4 text-[13px]"><span className="inline-flex items-center gap-1.5 text-ink/80"><span className={`w-[7px] h-[7px] rounded-full ${a.published ? 'bg-ok' : 'bg-sage-400'}`} />{a.published ? 'Freigegeben' : 'Entwurf'}</span></td></tr>)}</tbody></table></div>
+    <div><table className="tbl w-full text-[14px]"><thead><tr><Th>Artikel</Th><Th>Kategorie</Th><Th>Sichtbar für</Th><Th>Aktualisiert</Th><Th>Verantwortlich</Th><Th>Prüfen bis</Th><Th>Status</Th></tr></thead>
+      <tbody className="divide-y divide-line">{list.map(a => <tr key={a.id} onClick={() => openEdit(a.id)} className="cursor-pointer hover:bg-sage-50/70"><td className="px-4 py-3">{a.title}</td><td className="px-4 text-mute">{a.cat}</td><td className="px-4 text-mute">{LEVEL[a.accessLevel]}</td><td className="px-4 text-mute">{a.updated}</td><td className="px-4 text-mute text-[13px]">{(() => { const o = staff.find(x => x.id === review[a.id]?.owner); return o ? `${o.first} ${o.last}` : '–' })()}</td><td className={`px-4 text-[13px] ${due(a.id) ? 'text-alert' : 'text-mute'}`}>{review[a.id]?.due ? fmtDate(review[a.id]!.due! + 'T12:00:00Z', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '–'}</td><td className="px-4 text-[13px]"><span className="inline-flex items-center gap-1.5 text-ink/80"><span className={`w-[7px] h-[7px] rounded-full ${a.published ? 'bg-ok' : 'bg-sage-400'}`} />{a.published ? 'Freigegeben' : 'Entwurf'}</span></td></tr>)}</tbody></table></div>
   </>)
 }

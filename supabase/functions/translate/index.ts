@@ -34,6 +34,7 @@ const CFG: Cfg[] = [
   { table: 'events', fields: ['title', 'description', 'place'] },
   { table: 'quizzes', fields: ['title'] },
   { table: 'quiz_questions', fields: ['prompt', 'options'] },
+  { table: 'poll_questions', fields: ['prompt', 'options'] },
   { table: 'wiki_articles', fields: ['title', 'category', 'intro'] },
 ]
 
