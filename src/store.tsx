@@ -39,12 +39,14 @@ export const inNewsAudience = (s: Staff, n: Pick<News, 'audienceBranches' | 'aud
 /* ---------- Datum (Europe/Zurich) ---------- */
 export const TZ = 'Europe/Zurich'
 export const isoDay = (d = new Date()) => new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(d)
+// Kalendertage zählen statt 24-Stunden-Schritte (sonst doppelt oder fehlend bei der Zeitumstellung)
+export const addDays = (n: number, base = isoDay()) => { const [y, m, d] = base.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10) }
 export const fmtDate = (s: string, o: Intl.DateTimeFormatOptions = { weekday: 'short', day: '2-digit', month: '2-digit' }) => new Intl.DateTimeFormat(locale(), { timeZone: TZ, ...o }).format(new Date(s))
 // Stunde als Zahl in Zürcher Zeit (formatToParts, weil de-CH „16 Uhr“ formatiert)
 export const zurichHour = (d = new Date()) => { const p = new Intl.DateTimeFormat('en-GB', { timeZone: TZ, hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(d); const g = (t: string) => Number(p.find(x => x.type === t)?.value ?? 0); return g('hour') % 24 + g('minute') / 60 }
 export const fmtTime = (s: string) => new Intl.DateTimeFormat(locale(), { timeZone: TZ, hour: '2-digit', minute: '2-digit' }).format(new Date(s))
 const relWhen = (s: string) => {
-  const d = isoDay(new Date(s)), today = isoDay(), y = isoDay(new Date(Date.now() - 864e5))
+  const d = isoDay(new Date(s)), today = isoDay(), y = addDays(-1)
   return d === today ? `${tr('Heute')}, ${fmtTime(s)}` : d === y ? tr('Gestern') : fmtDate(s, { day: '2-digit', month: '2-digit' })
 }
 const isoDow = (day: string) => ((new Date(day + 'T12:00:00Z').getUTCDay() + 6) % 7) + 1

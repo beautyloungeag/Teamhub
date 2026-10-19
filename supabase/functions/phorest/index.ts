@@ -141,7 +141,8 @@ Deno.serve(async (req) => {
       const { data: maps } = await admin.from('employee_phorest').select('branch_id, staff_id').eq('employee_id', who)
       if (!maps?.length) return json({ ok: true, mapped: false, days: [] })
       // Phorest liefert den Dienstplan zuverlässig nur je Tag – deshalb sieben einzelne Abfragen
-      const dates = Array.from({ length: 7 }, (_, i) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Zurich' }).format(new Date(Date.now() + i * 864e5)))
+      const [y0, m0, d0] = today().split('-').map(Number)
+      const dates = Array.from({ length: 7 }, (_, i) => new Date(Date.UTC(y0, m0 - 1, d0 + i)).toISOString().slice(0, 10))
       const days: { date: string; branch_id: string; start: string; end: string }[] = []
       for (const m of maps) {
         const pbid = pb(m.branch_id); if (!pbid) continue
@@ -215,10 +216,25 @@ Deno.serve(async (req) => {
       const visits = mapped.filter((v) => `${v.date}T${v.time}` < nowLocal)
       const upcoming = mapped.filter((v) => `${v.date}T${v.time}` >= nowLocal && !v.cancelled).reverse()
       await admin.from('client_lookups').insert({ employee_id: me.id, action: 'history', client_id: cid, result_count: visits.length })
+      // Kategorien (z. B. Stammkundin), falls Phorest sie liefert
+      let categories: string[] = []
+      if ((client.clientCategoryIds ?? []).length) try {
+        const cats = (await ph('/client-category?size=200'))?._embedded?.clientCategories ?? []
+        categories = cats.filter((c: any) => client.clientCategoryIds.includes(c.clientCategoryId ?? c.id)).map((c: any) => String(c.name ?? '')).filter(Boolean)
+      } catch { /* ohne Kategorien */ }
+      const addr = client.address ?? {}
       const info = {
         name: `${client.firstName ?? ''} ${client.lastName ?? ''}`.trim(), since: String(client.clientSince ?? client.firstVisit ?? client.createdAt ?? '').slice(0, 10),
         last_visit: String(client.lastVisit ?? '').slice(0, 10), preferred: sName.get(client.preferredStaffId) ?? '',
         email: client.email ?? '', phone: String(client.mobile ?? client.landLine ?? '').trim(),
+        landline: client.mobile && client.landLine ? String(client.landLine).trim() : '',
+        gender: client.gender ?? '', birth_date: String(client.birthDate ?? client.dateOfBirth ?? '').slice(0, 10),
+        address: [addr.streetAddress1, addr.streetAddress2, [addr.postalCode, addr.city].filter(Boolean).join(' ')].filter(Boolean).join(', '),
+        notes: String(client.notes ?? '').trim(), first_visit: String(client.firstVisit ?? '').slice(0, 10),
+        last_branch: (branches ?? []).find((b) => b.phorest_branch_id === client.lastVisitedBranchId)?.name ?? '',
+        loyalty_points: client.loyaltyCard?.points ?? null, balance: Number(client.creditAccount?.outstandingBalance ?? 0),
+        membership: !!client.hasActiveMembership, banned: !!client.banned, categories,
+        consent: { sms_marketing: !!client.smsMarketingConsent, email_marketing: !!client.emailMarketingConsent, sms_reminder: !!client.smsReminderConsent, email_reminder: !!client.emailReminderConsent },
       }
       // Zusammenfassung: nur Besuche und Notizen, keine Kontaktdaten an das Sprachmodell
       let summary: string | null = null
@@ -227,9 +243,9 @@ Deno.serve(async (req) => {
           const out = await aiJson<{ summary: string }>([
             'Du fasst für eine Mitarbeiterin eines Kosmetikstudios die Historie einer Kundin aus Phorest zusammen, damit sie gut vorbereitet in den Termin geht.',
             'Höchstens 6 kurze Zeilen, Schweizer Hochdeutsch, sachlich. Inhalt: seit wann Kundin, wie oft und welche Behandlungen meist, bei wem (nur wenn Namen vorhanden sind, sonst gar nicht erwähnen), letzter Besuch, Absagen nur wenn auffällig.',
-            'Aus den Notizen nur, was für die Behandlung zählt (Allergien, Unverträglichkeiten, Reklamationen, Vorlieben, Wünsche), mit Datum. Nichts erfinden; gibt es keine Notizen, sag das in einem Halbsatz.',
+            'Aus der Kundennotiz und den Terminnotizen nur, was für die Behandlung zählt (Allergien, Unverträglichkeiten, Reklamationen, Vorlieben, Wünsche), mit Datum. Nichts erfinden; gibt es keine Notizen, sag das in einem Halbsatz.',
             'Gib nur JSON zurück: {"summary": string}',
-          ].join('\n'), JSON.stringify({ kundin_seit: info.since, letzter_besuch: info.last_visit, bevorzugt: info.preferred, besuche: visits.slice(0, 80) }))
+          ].join('\n'), JSON.stringify({ kundin_seit: info.since, letzter_besuch: info.last_visit, bevorzugt: info.preferred, kundennotiz: info.notes, besuche: visits.slice(0, 80) }))
           summary = String(out.summary ?? '').trim() || null
           await admin.from('client_lookups').insert({ employee_id: me.id, action: 'summary', client_id: cid, result_count: visits.length })
         } catch { summary = null }

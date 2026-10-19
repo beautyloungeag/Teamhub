@@ -2,6 +2,15 @@
 
 Interne Mitarbeiter-App (PWA + Desktop-Backoffice) der Beautylounge AG. Kundin: Renée Baumann. PM-Projekt: `projekt.aleksa.ai`, Key **BLTH** (`d4ee5d5c-4553-436c-bba7-137a03a2b704`). ⚠️ Das Repo `beautyloungeag/Teamhub` ist **öffentlich** — nie Personendaten committen.
 
+### Nachtrag 2026-10-20 nachts — Aufgaben mit Frist, Kundenhistorie, Wissen-Karten, Benni-Layout
+
+- **Aufgaben, zwei Bereiche:** „Für mich“ (neu, Tabelle `todos`, Migration `0018`) und „Studio-Checklisten“ (die bisherigen Vorlagen, jetzt mit „bis“-Zeit je Liste). Einzelne Aufgaben: eigene To-dos (Frist Heute/Morgen/Datum, optional Uhrzeit) oder von Filialleitung/Büro im Backoffice unter Aufgaben → „Aufgabe zuweisen“ an eine Person oder ein ganzes Studio. Abhaken per RPC `todo_done` (zuständige Person, bei Studio-Aufgaben jede im Studio). RLS über `leads_todo()`. Push über `notify` (Schritt 4, nur wenn jemand anderes zuweist, öffnet `/?open=todos`). Auf „Heute“ steht „Für dich“, sobald etwas offen ist. Benni kennt die offenen Aufgaben und legt auf Wunsch eigene To-dos an (`add_todo`). Testkonten heissen in der Auswahl „(Testkonto)“, weil sie Namen echter Kolleginnen tragen.
+- **Kundenhistorie:** Schnellwahl „Deine Kundinnen heute“ (aus `my_day`), Detail mit Kontakt (Mobil, Festnetz, E-Mail mit Kopieren/Anrufen), „Angaben aus Phorest“ (Geschlecht, Geburtstag, Adresse, bevorzugt, zuletzt da, erster Besuch, Treuepunkte, offener Betrag, Erinnerungen, Werbe-Einwilligung — nur was gefüllt ist), Kundennotiz (Phorest-Feld `notes`, geht auch in Bennis Zusammenfassung) und „Frag Benni zu …“ direkt unter der Zusammenfassung (ohne gespeicherten Chat). Phorest füllt laut Stichprobe Geschlecht fast immer, PLZ bei knapp der Hälfte, Geburtstag und Notiz selten.
+- **Wissen:** Kategorien als Emoji-Karten statt Fotos (Zuordnung `CAT_EMOJI` in `Mobile.tsx`, Rückfall 📄). `wiki_category_covers()` bleibt in der Datenbank, wird aber nicht mehr genutzt.
+- **Benni am Desktop:** Chatliste als eigene Spalte bündig an der Navigation (gruppiert Heute/Gestern/Letzte 7 Tage/Älter), Gespräch mittig (max. 760 px), neuer Chat zentriert mit Vorschlägen. Benni scrollt selbst, die Shell scrollt im Benni-Reiter nicht.
+- **Aushilfe-Tage im Profil:** Monatskalender (heute bis drei Monate voraus), vergangene Tage grau.
+- **Zeitumstellung:** Tage werden jetzt als Kalendertage gezählt (`addDays` in `store.tsx`, `zDay` in `assistant`, `staff_week` in `phorest`). Vorher stand der 25.10. (Ende Sommerzeit) in „Arbeitszeiten · nächste 7 Tage“ doppelt.
+
 ### Nachtrag 2026-10-19 kurz vor Mitternacht — Benni mit Chats, Dateien, Diktat, Kundenkarte und Lernmodus
 
 - **Mehrere Chats** (wie ChatGPT): Tabellen `benni_chats` + `benni_messages` (Migration `0017`, nur eigene per RLS). Die Function `assistant` speichert Frage und Antwort selbst, damit eine Antwort auch ankommt, wenn man den Chat wechselt; Chats laufen parallel (Zustand ausserhalb der Komponenten in `src/BenniChat.tsx`). Titel vergibt `gpt-5.4-nano` beim ersten Satz (`TITLE_MODEL`). Löschen mit zweitem Tipp. Am Handy Liste als Schublade („Chats“), am Desktop Spalte links, im Backoffice als Panel (gleiche Komponente, `variant="panel"`).

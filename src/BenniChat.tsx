@@ -3,12 +3,13 @@ import { AnimatePresence, motion } from 'motion/react'
 import { ArrowUp, ArrowUpRight, BookOpen, Check, ChevronDown, ExternalLink, FileSpreadsheet, FileText, Globe, Mail, MessagesSquare, Mic, Paperclip, Phone, Sparkles, SquarePen, Trash2, X } from 'lucide-react'
 import { supabase, SUPABASE_URL, SUPABASE_ANON } from './lib/supabase'
 import { locale } from './lib/i18n'
-import { useApp, isoDay } from './store'
+import { useApp, isoDay, addDays } from './store'
 import { BMark } from './Logo'
 import { BenniAvatar } from './BenniOrb'
 import { Avatar, ContactRow } from './People'
 import { TicketDraft } from './TicketParts'
 import { toast } from './Toast'
+import { reloadTodos } from './Todos'
 
 // Benni in App und Backoffice: mehrere Chats (parallel, löschbar, Titel vergibt der Server),
 // Eingabeleiste mit Dateien, Diktat, Modellwahl und Websuche, Kundenkarte und Lernkarten.
@@ -121,6 +122,12 @@ async function askBenni(body: Record<string, unknown>, onEvent: (e: Step | { tit
   return done ?? { ok: false }
 }
 
+/** Einzelne Frage ohne gespeicherten Chat (z. B. in der Kundenhistorie). */
+export async function askBenniOnce(message: string, history: { me: boolean; t: string }[], onStep: (s: Step) => void) {
+  const r = await askBenni({ message, history }, e => { if ('step' in e) onStep(e) }).catch(() => ({ ok: false } as BenniAnswer))
+  return { ok: r.ok && !!r.text, text: r.text ?? '' }
+}
+
 /* ---------- Dateien ---------- */
 const MAX_FILE = 10 * 1024 * 1024
 const b64 = (b: Blob) => new Promise<string>((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1] ?? ''); r.onerror = rej; r.readAsDataURL(b) })
@@ -219,7 +226,7 @@ function useStepLabel() {
   const { t } = useApp()
   const day = (d?: string) => {
     if (!d) return ''
-    const today = isoDay(), tomorrow = isoDay(new Date(Date.now() + 864e5))
+    const today = isoDay(), tomorrow = addDays(1)
     if (d === today) return t('heute')
     if (d === tomorrow) return t('morgen')
     return new Intl.DateTimeFormat(locale(), { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'numeric' }).format(new Date(d + 'T12:00:00Z'))
@@ -238,6 +245,7 @@ function useStepLabel() {
       case 'news': return t('Liest die News')
       case 'onboarding': return t('Prüft dein Onboarding')
       case 'step_done': return t('Hakt den Schritt ab')
+      case 'todo': return t('Legt ein To-do an')
       case 'web': return s.detail ? t('Sucht im Web · {q}', { q: s.detail }) : t('Sucht im Web')
       case 'write': return t('Schreibt die Antwort')
       default: return t('Denkt nach')
@@ -305,7 +313,7 @@ function ClientCardView({ c, onOpen }: { c: ClientCard; onOpen?: (id: string) =>
       </div>}
       {c.upcoming.length > 0 && <Sec title={t('Nächste Termine')}><ul className="space-y-1">{c.upcoming.map(visit)}</ul></Sec>}
       {c.recent.length > 0 && <Sec title={t('Letzte Besuche')}><ul className="space-y-1">{c.recent.map(visit)}</ul></Sec>}
-      {c.notes.length > 0 && <Sec title={t('Notizen')}><ul className="space-y-1.5">{c.notes.map((n, i) => <li key={i} className="text-[13.5px] leading-snug"><span className="text-mute tabular-nums mr-2">{shortDate(n.date)}</span>{n.text}</li>)}</ul></Sec>}
+      {c.notes.length > 0 && <Sec title={t('Notizen')}><ul className="space-y-1.5">{c.notes.map((n, i) => <li key={i} className="text-[13.5px] leading-snug"><span className="text-mute tabular-nums mr-2">{n.date ? shortDate(n.date) : t('Kundennotiz')}</span>{n.text}</li>)}</ul></Sec>}
       {onOpen && <button onClick={() => onOpen(c.client_id)} className="w-full border-t border-line px-4 py-3 text-[13.5px] text-sage-800 flex items-center justify-between hover:bg-sage-50">{t('Ganze Historie')}<ArrowUpRight size={15} /></button>}
     </div>
   )
@@ -495,26 +503,31 @@ function ChatList({ onPicked }: { onPicked?: () => void }) {
   const st = useBenni()
   const [armed, setArmed] = useState<string | null>(null)
   useEffect(() => { if (!armed) return; const h = setTimeout(() => setArmed(null), 5000); return () => clearTimeout(h) }, [armed])
-  const when = (iso: string) => {
-    const d = isoDay(new Date(iso)), today = isoDay()
-    return d === today ? hhmm(iso) : new Intl.DateTimeFormat(locale(), { day: 'numeric', month: 'short' }).format(new Date(iso))
-  }
   if (!st.chats.length) return <p className="px-3 py-2 text-[13px] text-mute">{t('Noch keine Chats.')}</p>
+  // Gruppen wie in ChatGPT: Heute, Gestern, Letzte 7 Tage, Älter
+  const today = isoDay(), yesterday = addDays(-1), week = addDays(-7)
+  const groupOf = (iso: string) => { const d = isoDay(new Date(iso)); return d === today ? 'Heute' : d === yesterday ? 'Gestern' : d >= week ? 'Letzte 7 Tage' : 'Älter' }
+  const groups = ['Heute', 'Gestern', 'Letzte 7 Tage', 'Älter'].map(g => ({ g, list: st.chats.filter(c => groupOf(c.updated) === g) })).filter(x => x.list.length)
   return (
-    <ul className="space-y-0.5">{st.chats.map(c => {
-      const on = c.id === st.active
-      return (
-        <li key={c.id} className={`group flex items-center rounded-[10px] ${on ? 'bg-sage-100' : 'hover:bg-sage-50'}`}>
-          <button onClick={() => { openChat(c.id); onPicked?.() }} className="flex-1 min-w-0 text-left px-3 py-2">
-            <span className="block text-[14px] truncate">{c.title || t('Neuer Chat')}</span>
-            <span className="block text-[12px] text-mute truncate">{c.busy ? <span className="benni-shimmer">{t('Benni arbeitet …')}</span> : when(c.updated)}</span>
-          </button>
-          {armed === c.id
-            ? <button onClick={async () => { setArmed(null); const ok = await deleteChat(c.id); toast(ok ? t('Chat gelöscht') : t('Löschen hat nicht geklappt'), ok ? 'ok' : 'error') }} className="mr-1.5 h-7 px-2.5 rounded-full bg-alert/10 text-alert text-[12px]">{t('Löschen')}</button>
-            : <button onClick={() => setArmed(c.id)} aria-label={t('Chat löschen')} title={t('Chat löschen')} className="mr-1 w-8 h-8 rounded-full text-mute hover:text-alert flex items-center justify-center md:opacity-0 md:group-hover:opacity-100 focus:opacity-100"><Trash2 size={14} /></button>}
-        </li>
-      )
-    })}</ul>
+    <div className="space-y-4">{groups.map(({ g, list }) => (
+      <div key={g}>
+        <p className="px-3 pb-1 text-[11.5px] text-mute">{t(g)}</p>
+        <ul className="space-y-px">{list.map(c => {
+          const on = c.id === st.active
+          return (
+            <li key={c.id} className={`group relative flex items-center rounded-[10px] transition ${on ? 'bg-sage-100' : 'hover:bg-sage-50'}`}>
+              <button onClick={() => { openChat(c.id); onPicked?.() }} className="flex-1 min-w-0 text-left pl-3 pr-2 h-10 flex items-center gap-2">
+                {c.busy && <span className="w-1.5 h-1.5 rounded-full bg-olive-700 animate-pulse shrink-0" aria-label={t('Benni arbeitet …')} />}
+                <span className={`truncate text-[14px] ${on ? 'text-ink' : 'text-ink/80'}`}>{c.title || t('Neuer Chat')}</span>
+              </button>
+              {armed === c.id
+                ? <button onClick={async () => { setArmed(null); const ok = await deleteChat(c.id); toast(ok ? t('Chat gelöscht') : t('Löschen hat nicht geklappt'), ok ? 'ok' : 'error') }} className="mr-1.5 h-7 px-2.5 rounded-full bg-alert/10 text-alert text-[12px] shrink-0">{t('Löschen')}</button>
+                : <button onClick={() => setArmed(c.id)} aria-label={t('Chat löschen')} title={t('Chat löschen')} className="mr-1 w-8 h-8 rounded-full text-mute hover:text-alert flex items-center justify-center shrink-0 md:opacity-0 md:group-hover:opacity-100 focus:opacity-100"><Trash2 size={14} /></button>}
+            </li>
+          )
+        })}</ul>
+      </div>
+    ))}</div>
   )
 }
 
@@ -530,7 +543,7 @@ export function BenniChat({ variant = 'app', onOpenArticle, onOpenClient, onClos
   const msgs = chat?.msgs ?? []
   useEffect(() => { loadChats(employee.id) }, [employee.id, st.loaded])
   const send = (text: string, files: Attach[] = [], opts = { model: tierPref, web: false }) =>
-    sendMessage(employee.id, text, files, opts, t('Ich bin gerade nicht erreichbar. Bitte versuche es gleich noch einmal.'), reload)
+    sendMessage(employee.id, text, files, opts, t('Ich bin gerade nicht erreichbar. Bitte versuche es gleich noch einmal.'), () => { reload(); reloadTodos() })
   // Frage aus dem Onboarding („Mit Benni lernen“)
   useEffect(() => { if (pendingAsk) { const q = pendingAsk; pendingAsk = null; send(q) } }, [st.ver]) // eslint-disable-line react-hooks/exhaustive-deps
   // Neue Antwort: Frage und Antwortanfang zeigen (lange Antworten liest man von oben); sonst ans Ende
@@ -546,11 +559,12 @@ export function BenniChat({ variant = 'app', onOpenArticle, onOpenClient, onClos
   const body = (
     <>
       {!chat ? (
-        <div className={variant === 'app' ? 'pt-6 md:pt-12' : 'pt-2'}>
+        <div className={variant === 'app' ? 'pt-6 md:pt-0 md:text-center' : 'pt-2'}>
           <BMark className={variant === 'app' ? 'w-12 h-12' : 'w-10 h-10'} />
           <h1 className={`mt-5 leading-tight ${variant === 'app' ? 'text-[28px]' : 'text-[22px]'}`}>{t('Hallo {name}, wie kann ich helfen?', { name: me.first })}</h1>
           <p className="mt-1.5 text-[14.5px] text-mute">{t('Termine, Kundinnen, Wissen, Dateien: frag einfach.')}</p>
-          <div className={`mt-6 rounded-[16px] divide-y divide-line ${variant === 'app' ? 'bg-white' : 'border border-line'}`}>{IDEAS.map(i => <button key={i} onClick={() => send(t(i))} className="w-full text-left px-4 py-3.5 text-[15px] flex items-center gap-3"><span className="flex-1">{t(i)}</span><ArrowUpRight size={16} className="text-sage-400 shrink-0" /></button>)}</div>
+          <div className={`mt-6 rounded-[16px] divide-y divide-line ${variant === 'app' ? 'bg-white md:hidden' : 'border border-line'}`}>{IDEAS.map(i => <button key={i} onClick={() => send(t(i))} className="w-full text-left px-4 py-3.5 text-[15px] flex items-center gap-3"><span className="flex-1">{t(i)}</span><ArrowUpRight size={16} className="text-sage-400 shrink-0" /></button>)}</div>
+          {variant === 'app' && <div className="hidden md:flex mt-7 flex-wrap justify-center gap-2">{IDEAS.map(i => <button key={i} onClick={() => send(t(i))} className="h-9 px-3.5 rounded-full bg-white border border-line text-[13.5px] text-ink/80 hover:border-sage-400 hover:text-ink transition">{t(i)}</button>)}</div>}
         </div>
       ) : chat.loading ? <p className="pt-6 text-mute text-[14px]">{t('Lädt …')}</p> : (
         <div className="pt-2 space-y-5">
@@ -558,7 +572,7 @@ export function BenniChat({ variant = 'app', onOpenArticle, onOpenClient, onClos
           {chat.busy && <BenniWorking steps={chat.steps} />}
         </div>
       )}
-      <div ref={end} className={`h-1 ${variant === 'app' ? 'scroll-mb-[132px]' : ''}`} />
+      <div ref={end} className="h-1" />
     </>
   )
   const composer = <Composer busy={!!chat?.busy} variant={variant} onSend={(text, files, opts) => send(text, files, opts)} />
@@ -579,29 +593,36 @@ export function BenniChat({ variant = 'app', onOpenArticle, onOpenClient, onClos
     </aside>
   )
 
+  const fresh = !chat
   return (
-    <div className="flex min-h-full md:gap-8 md:px-2">
-      <aside className="hidden md:flex w-56 shrink-0 flex-col sticky top-0 self-start max-h-[calc(100dvh-48px)] pt-1">
-        <button onClick={() => openChat(null)} className="h-10 px-3 rounded-[10px] bg-white flex items-center gap-2 text-[14px] mb-3 hover:bg-sage-100 transition"><SquarePen size={16} />{t('Neuer Chat')}</button>
-        <p className="px-3 mb-1 text-[12px] text-mute">{t('Chats')}</p>
-        <div className="flex-1 overflow-y-auto no-scrollbar pb-4"><ChatList /></div>
-      </aside>
-      <div className="flex-1 min-w-0 flex flex-col px-5 md:px-0">
-        <div className="md:hidden flex items-center gap-1 -mx-1.5 mb-1">
-          <button onClick={() => setDrawer(true)} className="h-9 px-2.5 rounded-full hover:bg-sage-100 flex items-center gap-1.5 text-[14px] text-ink/80"><MessagesSquare size={17} />{t('Chats')}</button>
-          <span className="flex-1 min-w-0 truncate text-center text-[14px] text-mute">{chat ? title : ''}</span>
-          {newBtn}
+    <div className="flex h-full">
+      {/* Desktop: Chats als eigene Spalte, bündig an der Navigation */}
+      <aside className="hidden md:flex w-[260px] shrink-0 flex-col bg-white border-r border-line">
+        <div className="h-[60px] shrink-0 pl-5 pr-3 flex items-center justify-between border-b border-line/70">
+          <p className="text-[15px] font-medium">{t('Chats')}</p>
+          <button onClick={() => openChat(null)} className="h-9 px-3 rounded-[10px] bg-sage-50 hover:bg-sage-100 text-[13.5px] flex items-center gap-1.5 transition"><SquarePen size={15} />{t('Neuer Chat')}</button>
         </div>
-        {chat && <p className="hidden md:block text-[13px] text-mute mb-2 truncate">{title}</p>}
-        <div className="flex-1">{body}</div>
-        <div className="sticky bottom-0 pt-2 pb-3 bg-gradient-to-t from-sage-50 from-70% to-transparent">{composer}</div>
+        <div className="flex-1 overflow-y-auto no-scrollbar px-2 py-3"><ChatList /></div>
+      </aside>
+      <div className="flex-1 min-w-0 flex flex-col">
+        <div className="shrink-0 pt-11 md:pt-0 h-auto md:h-[60px] px-3 md:px-8 flex items-center gap-1 md:border-b md:border-line/70">
+          <button onClick={() => setDrawer(true)} className="md:hidden h-9 px-2.5 rounded-full hover:bg-sage-100 flex items-center gap-1.5 text-[14px] text-ink/80"><MessagesSquare size={17} />{t('Chats')}</button>
+          <p className="flex-1 min-w-0 truncate text-center md:text-left text-[14px] text-mute md:text-[15px] md:text-ink md:font-medium">{chat ? title : <span className="hidden md:inline text-mute font-normal">{t('Neuer Chat')}</span>}</p>
+          <span className="md:hidden">{newBtn}</span>
+        </div>
+        {fresh && <div className="hidden md:block flex-1" />}
+        <div className={`overflow-y-auto no-scrollbar ${fresh ? 'flex-1 md:flex-none' : 'flex-1'}`}>
+          <div className="max-w-[760px] mx-auto px-5 md:px-8 pt-3 pb-4">{body}</div>
+        </div>
+        <div className="shrink-0 px-4 md:px-8 pb-3 md:pb-6"><div className="max-w-[760px] mx-auto">{composer}</div></div>
+        {fresh && <div className="hidden md:block flex-1" />}
       </div>
       <AnimatePresence>{drawer && <>
         <motion.div key="bg" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-40 bg-ink/30 md:hidden" onClick={() => setDrawer(false)} />
-        <motion.div key="dr" initial={{ x: '-100%' }} animate={{ x: 0 }} exit={{ x: '-100%' }} transition={{ type: 'tween', duration: 0.22 }} className="fixed inset-y-0 left-0 z-50 w-[84%] max-w-[340px] bg-paper p-4 pt-12 flex flex-col md:hidden">
-          <div className="flex items-center justify-between mb-3"><p className="text-[20px]">{t('Chats')}</p><button onClick={() => setDrawer(false)} aria-label={t('Schliessen')} className="w-9 h-9 rounded-full hover:bg-sage-100 flex items-center justify-center"><X size={18} /></button></div>
-          <button onClick={() => { openChat(null); setDrawer(false) }} className="h-11 px-3 rounded-[12px] bg-white flex items-center gap-2 text-[15px] mb-3"><SquarePen size={17} />{t('Neuer Chat')}</button>
-          <div className="flex-1 overflow-y-auto no-scrollbar"><ChatList onPicked={() => setDrawer(false)} /></div>
+        <motion.div key="dr" initial={{ x: '-100%' }} animate={{ x: 0 }} exit={{ x: '-100%' }} transition={{ type: 'tween', duration: 0.22 }} className="fixed inset-y-0 left-0 z-50 w-[84%] max-w-[340px] bg-white pt-12 flex flex-col md:hidden">
+          <div className="px-4 flex items-center justify-between mb-3"><p className="text-[20px]">{t('Chats')}</p><button onClick={() => setDrawer(false)} aria-label={t('Schliessen')} className="w-9 h-9 rounded-full hover:bg-sage-100 flex items-center justify-center"><X size={18} /></button></div>
+          <div className="px-4"><button onClick={() => { openChat(null); setDrawer(false) }} className="w-full h-11 px-3 rounded-[12px] bg-sage-50 flex items-center gap-2 text-[15px] mb-3"><SquarePen size={17} />{t('Neuer Chat')}</button></div>
+          <div className="flex-1 overflow-y-auto no-scrollbar px-2 pb-6"><ChatList onPicked={() => setDrawer(false)} /></div>
         </motion.div>
       </>}</AnimatePresence>
     </div>

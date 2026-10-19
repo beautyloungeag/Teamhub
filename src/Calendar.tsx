@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ChevronDown, ChevronLeft, ChevronRight, MapPin, Search, Check, CalendarDays, X } from 'lucide-react'
-import { useApp, isoDay, fmtTime, zurichHour, type Ev } from './store'
+import { useApp, isoDay, addDays, fmtTime, zurichHour, type Ev } from './store'
 import { phorest, toHours, type BranchDay, type MyDay, type Appt, type ClientHistory } from './lib/phorest'
 import { tr, locale } from './lib/i18n'
 
@@ -9,8 +9,8 @@ const START = 8, END = 20, SLOT = 44 // px je halbe Stunde
 const COLORS = ['#8FA382', '#C29A6B', '#93A9B3', '#B9A27A', '#A693A6', '#7E9C93', '#C2A39B']
 const colorFor = (service: string) => COLORS[[...service].reduce((a, c) => a + c.charCodeAt(0), 0) % COLORS.length]
 const fmt = (h: number) => `${String(Math.floor(h)).padStart(2, '0')}:${String(Math.round((h % 1) * 60)).padStart(2, '0')}`
-const dayOffset = (n: number) => isoDay(new Date(Date.now() + n * 864e5))
-const dayLabel = (n: number) => n === 0 ? tr('Heute') : new Intl.DateTimeFormat(locale(), { timeZone: 'Europe/Zurich', weekday: 'short', day: 'numeric' }).format(new Date(Date.now() + n * 864e5))
+const dayOffset = (n: number) => addDays(n)
+const dayLabel = (n: number) => n === 0 ? tr('Heute') : new Intl.DateTimeFormat(locale(), { timeZone: 'Europe/Zurich', weekday: 'short', day: 'numeric' }).format(new Date(addDays(n) + 'T12:00:00Z'))
 
 export function Terminbuch({ compact }: { compact?: boolean }) {
   const { me, branches, myPhorest, t } = useApp()

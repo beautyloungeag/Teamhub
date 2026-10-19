@@ -3,6 +3,7 @@
 //   - News, sobald publish_at erreicht ist (auch zeitgesteuerte), an die Zielgruppe
 //   - neue Schulungen/Events an Zielgruppe (Studio, Skills)
 //   - Statuswechsel/Zuweisung einer Meldung an die meldende Person
+//   - neue Aufgabe von Filialleitung/Büro an die Person bzw. das ganze Studio
 // Secrets: VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT, NOTIFY_SECRET
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 import webpush from 'npm:web-push@3.6.7'
@@ -17,9 +18,9 @@ type Msg = { title: string; body: string; url: string; tag: string }
 type Lang = 'DE' | 'EN' | 'FR'
 // Rahmentexte je Sprache der Empfängerin; Inhalte (Titel, Teaser) bleiben wie erfasst.
 const L: Record<Lang, Record<string, string>> = {
-  DE: { must: 'Bitte lesen: {t}', newsFallback: 'Neue News im TeamHub', ev: 'Neu: {k} „{t}“', join: 'jetzt anmelden', ticket: 'Deine Meldung', on: 'Mitteilungen sind eingeschaltet.' },
-  EN: { must: 'Please read: {t}', newsFallback: 'New news in TeamHub', ev: 'New: {k} “{t}”', join: 'register now', ticket: 'Your report', on: 'Notifications are on.' },
-  FR: { must: 'À lire : {t}', newsFallback: 'Nouvelle actualité dans TeamHub', ev: 'Nouveau : {k} « {t} »', join: 'inscris-toi', ticket: 'Ton signalement', on: 'Les notifications sont activées.' },
+  DE: { must: 'Bitte lesen: {t}', newsFallback: 'Neue News im TeamHub', ev: 'Neu: {k} „{t}“', join: 'jetzt anmelden', ticket: 'Deine Meldung', on: 'Mitteilungen sind eingeschaltet.', todo: 'Neue Aufgabe von {n}', until: 'bis' },
+  EN: { must: 'Please read: {t}', newsFallback: 'New news in TeamHub', ev: 'New: {k} “{t}”', join: 'register now', ticket: 'Your report', on: 'Notifications are on.', todo: 'New task from {n}', until: 'by' },
+  FR: { must: 'À lire : {t}', newsFallback: 'Nouvelle actualité dans TeamHub', ev: 'Nouveau : {k} « {t} »', join: 'inscris-toi', ticket: 'Ton signalement', on: 'Les notifications sont activées.', todo: 'Nouvelle tâche de {n}', until: 'avant' },
 }
 const fill = (s: string, v: Record<string, string>) => s.replace(/\{(\w+)\}/g, (_, k) => v[k] ?? '')
 const LOC: Record<Lang, string> = { DE: 'de-CH', EN: 'en-GB', FR: 'fr-CH' }
@@ -87,6 +88,21 @@ Deno.serve(async (req) => {
     if (tk?.created_by) add(await sendByLang(admin, staff, [tk.created_by], (l) => ({ title: L[l].ticket, body: `${tk.title}: ${t.what}`, url: `/?open=ticket:${t.ticket_id}`, tag: `ticket-${t.ticket_id}` })))
   }
   await admin.from('ticket_events').update({ notified_at: now }).is('notified_at', null).eq('what', 'Erfasst')
+  // 4) Neue Aufgaben, die jemand anderem gegeben wurden (eigene To-dos still markieren)
+  const { data: tds } = await admin.from('todos').select('id, title, due_at, assignee_id, branch_id, created_by, created_by_name').is('notified_at', null).is('done_at', null).limit(50)
+  for (const x of tds ?? []) {
+    await admin.from('todos').update({ notified_at: now }).eq('id', x.id)
+    if (x.assignee_id && x.assignee_id === x.created_by) continue
+    const ids = x.assignee_id ? [x.assignee_id] : staff.filter((e) => e.id !== x.created_by && inBranches(e, [x.branch_id])).map((e) => e.id)
+    add(await sendByLang(admin, staff, ids, (l) => {
+      let until = ''
+      if (x.due_at) {
+        const d = new Date(x.due_at), hm = new Intl.DateTimeFormat('de-CH', { timeZone: 'Europe/Zurich', hour: '2-digit', minute: '2-digit' }).format(d)
+        until = ` · ${L[l].until} ${new Intl.DateTimeFormat(LOC[l], { timeZone: 'Europe/Zurich', weekday: 'short', day: '2-digit', month: '2-digit', ...(hm === '23:59' ? {} : { hour: '2-digit', minute: '2-digit' }) }).format(d)}`
+      }
+      return { title: fill(L[l].todo, { n: x.created_by_name || 'TeamHub' }), body: x.title + until, url: '/?open=todos', tag: `todo-${x.id}` }
+    }))
+  }
   return json({ ok: true, sent, failed, removed })
 })
 

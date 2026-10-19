@@ -48,14 +48,15 @@ function rank(q: string, arts: (Article & { tags?: string[] })[]) {
 const isBroken = (q: string) => /kaputt|defekt|funktioniert nicht|geht nicht|ausgefallen|fällt aus|tropft|leck/i.test(q)
 const isShift = (q: string) => /dienst|schicht|arbeitet|arbeite ich|wer ist|im studio|termin|mein tag|heute bei mir|steht heute|was steht|habe ich heute/i.test(q)
 // Kalendertag in Zürich als YYYY-MM-DD, verschoben um n Tage
-const zDay = (n = 0) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Zurich' }).format(new Date(Date.now() + n * 864e5))
+// Kalendertage in Zürich zählen (nicht 24-Stunden-Schritte, sonst Fehler bei der Zeitumstellung)
+const zDay = (n = 0) => { const [y, m, d] = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Zurich' }).format(new Date()).split('-').map(Number); return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10) }
 const isoDow = (day: string) => ((new Date(day + 'T12:00:00Z').getUTCDay() + 6) % 7) + 1
 const ROLE = { mitarbeiterin: 'Mitarbeiterin', filialleitung: 'Filialleitung', buero: 'Büro' } as Record<string, string>
 
 // Wo was in der App liegt, damit Benni Wege erklären kann
 const APP_GUIDE = `Handy-App (alle Rollen), unten fünf Reiter: Heute, Aufgaben, Benni, Wissen, Menü.
 - Heute: Schicht und Anzahl Termine aus Phorest, Abschnitt „Bitte lesen“ für Pflicht-News, Tagesaufgaben mit Fortschritt, „Mein Tag“ (eigene Kundentermine), News. Filialleitung zusätzlich „Heute im Studio“.
-- Aufgaben: Tagesaufgaben des eigenen Studios, gruppiert nach Listen (Vorlagen vom Büro, z. B. Öffnung, Mittag, Schliessung, Wochenputz). Abhaken mit „Erledigt“, bei manchen mit Foto als Nachweis. Name und Uhrzeit werden gespeichert.
+- Aufgaben, zwei Bereiche: „Für mich“ = einzelne Aufgaben mit Frist, die Filialleitung oder Büro einer Person oder dem ganzen Studio geben (mit Mitteilung), plus eigene To-dos („Eigenes To-do hinzufügen“). „Studio-Checklisten“ = feste Abläufe des Studios, jeden Tag neu (Vorlagen vom Büro, z. B. Öffnung, Mittag, Schliessung, Wochenputz), jede Liste mit „bis“-Zeit; wer etwas erledigt, hakt es für alle ab, bei manchen mit Foto. Name und Uhrzeit werden gespeichert. Filialleitung und Büro weisen einzelne Aufgaben im Backoffice unter Aufgaben zu.
 - Wissen: Suche, Onboarding für Neue („Mit Benni lernen“), alle Artikel des bisherigen Wikis. Unter manchen Artikeln und Pflicht-News ein Quiz (bestanden ab 80 %).
 - Wissen ist nach Kategorien geordnet (Karten mit Bild), darin die Artikel als Liste.
 - Benni: mehrere Chats (oben „Chats“, neuer Chat, löschen), Dateien und Fotos anhängen (Büroklammer), diktieren (Mikrofon), Modell wählen (Schnell, Standard, Gründlich) und Websuche einschalten.
@@ -76,7 +77,7 @@ function phorestGuide(ids: string) {
 - branch/{id}/product?size=300 → Produkte (brandName, price CHF, quantityInStock, minQuantity)
 - branch/{id}/room · branch/{id}/machine → Räume, Geräte
 - branch/{id}/review?size=50 → Bewertungen (rating 1–5, text, staffFirstName, reviewDate)
-- client?firstName=…&lastName=… | client?email=… | client?phone=41… → Kundensuche · client/{id} → Profil (clientSince, lastVisit, preferredStaffId; ein Notizfeld gibt es nicht)
+- client?firstName=…&lastName=… | client?email=… | client?phone=41… → Kundensuche · client/{id} → Profil (clientSince, lastVisit, preferredStaffId, notes = Kundennotiz, gender, loyaltyCard.points)
 - voucher?size=50 → Gutscheine (serialNumber, remainingBalance, expiryDate)
 Paging mit size und page. Für eigene Termine, Studio-Tage, Kundinnen und Behandlungen zuerst die einfacheren Werkzeuge nutzen.`
 }
@@ -149,7 +150,7 @@ Deno.serve(async (req) => {
 
     emit({ step: 'think' })
     const nowIso = new Date().toISOString(), day0 = zDay()
-    const [flagsR, branchR, newsR, readsR, evR, regR, tkR, obR, obDoneR, sbR, tplR, itemR, compR] = await Promise.all([
+    const [flagsR, branchR, newsR, readsR, evR, regR, tkR, obR, obDoneR, sbR, tplR, itemR, compR, todoR] = await Promise.all([
       db.rpc('app_flags'),
       db.from('branches').select('id, name, is_office, phorest_branch_id').order('sort'),
       db.from('news').select('id, title, teaser, must_read, publish_at, is_sample').lte('publish_at', nowIso).order('publish_at', { ascending: false }).limit(12),
@@ -163,6 +164,7 @@ Deno.serve(async (req) => {
       db.from('task_templates').select('id, name, repeat, weekday, monthday, branch_ids, is_sample').eq('active', true),
       db.from('task_items').select('id, template_id, title, due_time, prio, proof_photo').order('sort'),
       db.from('task_completions').select('item_id, branch_id, done_by_name, done_at').eq('day', day0),
+      db.from('todos').select('id, title, due_at, assignee_id, branch_id, created_by, created_by_name').is('done_at', null).order('due_at', { ascending: true, nullsFirst: false }).limit(60),
     ])
     const demo = (flagsR.data as any)?.demo_data !== false
     const keep = (x: any) => demo || !x.is_sample
@@ -185,7 +187,10 @@ Deno.serve(async (req) => {
     const steps = (obR.data ?? []).filter((s: any) => !s.proposed && keep(s))
     const obDone = new Set((obDoneR.data ?? []).map((x: any) => x.step_id))
 
+    const myBr = [me.branch_id, ...(me.extra_branch_ids ?? [])]
+    const myTodos = (todoR.data ?? []).filter((x: any) => x.assignee_id === me.id || (!x.assignee_id && myBr.includes(x.branch_id)))
     const lage = [
+      myTodos.length ? `- Offene Aufgaben für dich (Aufgaben → Für mich): ${myTodos.slice(0, 8).map((x: any) => `„${x.title}“${x.due_at ? ` bis ${fmtD(x.due_at)}` : ''}${x.created_by !== me.id && x.created_by_name ? ` von ${x.created_by_name}` : ''}`).join('; ')}` : '- Keine offenen Aufgaben für dich.',
       mustOpen.length ? `- Pflicht-News noch nicht bestätigt: ${mustOpen.map((n: any) => `„${n.title}“`).join(', ')}` : '- Alle Pflicht-News sind bestätigt.',
       news.length ? `- Neueste News: ${news.slice(0, 5).map((n: any) => `„${n.title}“ (${n.publish_at.slice(0, 10)}, id ${n.id})`).join('; ')}` : '',
       myBranch === 'buero' ? '' : `- Tagesaufgaben ${studio} heute: ${items.length - openItems.length} von ${items.length} erledigt${openItems.length ? `; offen als Nächstes: ${openItems.slice(0, 4).map((i: any) => `${i.title}${i.due_time ? ` (${String(i.due_time).slice(0, 5)})` : ''}`).join(', ')}` : ''}. Listen heute: ${tpls.map((t: any) => t.name).join(', ') || 'keine'}.`,
@@ -249,6 +254,7 @@ Deno.serve(async (req) => {
       ['news', 'Liest eine News ganz (mit id) oder listet die aktuellen News (ohne id).', { id: { type: 'string' } }, []],
       ['onboarding_status', 'Onboarding-Schritte dieser Person mit erledigt/offen und Artikel-ID.', {}, []],
       ['mark_step_done', 'Markiert einen eigenen Onboarding-Schritt als erledigt, nachdem die Kontrollfrage richtig beantwortet wurde.', { step_id: { type: 'string' } }, ['step_id']],
+      ['add_todo', 'Legt ein eigenes To-do für diese Person an (erscheint unter Aufgaben → Für mich). Nur auf ausdrücklichen Wunsch („erinnere mich“, „schreib mir auf“).', { title: { type: 'string' }, due: { type: 'string', description: 'Frist als YYYY-MM-DD oder YYYY-MM-DDTHH:MM (Schweizer Zeit), leer = ohne Frist' }, note: { type: 'string' } }, ['title']],
     ]
     const params = (p: Record<string, unknown>, r: string[]) => ({ type: 'object', properties: p, required: r })
 
@@ -291,7 +297,7 @@ Deno.serve(async (req) => {
             email: h.client?.email ?? '', phone: h.client?.phone ?? '', visits: done.length, cancelled: visits.length - done.length,
             recent: done.slice(0, 3).map((v) => ({ date: v.date, time: v.time, service: v.service, staff: v.staff, branch: v.branch })),
             upcoming: (h.upcoming ?? []).slice(0, 2).map((v: any) => ({ date: v.date, time: v.time, service: v.service, staff: v.staff, branch: v.branch })),
-            notes: visits.filter((v) => v.notes).slice(0, 3).map((v) => ({ date: v.date, text: String(v.notes).slice(0, 240) })),
+            notes: [...(h.client?.notes ? [{ date: '', text: String(h.client.notes).slice(0, 300) }] : []), ...visits.filter((v) => v.notes).slice(0, 3).map((v) => ({ date: v.date, text: String(v.notes).slice(0, 240) }))],
           })
           return { client_id: id, kundin: h.client, besuche: visits.slice(0, 60), kommende_termine: h.upcoming ?? [] }
         }
@@ -340,6 +346,20 @@ Deno.serve(async (req) => {
           const guess = x.article_id ? null : rank(x.title, articles)[0]?.a
           return { step_id: x.id, titel: x.title, minuten: x.minutes, artikel_id: x.article_id ?? guess?.id ?? null, artikel_geschaetzt: !x.article_id && !!guess, erledigt: obDone.has(x.id) }
         })
+      }
+      if (name === 'add_todo') {
+        emit({ step: 'todo' })
+        const due = String(args.due ?? '').trim()
+        let due_at: string | null = null
+        if (/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$/.test(due)) {
+          // Schweizer Ortszeit → UTC (Sommer-/Winterzeit über den Offset zu diesem Zeitpunkt)
+          const local = due.length === 10 ? `${due}T23:59` : due
+          const guess = new Date(local + ':00Z')
+          const off = new Date(guess.toLocaleString('en-US', { timeZone: 'Europe/Zurich' })).getTime() - new Date(guess.toLocaleString('en-US', { timeZone: 'UTC' })).getTime()
+          due_at = new Date(guess.getTime() - off).toISOString()
+        }
+        const { error } = await db.from('todos').insert({ title: String(args.title ?? '').slice(0, 200), note: String(args.note ?? '').slice(0, 1000), due_at, assignee_id: me.id, created_by: me.id, created_by_name: `${me.first_name} ${String(me.last_name ?? '').slice(0, 1)}.` })
+        return error ? { error: 'nicht_gespeichert' } : { ok: true, frist: due_at }
       }
       if (name === 'mark_step_done') {
         emit({ step: 'step_done' })

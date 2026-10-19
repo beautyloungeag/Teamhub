@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { LayoutDashboard, LifeBuoy, Phone, GraduationCap, Smartphone, Store, ArrowUp, ArrowDown, Newspaper, ListChecks, Lightbulb, CalendarDays, Users, BookOpen, Plus, Check, Search, CalendarClock, X, Trash2, Pencil } from 'lucide-react'
 import { Terminbuch } from './Calendar'
-import { useApp, isoDay, appliesOn, fmtDate, fmtTime, zurichHour, inNewsAudience, GROUPS, type Ticket, type News, type Quiz, type Staff } from './store'
+import { useApp, isoDay, addDays, appliesOn, fmtDate, fmtTime, zurichHour, inNewsAudience, GROUPS, type Ticket, type News, type Quiz, type Staff } from './store'
 import { supabase } from './lib/supabase'
 import { Status, ASSISTANT } from './Mobile'
 import { notifyNow } from './lib/push'
 import { Logo, BMark } from './Logo'
 import { BenniChat } from './BenniChat'
+import { TodosAdmin } from './Todos'
 import { toast } from './Toast'
 import { Comments, Media } from './TicketParts'
 
@@ -270,7 +271,12 @@ function TasksAdmin() {
     setForm(false); setErr(''); setF(EMPTY); await reload(); retranslate()
   }
   return (<>
-    <H action={me.app_role === 'buero' && <New onClick={() => { setEditId(null); setF(EMPTY); setErr(''); setForm(!form || !!editId) }}>Neue Vorlage</New>}>Aufgaben</H>
+    <H>Aufgaben</H>
+    <TodosAdmin />
+    <div className="flex items-center justify-between mb-3 pt-2 border-t border-line">
+      <div className="pt-6"><p className="rubric text-ink/70">Studio-Checklisten</p><p className="text-[13px] text-mute mt-1">Feste Abläufe, die jeden Tag (oder wöchentlich, monatlich) neu beginnen. Abhaken kann jede im Studio.</p></div>
+      {me.app_role === 'buero' && <div className="pt-6"><New onClick={() => { setEditId(null); setF(EMPTY); setErr(''); setForm(!form || !!editId) }}>Neue Vorlage</New></div>}
+    </div>
     {form && <Panel className="p-6 mb-8 grid grid-cols-[1fr_260px] gap-6">
       <div className="space-y-3"><input value={f.name} onChange={e => setF({ ...f, name: e.target.value })} placeholder="Name der Vorlage, z. B. Öffnung" className="w-full text-[18px] font-medium outline-none" />
         <textarea value={f.items} onChange={e => setF({ ...f, items: e.target.value })} rows={7} placeholder={'Ein Punkt pro Zeile, optional mit Uhrzeit:\n07:45 Studio aufschliessen\n07:50 Kabinen desinfizieren !foto !wichtig'} className="w-full resize-none outline-none text-[14px] font-mono" /></div>
@@ -393,13 +399,13 @@ function EventsAdmin() {
 /* ---------- Aushilfe (Pikett): wer kann an welchem Tag einspringen? ---------- */
 function StandbyAdmin() {
   const { standby, staff, skillCatalog, me } = useApp()
-  const days = Array.from({ length: 14 }, (_, i) => isoDay(new Date(Date.now() + i * 864e5)))
+  const days = Array.from({ length: 14 }, (_, i) => addDays(i))
   const [day, setDay] = useState(days[0]), [sk, setSk] = useState<string[]>([])
   const label = (d: string, o: Intl.DateTimeFormatOptions) => fmtDate(d + 'T12:00:00Z', o)
   const on = (d: string) => standby.filter(x => x.day === d).map(x => staff.find(s => s.id === x.employee_id)).filter((s): s is NonNullable<typeof s> => !!s && s.active)
     .filter(s => sk.length === 0 || s.skills.some(k => sk.includes(k)))
   const list = on(day)
-  const in60 = (id: string) => standby.filter(x => x.employee_id === id && x.day <= isoDay(new Date(Date.now() + 60 * 864e5))).length
+  const in60 = (id: string) => standby.filter(x => x.employee_id === id && x.day <= addDays(60)).length
   const ranking = staff.filter(s => real(s) && s.branch_id !== 'buero' && (me.app_role === 'buero' || inBranch(s, me.branch_id) || (me.extra ?? []).some(b => inBranch(s, b)))).map(s => ({ s, n: in60(s.id) })).sort((a, b) => b.n - a.n)
   return (<>
     <H>Aushilfe</H>

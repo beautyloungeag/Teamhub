@@ -3,19 +3,20 @@ import { motion } from 'motion/react'
 import {
   Home, ListChecks, BookOpen, LayoutGrid, Sparkles, ChevronLeft, ChevronRight, Check, Camera, MapPin, Users,
   Search, Lightbulb, AlertTriangle, CalendarDays, Send, Newspaper, Plane, Play, Video,
-  ArrowUpRight, LogOut, Phone, ArrowBigUp, GraduationCap, Link2, Lock, FileText, Smartphone, Share, PlusSquare, MoreVertical, ExternalLink, Monitor,
+  ArrowUp, ArrowUpRight, LogOut, Phone, ArrowBigUp, GraduationCap, Link2, Lock, FileText, Smartphone, Share, PlusSquare, MoreVertical, ExternalLink, Monitor,
 } from 'lucide-react'
 import { useAuth } from './lib/auth'
 import { supabase } from './lib/supabase'
 import { phorest, type MyDay, type TeamToday, type StaffWeek, type ClientHit, type ClientHistory } from './lib/phorest'
 import { pushState, enablePush, disablePush, testPush, reportDevice, isStandalone, isIOS, isAndroid, canPromptInstall, promptInstall, type PushState } from './lib/push'
-import { useApp, isoDay, type Lang, type News, type WikiArticle, type WikiBlock, type Staff } from './store'
+import { useApp, isoDay, addDays, type Lang, type News, type WikiArticle, type WikiBlock, type Staff } from './store'
 import { Terminbuch, EventCalendar } from './Calendar'
 import { tr, locale } from './lib/i18n'
 import { Logo, BMark } from './Logo'
 import { Comments, Media } from './TicketParts'
 import { QuizRunner } from './QuizRunner'
-import { BenniChat, openNewBenniChat } from './BenniChat'
+import { BenniChat, openNewBenniChat, askBenniOnce, BenniWorking, BenniText, type Step } from './BenniChat'
+import { MyTodos, useTodos, isForMe, isLate, useDue, reloadTodos } from './Todos'
 import { Avatar, ContactRow } from './People'
 export { Avatar }
 import { toast } from './Toast'
@@ -24,7 +25,7 @@ import { toast } from './Toast'
 export const ASSISTANT = 'Benni'
 
 type Tab = 'home' | 'tasks' | 'ai' | 'wiki' | 'menu'
-type Sub = null | { k: 'news-list' } | { k: 'news'; item: News } | { k: 'wiki'; item: WikiArticle } | { k: 'wiki-cat'; key: string; name: string; cover: string | null } | { k: 'onboarding' } | { k: 'team' } | { k: 'profile'; item: Staff }
+type Sub = null | { k: 'news-list' } | { k: 'news'; item: News } | { k: 'wiki'; item: WikiArticle } | { k: 'wiki-cat'; key: string; name: string } | { k: 'onboarding' } | { k: 'team' } | { k: 'profile'; item: Staff }
   | { k: 'me' } | { k: 'conn' } | { k: 'book' } | { k: 'tickets' } | { k: 'ticket'; id: string } | { k: 'clients'; cid?: string } | { k: 'events' } | { k: 'inbox' } | { k: 'time' } | { k: 'install' }
 
 
@@ -92,6 +93,7 @@ function Shell({ onLogout, onSwitch }: { onLogout: () => void; onSwitch?: () => 
     if (o.startsWith('news:')) { const n = newsRef.current.find(x => x.id === o.slice(5)); if (n) open({ k: 'news', item: n }); else { setPendingNews(o.slice(5)); reload() } }
     else if (o.startsWith('ticket:')) { reload(); open({ k: 'ticket', id: o.slice(7) }) }
     else if (o.startsWith('events')) open({ k: 'events' }); else if (o === 'tickets') open({ k: 'tickets' })
+    else if (o === 'todos') { tasksView = 'me'; reloadTodos(); go('tasks') }
   }
   // „Mit Benni lernen“ aus dem Onboarding: in den Benni-Reiter wechseln, die Frage stellt der Reiter selbst
   useEffect(() => { const f = () => go('ai'); window.addEventListener('th-benni', f); return () => window.removeEventListener('th-benni', f) }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -108,7 +110,7 @@ function Shell({ onLogout, onSwitch }: { onLogout: () => void; onSwitch?: () => 
     case 'news-list': screen = <NewsList open={open} />; break
     case 'news': screen = <NewsDetail n={sub.item} />; break
     case 'wiki': screen = <WikiDetail a={sub.item} />; break
-    case 'wiki-cat': screen = <WikiCategory k={sub.key} name={sub.name} cover={sub.cover} open={open} />; break
+    case 'wiki-cat': screen = <WikiCategory k={sub.key} name={sub.name} open={open} />; break
     case 'onboarding': screen = <Onboarding open={open} />; break
     case 'team': screen = <Team open={open} />; break
     case 'profile': screen = <Profile s={sub.item} />; break
@@ -153,15 +155,17 @@ function Shell({ onLogout, onSwitch }: { onLogout: () => void; onSwitch?: () => 
         </div>
       </aside>
       <div className="relative flex-1 min-w-0 flex flex-col">
-        <div ref={scroller} className="flex-1 overflow-y-auto no-scrollbar bg-sage-50">
-          <div className={`w-full md:mx-auto h-full ${tab === 'ai' && !sub ? 'md:max-w-[1080px] md:px-6' : 'md:max-w-[760px]'}`}>
+        {/* Benni füllt die ganze Fläche und scrollt selbst (Chatliste links, Eingabe unten) */}
+        <div ref={scroller} className={`flex-1 no-scrollbar bg-sage-50 ${tab === 'ai' && !sub && !loading ? 'overflow-hidden' : 'overflow-y-auto'}`}>
+          {tab === 'ai' && !sub && !loading ? screen : (
+          <div className="w-full md:mx-auto md:max-w-[760px]">
             <div className="h-11 md:h-8" />
             {sub && <button onClick={back} className="px-4 pb-1 flex items-center gap-0.5 text-sage-800 text-[15px]"><ChevronLeft size={20} />{t('Zurück')}</button>}
             {loading ? <p className="px-5 pt-10 text-mute">{t('Lädt …')}</p> :
-              <motion.div key={key} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }} className={tab === 'ai' && !sub ? 'h-[calc(100%-44px)]' : ''}>
+              <motion.div key={key} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
                 {screen}
               </motion.div>}
-          </div>
+          </div>)}
         </div>
         <nav className="md:hidden shrink-0 bg-white border-t border-line px-3 pb-7 pt-2 grid grid-cols-5 items-end">
           {nav.map(([x, label, Icon]) => {
@@ -200,6 +204,8 @@ function Today({ open, go }: { open: (s: Sub) => void; go: (t: Tab) => void }) {
   const day = useMyDay()
   const [team, setTeam] = useState<TeamToday | null>(null)
   const isLead = me.app_role === 'filialleitung'
+  const due = useDue()
+  const myTodos = useTodos().filter(x => isForMe(x, me) && !x.done_at)
   useEffect(() => { if (isLead) phorest<TeamToday>({ action: 'team_today', branch: me.branch_id }).then(setTeam) }, [isLead, me.branch_id])
   const pct = tasks.length ? Math.round((tasks.filter(x => done.has(x.id)).length / tasks.length) * 100) : 0
   const next = tasks.find(x => !done.has(x.id))
@@ -235,8 +241,18 @@ function Today({ open, go }: { open: (s: Sub) => void; go: (t: Tab) => void }) {
         ))}</List>
       </>}
 
-      <Label action={<button onClick={() => go('tasks')} className="text-[13px] text-sage-800">{t('Alle')}</button>}>{t('Tagesaufgaben')}</Label>
-      <Card onClick={() => go('tasks')} className="p-4">
+      {myTodos.length > 0 && <>
+        <Label action={<button onClick={() => { tasksView = 'me'; go('tasks') }} className="text-[13px] text-sage-800">{t('Alle')}</button>}>{t('Für dich')}</Label>
+        <List>{myTodos.slice(0, 3).map(x => (
+          <button key={x.id} onClick={() => { tasksView = 'me'; go('tasks') }} className="w-full text-left px-4 py-3.5 flex items-center gap-3">
+            <span className={`w-[7px] h-[7px] rounded-full shrink-0 ${isLate(x) ? 'bg-alert' : 'bg-olive-700'}`} />
+            <span className="flex-1 min-w-0"><span className="block text-[15px] truncate">{x.title}</span><span className={`block text-[12px] mt-0.5 ${isLate(x) ? 'text-alert' : 'text-mute'}`}>{x.due_at ? t('bis {when}', { when: due(x.due_at) }) : t('ohne Frist')}{x.created_by !== me.id && x.created_by_name ? ` · ${t('von {name}', { name: x.created_by_name })}` : ''}</span></span>
+            <ChevronRight size={18} className="text-sage-400 shrink-0" />
+          </button>))}</List>
+      </>}
+
+      <Label action={<button onClick={() => { tasksView = 'studio'; go('tasks') }} className="text-[13px] text-sage-800">{t('Alle')}</button>}>{t('Studio-Checklisten')}</Label>
+      <Card onClick={() => { tasksView = 'studio'; go('tasks') }} className="p-4">
         <div className="flex justify-between text-sm"><span>{tasks.filter(x => done.has(x.id)).length} / {tasks.length} {t('erledigt')}</span><span className="text-mute">{pct} %</span></div>
         <div className="mt-2.5 h-[3px] rounded-full bg-sage-100 overflow-hidden"><div className="h-full bg-olive-700 rounded-full transition-all" style={{ width: pct + '%' }} /></div>
         {next && <p className="mt-3 text-[13px] text-mute">{t('Als Nächstes:')} <span className="text-ink">{next.title}</span>{next.time && ` · ${next.time}`}</p>}
@@ -321,8 +337,14 @@ function NewsDetail({ n }: { n: News }) {
 }
 
 /* ---------- Aufgaben ---------- */
+// Push „neue Aufgabe für dich“ oder Tipp auf „Für dich“: Aufgaben direkt bei „Für mich“ öffnen
+let tasksView: 'me' | 'studio' | null = null
 function Tasks({ open }: { open: (s: Sub) => void }) {
   const { me, done, toggle, t, tasks, templates, wiki } = useApp()
+  const todos = useTodos()
+  const openMine = todos.filter(x => isForMe(x, me) && !x.done_at)
+  const [view, setView] = useState<'me' | 'studio'>(() => tasksView ?? (openMine.length ? 'me' : 'studio'))
+  useEffect(() => { tasksView = null }, [])
   const [photoFor, setPhotoFor] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const file = useRef<HTMLInputElement>(null)
@@ -335,7 +357,8 @@ function Tasks({ open }: { open: (s: Sub) => void }) {
     const when = !tpl ? '' : tpl.repeat === 'daily' ? t('Jeden Tag')
       : tpl.repeat === 'weekly' ? t('Jeden {day}', { day: new Intl.DateTimeFormat(locale(), { weekday: 'long', timeZone: 'UTC' }).format(new Date(Date.UTC(2024, 0, tpl.weekday ?? 1))) })
       : t('Am {n}. jedes Monats', { n: tpl.monthday ?? 1 })
-    const span = times.length ? (times[0] === times[times.length - 1] ? times[0] : `${times[0]}–${times[times.length - 1]}`) : ''
+    // Frist der Liste = spätester Punkt
+    const span = times.length ? t('bis {time}', { time: times[times.length - 1] }) : ''
     return { g, items, sub: [when, span].filter(Boolean).join(' · ') }
   })
   const total = tasks.length, n = tasks.filter(x => done.has(x.id)).length
@@ -344,6 +367,12 @@ function Tasks({ open }: { open: (s: Sub) => void }) {
   return (
     <div className="pb-10"><Title sub={t('Studio {name} · heute', { name: me.branch })}>{t('Aufgaben')}</Title>
       <div className="px-5">
+        <div className="grid grid-cols-2 gap-1 p-1 rounded-[14px] bg-white">
+          {([['me', t('Für mich'), openMine.length ? String(openMine.length) : ''], ['studio', t('Studio-Checklisten'), total ? `${n}/${total}` : '']] as const).map(([k, l, c]) => (
+            <button key={k} onClick={() => setView(k)} className={`h-10 rounded-[10px] text-[14px] flex items-center justify-center gap-1.5 transition ${view === k ? 'bg-olive-700 text-white' : 'text-ink/70'}`}>{l}{c && <span className={`text-[12px] tabular-nums ${view === k ? 'text-white/75' : 'text-mute'}`}>{c}</span>}</button>))}
+        </div>
+        <p className="mt-3 mb-5 px-1 text-[13px] text-mute leading-relaxed">{view === 'me' ? t('Einzelne Aufgaben mit Frist: von deiner Filialleitung oder dem Büro, und deine eigenen To-dos.') : t('Feste Abläufe deines Studios, jeden Tag neu. Wer etwas erledigt, hakt es für alle ab, mit Name und Uhrzeit.')}</p>
+        {view === 'me' ? <MyTodos /> : <>
         {total === 0 ? <Card className="p-4 text-[14px] text-mute">{t('Für dein Studio sind heute keine Aufgaben hinterlegt.')}</Card> : (
           <Card className="p-4">
             <div className="flex items-baseline justify-between"><p className="font-display text-[26px] leading-none">{n} <span className="text-mute text-[16px]">/ {total}</span></p><p className="text-[13px] text-mute">{n === total ? t('Alles erledigt') : t('{n} offen', { n: total - n })}</p></div>
@@ -381,7 +410,8 @@ function Tasks({ open }: { open: (s: Sub) => void }) {
             </div>
           )
         })}
-        {total > 0 && <p className="mt-6 px-1 text-[12px] text-mute leading-relaxed">{t('Die Listen und wann sie gelten legt das Büro im Backoffice unter Aufgaben fest. Jeden Morgen beginnen sie neu, erledigte Aufgaben bleiben mit Name und Uhrzeit gespeichert.')}</p>}
+        {total > 0 && <p className="mt-6 px-1 text-[12px] text-mute leading-relaxed">{t('Die Listen und wann sie gelten legt das Büro im Backoffice unter Aufgaben fest.')}</p>}
+        </>}
       </div>
       <input ref={file} type="file" accept="image/*" capture="environment" className="hidden" onChange={async e => { const f = e.target.files?.[0]; const id = photoFor; e.target.value = ''; if (f && id) { setPhotoFor(null); await run(id, f) } }} />
       {photoFor && <Sheet onClose={() => setPhotoFor(null)}>
@@ -408,30 +438,21 @@ function AI({ open }: { open: (s: Sub) => void }) {
   return <BenniChat variant="app" onOpenArticle={id => { const a = wiki.find(x => x.id === id); if (a) open({ k: 'wiki', item: a }) }} onOpenClient={cid => open({ k: 'clients', cid })} />
 }
 /* ---------- Wissen ---------- */
-// Titelbilder der Kategorien (erstes Foto aus ihren Artikeln), einmal je Sitzung signiert
-let coverCache: Record<string, string> | null = null
-function useCovers() {
-  const [covers, setCovers] = useState<Record<string, string>>(coverCache ?? {})
-  useEffect(() => {
-    if (coverCache || !supabase) return
-    supabase.rpc('wiki_category_covers').then(async ({ data }) => {
-      const rows = (data ?? []) as { category: string; cover: string }[]
-      if (!rows.length) { coverCache = {}; return }
-      const { data: signed } = await supabase!.storage.from('media').createSignedUrls(rows.map(r => r.cover), 3600)
-      const map: Record<string, string> = {}
-      rows.forEach((r, i) => { const u = signed?.[i]?.signedUrl; if (u) map[r.category] = u })
-      coverCache = map; setCovers(map)
-    })
-  }, [])
-  return covers
+// Jede Kategorie bekommt ein Emoji statt eines Fotos: einheitlich, ruhig, auch ohne Bilder im Artikel
+const CAT_EMOJI: Record<string, string> = {
+  ablauf: '📋', allgemein: '📌', 'how-to': '💡', behandlung: '💆‍♀️', filialen: '📍', füsse: '🦶', arbeitsplatz: '🪑', gerät: '🔌',
+  mitarbeiter: '👥', gutschein: '🎁', ausbildung: '🎓', arbeitszeit: '⏰', lehre: '📚', frei: '🌴', face: '✨', marketing: '📣',
+  reglement: '📜', kunden: '🤝', büro: '🗂️', hr: '🪪', kasse: '💳', bestellung: '📦', lohn: '💰', verkauf: '🛍️', nägel: '💅',
+  wichtig: '⭐', praktikum: '🧑‍🎓', massage: '🤲', body: '🧴', leitfaden: '🧭', versicherung: '🛡️', hygiene: '🧼', news: '📰',
 }
+const catEmoji = (key: string) => CAT_EMOJI[key.trim().toLowerCase()] ?? '📄'
+const catName = (name: string) => name.slice(0, 1).toUpperCase() + name.slice(1)
 const articleIcon = (a: WikiArticle) => a.mediaKind === 'video' || a.mediaKind === 'youtube' ? <Video size={17} /> : a.fromNews ? <Newspaper size={17} /> : <BookOpen size={17} />
 
 function Wiki({ open }: { open: (s: Sub) => void }) {
   const { t, wiki: allWiki, steps, obDone } = useApp()
   const wiki = allWiki.filter(a => a.published)
   const [q, setQ] = useState('')
-  const covers = useCovers()
   const cats = [...wiki.reduce((m, a) => { const c = m.get(a.catKey) ?? { key: a.catKey, name: a.cat, n: 0 }; c.n++; return m.set(a.catKey, c) }, new Map<string, { key: string; name: string; n: number }>()).values()]
     .sort((x, y) => y.n - x.n || x.name.localeCompare(y.name))
   const hits = wiki.filter(a => [a.title, a.cat, a.intro, ...a.tags, ...a.body].join(' ').toLowerCase().includes(q.toLowerCase()))
@@ -446,15 +467,11 @@ function Wiki({ open }: { open: (s: Sub) => void }) {
         </Card>}
         {!q && <>
           <Label>{t('Themen')}</Label>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">{cats.map(c => { const cover = covers[c.key] ?? null
-            return <button key={c.key} onClick={() => open({ k: 'wiki-cat', key: c.key, name: c.name, cover })} className="group text-left">
-              <span className="relative block aspect-[4/3] rounded-[16px] overflow-hidden bg-olive-800">
-                {cover ? <img src={cover} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover transition duration-500 group-hover:scale-[1.04]" />
-                  : <span className="absolute inset-0 flex items-center justify-center font-display text-[44px] text-white/20">{c.name.slice(0, 1).toUpperCase()}</span>}
-                <span className="absolute inset-0 bg-gradient-to-t from-[#1D221C]/75 via-[#1D221C]/10 to-transparent" />
-                <span className="absolute left-3 right-3 bottom-2.5 text-white"><span className="block font-display text-[17px] leading-tight capitalize">{c.name}</span><span className="block text-[12px] text-white/75 mt-0.5">{c.n === 1 ? t('1 Thema') : t('{n} Themen', { n: c.n })}</span></span>
-              </span>
-            </button> })}</div>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">{cats.map(c => (
+            <button key={c.key} onClick={() => open({ k: 'wiki-cat', key: c.key, name: c.name })} className="text-left rounded-[16px] bg-white p-4 h-[116px] flex flex-col justify-between transition hover:shadow-[0_1px_2px_rgba(29,34,28,.05),0_10px_24px_-14px_rgba(29,34,28,.28)] active:scale-[.99]">
+              <span className="text-[26px] leading-none" aria-hidden="true">{catEmoji(c.key)}</span>
+              <span className="min-w-0"><span className="block font-display text-[17px] leading-tight truncate">{catName(c.name)}</span><span className="block text-[12px] text-mute mt-0.5">{c.n === 1 ? t('1 Thema') : t('{n} Themen', { n: c.n })}</span></span>
+            </button>))}</div>
         </>}
         {q && <><Label>{t('{n} Treffer', { n: hits.length })}</Label>
           {hits.length > 0 && <List>{hits.slice(0, 60).map(a => <Row key={a.id} icon={articleIcon(a)} title={a.title} sub={`${a.cat} · ${t('{n} Min.', { n: a.minutes })}`} onClick={() => open({ k: 'wiki', item: a })} />)}</List>}
@@ -465,16 +482,15 @@ function Wiki({ open }: { open: (s: Sub) => void }) {
   )
 }
 
-function WikiCategory({ k, name, cover, open }: { k: string; name: string; cover: string | null; open: (s: Sub) => void }) {
+function WikiCategory({ k, name, open }: { k: string; name: string; open: (s: Sub) => void }) {
   const { t, wiki } = useApp()
   const items = wiki.filter(a => a.published && a.catKey === k).sort((x, y) => x.title.localeCompare(y.title))
   return (
     <div className="pb-10">
       <div className="px-5">
-        <div className="relative mt-2 h-36 md:h-44 rounded-[18px] overflow-hidden bg-olive-800">
-          {cover && <img src={cover} alt="" className="absolute inset-0 w-full h-full object-cover" />}
-          <div className="absolute inset-0 bg-gradient-to-t from-[#1D221C]/80 via-[#1D221C]/20 to-transparent" />
-          <div className="absolute left-4 bottom-3 text-white"><h1 className="font-display text-[28px] leading-tight capitalize">{name}</h1><p className="text-[13px] text-white/75">{items.length === 1 ? t('1 Thema') : t('{n} Themen', { n: items.length })}</p></div>
+        <div className="mt-2 flex items-center gap-4">
+          <span className="w-14 h-14 rounded-[16px] bg-white flex items-center justify-center text-[28px] shrink-0" aria-hidden="true">{catEmoji(k)}</span>
+          <div className="min-w-0"><h1 className="font-display text-[28px] leading-tight truncate">{catName(name)}</h1><p className="text-[13px] text-mute">{items.length === 1 ? t('1 Thema') : t('{n} Themen', { n: items.length })}</p></div>
         </div>
         <div className="mt-4"><List>{items.map(a => <Row key={a.id} icon={articleIcon(a)} title={a.title} sub={t('{n} Min. · aktualisiert {date}', { n: a.minutes, date: a.updated })} onClick={() => open({ k: 'wiki', item: a })} />)}</List></div>
       </div>
@@ -616,8 +632,9 @@ function Team({ open }: { open: (s: Sub) => void }) {
 /* ---------- Kundenhistorie aus Phorest (Zusammenfassung durch Benni) ---------- */
 function ClientHistoryView({ cid }: { cid?: string }) {
   const { t } = useApp()
-  const [q, setQ] = useState(''), [hits, setHits] = useState<ClientHit[] | null>(null), [h, setH] = useState<ClientHistory | null>(null)
+  const [q, setQ] = useState(''), [hits, setHits] = useState<ClientHit[] | null>(null), [h, setH] = useState<(ClientHistory & { id: string }) | null>(null)
   const [busy, setBusy] = useState(false), [err, setErr] = useState('')
+  const day = useMyDay()
   const search = async () => {
     if (q.trim().length < 3 || busy) return
     setBusy(true); setErr(''); setH(null)
@@ -626,43 +643,125 @@ function ClientHistoryView({ cid }: { cid?: string }) {
     if (!r.ok) { setErr(t('Phorest ist gerade nicht erreichbar. Bitte später noch einmal öffnen.')); return }
     setHits(r.clients)
   }
-  const pick = async (c: ClientHit) => {
+  const pick = async (id: string) => {
     setBusy(true); setErr('')
-    const r = await phorest<ClientHistory>({ action: 'client_history', client_id: c.client_id, months: 12, summary: true })
+    const r = await phorest<ClientHistory>({ action: 'client_history', client_id: id, months: 12, summary: true })
     setBusy(false)
     if (!r.ok) { setErr(t('Phorest ist gerade nicht erreichbar. Bitte später noch einmal öffnen.')); return }
-    setH(r)
+    setH({ ...r, id })
   }
   // Aus Bennis Kundenkarte: direkt die Historie dieser Kundin
-  useEffect(() => { if (cid) pick({ client_id: cid } as ClientHit) }, [cid]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (cid) pick(cid) }, [cid]) // eslint-disable-line react-hooks/exhaustive-deps
   const fmt = (d: string) => d ? new Intl.DateTimeFormat(locale(), { timeZone: 'UTC', day: 'numeric', month: 'numeric', year: '2-digit' }).format(new Date(d + 'T12:00:00Z')) : ''
+  // Eigene Kundinnen von heute als Schnellwahl
+  const todays = (day?.appointments ?? []).filter((a, i, l) => a.client_id && l.findIndex(b => b.client_id === a.client_id) === i)
+  if (h) return <ClientDetail h={h} fmt={fmt} onBack={() => setH(null)} />
   return (
     <div className="pb-10"><Title>{t('Kundenhistorie')}</Title>
       <div className="px-5">
-        {!h && <>
-          <div className="flex gap-2"><div className="flex-1"><SearchBox value={q} onChange={setQ} placeholder={t('Name, E-Mail oder Telefon')} /></div>
-            <button disabled={busy || q.trim().length < 3} onClick={search} className="h-11 px-4 rounded-[10px] bg-olive-700 text-white text-[14px] disabled:opacity-40">{t('Suchen')}</button></div>
-          {err && <p className="mt-3 text-[13px] text-alert">{err}</p>}
-          {busy && <p className="mt-4 text-[14px] text-mute">{t('Lädt aus Phorest …')}</p>}
-          {hits && !busy && <div className="mt-4"><List>{hits.length === 0 && <Empty>{t('Keine Kundin gefunden.')}</Empty>}
-            {hits.map(c => <Row key={c.client_id} title={c.name} sub={[c.since && t('seit {d}', { d: fmt(c.since) }), c.phone_tail && `…${c.phone_tail}`].filter(Boolean).join(' · ')} onClick={() => pick(c)} />)}</List></div>}
+        <div className="flex gap-2"><div className="flex-1"><SearchBox value={q} onChange={setQ} placeholder={t('Name, E-Mail oder Telefon')} /></div>
+          <button disabled={busy || q.trim().length < 3} onClick={search} className="h-11 px-4 rounded-[10px] bg-olive-700 text-white text-[14px] disabled:opacity-40">{t('Suchen')}</button></div>
+        {err && <p className="mt-3 text-[13px] text-alert">{err}</p>}
+        {busy && <p className="mt-4 text-[14px] text-mute">{t('Lädt aus Phorest …')}</p>}
+        {hits && !busy && <div className="mt-4"><List>{hits.length === 0 && <Empty>{t('Keine Kundin gefunden.')}</Empty>}
+          {hits.map(c => <Row key={c.client_id} title={c.name} sub={[c.since && t('seit {d}', { d: fmt(c.since) }), c.phone_tail && `…${c.phone_tail}`].filter(Boolean).join(' · ')} onClick={() => pick(c.client_id)} />)}</List></div>}
+        {!hits && !busy && <>
+          <Label>{t('Deine Kundinnen heute')}</Label>
+          <List>
+            {!day && <Empty>{t('Lädt aus Phorest …')}</Empty>}
+            {day && todays.length === 0 && <Empty>{t('Heute keine Termine. Such eine Kundin über Name, E-Mail oder Telefon.')}</Empty>}
+            {todays.map(a => <Row key={a.client_id} title={a.client} sub={`${a.start} · ${a.service}`} onClick={() => pick(a.client_id!)} />)}
+          </List>
         </>}
-        {h && <>
-          <button onClick={() => setH(null)} className="text-[14px] text-olive-700">{t('Andere Kundin suchen')}</button>
-          <h2 className="mt-3 text-[24px] leading-tight">{h.client.name}</h2>
-          <p className="text-[13px] text-mute mt-1">{[h.client.since && t('Kundin seit {d}', { d: fmt(h.client.since) }), h.client.last_visit && t('zuletzt {d}', { d: fmt(h.client.last_visit) }), h.client.preferred && t('bevorzugt {n}', { n: h.client.preferred })].filter(Boolean).join(' · ')}</p>
-          {h.summary && <div className="mt-5 rounded-[16px] bg-white px-4 py-4"><p className="rubric text-olive-700 flex items-center gap-2"><BMark className="w-5 h-5 text-[10px]" />{t('Zusammenfassung')}</p>
-            <div className="mt-2 text-[15px] leading-relaxed space-y-1">{h.summary.split('\n').filter(Boolean).map((l, i) => <p key={i}>{l}</p>)}</div></div>}
-          {(h.upcoming?.length ?? 0) > 0 && <><Label>{t('Kommende Termine')}</Label>
-            <List>{h.upcoming!.map((v, i) => <div key={i} className="px-4 py-3 flex justify-between gap-3 text-[14px]"><span>{v.service}<span className="block text-xs text-mute mt-0.5">{[v.branch, v.staff].filter(Boolean).join(' · ')}</span></span><span className="text-mute shrink-0 text-right">{fmt(v.date)}<span className="block text-xs">{v.time}</span></span></div>)}</List></>}
-          <Label>{t('Besuche der letzten {n} Monate', { n: h.months })}</Label>
-          <List>{h.visits.length === 0 && <Empty>{t('Keine Besuche in diesem Zeitraum.')}</Empty>}{h.visits.map((v, i) => (
-            <div key={i} className="px-4 py-3">
-              <div className="flex justify-between gap-3 text-[14px]"><span className={v.cancelled ? 'line-through text-mute' : ''}>{v.service}</span><span className="text-mute shrink-0">{fmt(v.date)}</span></div>
-              <p className="text-xs text-mute mt-0.5">{[v.branch, v.staff, v.cancelled && t('abgesagt')].filter(Boolean).join(' · ')}</p>
-              {v.notes && <p className="text-[13px] mt-1.5 text-ink/80 whitespace-pre-wrap">{v.notes}</p>}
-            </div>))}</List>
-        </>}
+      </div>
+    </div>
+  )
+}
+
+/** Kundin im Detail: Kontakt, Angaben aus Phorest, Kundennotiz, Benni-Zusammenfassung mit Rückfragen, Termine. */
+function ClientDetail({ h, fmt, onBack }: { h: ClientHistory & { id: string }; fmt: (d: string) => string; onBack: () => void }) {
+  const { t } = useApp()
+  const c = h.client
+  const visits = h.visits.filter(v => !v.cancelled).length
+  const ini = c.name.split(/\s+/).map(x => x[0] ?? '').slice(0, 2).join('').toUpperCase()
+  const tel = (p: string) => { const d = p.replace(/[^\d+]/g, ''); return d.startsWith('+') ? d : /^(41|49|33|39|43)\d{8,}$/.test(d) ? '+' + d : d.startsWith('00') ? '+' + d.slice(2) : d }
+  // Lesbar gliedern: +41 79 123 45 67, sonst +49 151 40055346
+  const showTel = (p: string) => { const d = tel(p), ch = d.match(/^\+41(\d{2})(\d{3})(\d{2})(\d{2})$/); return ch ? `+41 ${ch[1]} ${ch[2]} ${ch[3]} ${ch[4]}` : d.replace(/^(\+\d{2})(\d{3})(\d+)$/, '$1 $2 $3') }
+  const gender = c.gender === 'FEMALE' ? t('weiblich') : c.gender === 'MALE' ? t('männlich') : c.gender ? t('divers') : ''
+  const yes = (b?: boolean) => b ? t('ja') : t('nein')
+  const facts: [string, string][] = ([
+    [t('Geschlecht'), gender],
+    [t('Geburtstag'), c.birth_date ? fmt(c.birth_date) : ''],
+    [t('Adresse'), c.address ?? ''],
+    [t('Bevorzugt'), c.preferred],
+    [t('Zuletzt da'), [c.last_visit && fmt(c.last_visit), c.last_branch].filter(Boolean).join(' · ')],
+    [t('Erster Besuch'), c.first_visit ? fmt(c.first_visit) : ''],
+    [t('Treuepunkte'), c.loyalty_points ? String(c.loyalty_points) : ''],
+    [t('Offener Betrag'), c.balance ? `CHF ${c.balance.toFixed(2)}` : ''],
+    [t('Erinnerungen'), c.consent ? [c.consent.sms_reminder && 'SMS', c.consent.email_reminder && t('E-Mail')].filter(Boolean).join(', ') || t('keine') : ''],
+    [t('Werbung erlaubt'), c.consent ? `SMS ${yes(c.consent.sms_marketing)} · ${t('E-Mail')} ${yes(c.consent.email_marketing)}` : ''],
+  ] as [string, string][]).filter(([, v]) => v)
+  return (
+    <div className="pb-10 px-5">
+      <div className="mt-2 flex items-center gap-4">
+        <span className="w-14 h-14 rounded-full bg-white text-sage-800 flex items-center justify-center text-[18px] font-medium shrink-0">{ini}</span>
+        <div className="min-w-0 flex-1"><h1 className="text-[24px] leading-tight truncate">{c.name}</h1>
+          <p className="text-[13px] text-mute mt-0.5">{[c.since && t('Kundin seit {d}', { d: fmt(c.since) }), t('{n} Besuche', { n: visits })].filter(Boolean).join(' · ')}</p></div>
+        <button onClick={onBack} title={t('Andere Kundin suchen')} aria-label={t('Andere Kundin suchen')} className="w-10 h-10 rounded-full bg-white text-ink/70 hover:text-ink flex items-center justify-center shrink-0"><Search size={17} /></button>
+      </div>
+      {((c.categories?.length ?? 0) > 0 || c.membership || c.banned) && <div className="mt-3 flex flex-wrap gap-1.5">
+        {c.banned && <span className="h-7 px-2.5 rounded-full bg-alert/10 text-alert text-[12.5px] flex items-center">{t('Gesperrt')}</span>}
+        {c.membership && <span className="h-7 px-2.5 rounded-full bg-olive-700 text-white text-[12.5px] flex items-center">{t('Mitgliedschaft aktiv')}</span>}
+        {c.categories?.map(k => <span key={k} className="h-7 px-2.5 rounded-full bg-white text-[12.5px] flex items-center">{k}</span>)}
+      </div>}
+      {(c.phone || c.email) && <><Label>{t('Kontakt')}</Label><List>
+        {c.phone && <ContactRow label={t('Mobil')} value={showTel(c.phone)} href={`tel:${tel(c.phone)}`} icon={<Phone size={15} />} action={t('Anrufen')} />}
+        {c.landline && <ContactRow label={t('Festnetz')} value={showTel(c.landline)} href={`tel:${tel(c.landline)}`} icon={<Phone size={15} />} action={t('Anrufen')} />}
+        {c.email && <ContactRow label={t('E-Mail')} value={c.email} href={`mailto:${c.email}`} icon={<Send size={15} />} action={t('E-Mail schreiben')} />}
+      </List></>}
+      {facts.length > 0 && <><Label>{t('Angaben aus Phorest')}</Label>
+        <List>{facts.map(([k, v]) => <div key={k} className="px-4 py-3 flex justify-between gap-4 text-[14px]"><span className="text-mute shrink-0">{k}</span><span className="text-right">{v}</span></div>)}</List></>}
+      {c.notes && <div className="mt-6 rounded-[16px] bg-white px-4 py-4"><p className="rubric text-brass">{t('Kundennotiz')}</p><p className="mt-2 text-[15px] leading-relaxed whitespace-pre-wrap">{c.notes}</p></div>}
+      <ClientAsk h={h} />
+      {(h.upcoming?.length ?? 0) > 0 && <><Label>{t('Kommende Termine')}</Label>
+        <List>{h.upcoming!.map((v, i) => <div key={i} className="px-4 py-3 flex justify-between gap-3 text-[14px]"><span>{v.service}<span className="block text-xs text-mute mt-0.5">{[v.branch, v.staff].filter(Boolean).join(' · ')}</span></span><span className="text-mute shrink-0 text-right">{fmt(v.date)}<span className="block text-xs">{v.time}</span></span></div>)}</List></>}
+      <Label>{t('Besuche der letzten {n} Monate', { n: h.months })}</Label>
+      <List>{h.visits.length === 0 && <Empty>{t('Keine Besuche in diesem Zeitraum.')}</Empty>}{h.visits.map((v, i) => (
+        <div key={i} className="px-4 py-3">
+          <div className="flex justify-between gap-3 text-[14px]"><span className={v.cancelled ? 'line-through text-mute' : ''}>{v.service}</span><span className="text-mute shrink-0">{fmt(v.date)}</span></div>
+          <p className="text-xs text-mute mt-0.5">{[v.time, v.branch, v.staff, v.cancelled && t('abgesagt')].filter(Boolean).join(' · ')}</p>
+          {v.notes && <p className="text-[13px] mt-1.5 text-ink/80 whitespace-pre-wrap">{v.notes}</p>}
+        </div>))}</List>
+    </div>
+  )
+}
+
+/** Zusammenfassung von Benni und direkt Fragen zur Kundin stellen (ohne eigenen Chat). */
+function ClientAsk({ h }: { h: ClientHistory & { id: string } }) {
+  const { t } = useApp()
+  const first = h.client.name.split(' ')[0]
+  const [q, setQ] = useState(''), [thread, setThread] = useState<{ q: string; a?: string; steps: Step[] }[]>([])
+  const busy = thread.some(x => x.a === undefined)
+  const ask = async () => {
+    const question = q.trim(); if (!question || busy) return
+    setQ('')
+    const history = thread.flatMap(x => [{ me: true, t: x.q }, { me: false, t: x.a ?? '' }])
+    setThread(l => [...l, { q: question, steps: [{ step: 'think' }] }])
+    const r = await askBenniOnce(`Frage zur Kundin ${h.client.name} (client_id ${h.id}): ${question}`, history, st => setThread(l => l.map((x, i) => i === l.length - 1 ? { ...x, steps: [...x.steps, st] } : x)))
+    setThread(l => l.map((x, i) => i === l.length - 1 ? { ...x, a: r.ok ? r.text : t('Ich bin gerade nicht erreichbar. Bitte versuche es gleich noch einmal.') } : x))
+  }
+  return (
+    <div className="mt-6 rounded-[16px] bg-white px-4 py-4">
+      <p className="rubric text-olive-700 flex items-center gap-2"><BMark className="w-5 h-5" />{t('Zusammenfassung von {name}', { name: ASSISTANT })}</p>
+      {h.summary ? <div className="mt-2 text-[15px] leading-relaxed space-y-1">{h.summary.split('\n').filter(Boolean).map((l, i) => <p key={i}>{l}</p>)}</div>
+        : <p className="mt-2 text-[14px] text-mute">{t('Noch zu wenig Besuche für eine Zusammenfassung.')}</p>}
+      {thread.map((x, i) => <div key={i} className="mt-4 pt-4 border-t border-sage-50">
+        <p className="text-[14px] font-medium">{x.q}</p>
+        <div className="mt-1.5 text-[15px] leading-relaxed">{x.a === undefined ? <BenniWorking steps={x.steps} /> : <BenniText text={x.a} />}</div>
+      </div>)}
+      <div className="mt-4 flex items-center gap-2 rounded-[14px] bg-sage-50 pl-4 pr-1.5 py-1.5">
+        <input value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => e.key === 'Enter' && ask()} placeholder={t('Frag {name} zu {client} …', { name: ASSISTANT, client: first })} className="flex-1 min-w-0 bg-transparent text-[15px] outline-none placeholder:text-mute" />
+        <button onClick={ask} disabled={!q.trim() || busy} aria-label={t('Senden')} className="w-8 h-8 rounded-full bg-olive-700 text-white flex items-center justify-center disabled:bg-sage-200 shrink-0"><ArrowUp size={16} strokeWidth={2.2} /></button>
       </div>
     </div>
   )
@@ -673,7 +772,7 @@ function WeekShifts({ id }: { id?: string }) {
   const { t, branches } = useApp()
   const [w, setW] = useState<StaffWeek | null>(null)
   useEffect(() => { setW(null); phorest<StaffWeek>({ action: 'staff_week', employee_id: id }).then(setW) }, [id])
-  const days = Array.from({ length: 7 }, (_, i) => isoDay(new Date(Date.now() + i * 864e5)))
+  const days = Array.from({ length: 7 }, (_, i) => addDays(i))
   const label = (d: string) => new Intl.DateTimeFormat(locale(), { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'numeric' }).format(new Date(d + 'T12:00:00Z'))
   if (!w) return <Empty>{t('Lädt aus Phorest …')}</Empty>
   if (!w.ok || !w.mapped) return <Empty>{t('Keine Arbeitszeiten aus Phorest.')}</Empty>
@@ -681,19 +780,39 @@ function WeekShifts({ id }: { id?: string }) {
     return <div key={d} className="px-4 py-2.5 flex justify-between text-[14px]"><span className="text-ink/80">{label(d)}</span>{x.length ? <span>{x.map(s => `${s.start}–${s.end}${branches.length && x.length > 1 ? ' ' + (branches.find(b => b.id === s.branch_id)?.name ?? '') : ''}`).join(', ')}</span> : <span className="text-mute">{t('frei')}</span>}</div> })}</List>
 }
 /* ---------- Aushilfe-Tage (Pikett) ---------- */
+// Monatskalender: Tage antippen, an denen man kurzfristig einspringen kann (heute bis drei Monate voraus)
 function StandbyPicker() {
   const { standby, toggleStandby, me, t } = useApp()
   const mine = new Set(standby.filter(x => x.employee_id === me.id).map(x => x.day))
-  const days = Array.from({ length: 56 }, (_, i) => isoDay(new Date(Date.now() + (i + 1) * 864e5)))
-  const dow = (d: string) => (new Date(d + 'T12:00:00Z').getUTCDay() + 6) % 7
-  const pad = dow(days[0])
+  const today = isoDay(), first = today.slice(0, 7)
+  const shift = (ym: string, n: number) => { const d = new Date(Date.UTC(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)) - 1 + n, 1)); return d.toISOString().slice(0, 7) }
+  const last = shift(first, 3)
+  const [month, setMonth] = useState(first)
   const [busy, setBusy] = useState<string | null>(null)
+  const y = Number(month.slice(0, 4)), m = Number(month.slice(5, 7)) - 1
+  const daysIn = new Date(Date.UTC(y, m + 1, 0)).getUTCDate(), pad = (new Date(Date.UTC(y, m, 1)).getUTCDay() + 6) % 7
+  const days = Array.from({ length: daysIn }, (_, i) => `${month}-${String(i + 1).padStart(2, '0')}`)
+  const fmt = (o: Intl.DateTimeFormatOptions, d: string) => new Intl.DateTimeFormat(locale(), { timeZone: 'UTC', ...o }).format(new Date(d + 'T12:00:00Z'))
+  const upcoming = [...mine].filter(d => d >= today).sort()
+  const inMonth = days.filter(d => mine.has(d)).length
+  const nav = 'w-9 h-9 rounded-full flex items-center justify-center text-ink/70 hover:bg-sage-50 disabled:opacity-25 disabled:hover:bg-transparent'
   return (<div>
-    <div className="grid grid-cols-7 gap-1 text-center text-[11px] text-mute mb-1">{['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].map(x => <span key={x}>{t(x)}</span>)}</div>
-    <div className="grid grid-cols-7 gap-1">{Array.from({ length: pad }, (_, i) => <span key={'p' + i} />)}{days.map(d => { const on = mine.has(d), first = d.slice(8) === '01' || d === days[0]
-      return <button key={d} disabled={busy === d} onClick={async () => { setBusy(d); await toggleStandby(d); setBusy(null) }} className={`h-10 rounded-[10px] text-[13px] transition ${on ? 'bg-olive-700 text-white' : 'bg-white'} ${busy === d ? 'opacity-50' : ''}`}>
-        {first ? new Intl.DateTimeFormat(locale(), { timeZone: 'UTC', day: 'numeric', month: 'numeric' }).format(new Date(d + 'T12:00:00Z')) : Number(d.slice(8))}</button> })}</div>
-    <p className="mt-2 text-xs text-mute">{t('{n} Tage eingetragen', { n: mine.size })}</p>
+    <div className="rounded-[16px] bg-white p-4">
+      <div className="flex items-center justify-between mb-3">
+        <button onClick={() => setMonth(shift(month, -1))} disabled={month <= first} aria-label={t('Vorheriger Monat')} className={nav}><ChevronLeft size={18} /></button>
+        <p className="font-display text-[17px] capitalize">{fmt({ month: 'long', year: 'numeric' }, month + '-01')}</p>
+        <button onClick={() => setMonth(shift(month, 1))} disabled={month >= last} aria-label={t('Nächster Monat')} className={nav}><ChevronRight size={18} /></button>
+      </div>
+      <div className="grid grid-cols-7 text-center text-[11px] text-mute mb-1">{['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].map(x => <span key={x}>{t(x)}</span>)}</div>
+      <div className="grid grid-cols-7 gap-y-1">{Array.from({ length: pad }, (_, i) => <span key={'p' + i} />)}{days.map(d => {
+        const on = mine.has(d), past = d < today, isToday = d === today
+        return <button key={d} disabled={past || busy === d} onClick={async () => { setBusy(d); await toggleStandby(d); setBusy(null) }} aria-pressed={on} aria-label={fmt({ weekday: 'long', day: 'numeric', month: 'long' }, d)}
+          className={`mx-auto w-10 h-10 rounded-full text-[14px] tabular-nums transition ${on ? 'bg-olive-700 text-white' : past ? 'text-ink/25' : 'hover:bg-sage-50'} ${isToday && !on ? 'shadow-[inset_0_0_0_1.5px_#495940] font-medium' : ''} ${busy === d ? 'opacity-50' : ''}`}>{Number(d.slice(8))}</button>
+      })}</div>
+      <p className="mt-3 pt-3 border-t border-sage-50 text-[12.5px] text-mute">{inMonth ? t('{n} Tage in diesem Monat eingetragen', { n: inMonth }) : t('In diesem Monat noch keine Tage eingetragen')}</p>
+    </div>
+    {upcoming.length > 0 && <p className="mt-2.5 px-1 text-[13px] text-ink/80">{t('Nächste:')} {upcoming.slice(0, 4).map(d => fmt({ weekday: 'short', day: 'numeric', month: 'numeric' }, d)).join(' · ')}</p>}
+    <p className="mt-2 px-1 text-xs text-mute leading-relaxed">{t('Tipp die Tage an, an denen du kurzfristig einspringen kannst. Filialleitung und Büro sehen das unter Aushilfe, wenn jemand ausfällt.')}</p>
   </div>)
 }
 
@@ -731,7 +850,7 @@ function MyProfile() {
       <p className="mt-3 text-xs text-mute">{t('Skills pflegt deine Filialleitung oder das Büro. Kolleginnen finden dich darüber, zum Beispiel wenn jemand Aushilfe sucht.')}</p>
       <Label>{t('Arbeitszeiten · nächste 7 Tage')}</Label>
       <WeekShifts />
-      <Label>{t('Ich kann aushelfen an')}</Label>
+      <Label>{t('Aushilfe-Tage')}</Label>
       <StandbyPicker />
       <Label>{t('Mitteilungen')}</Label>
       <PushToggle />
