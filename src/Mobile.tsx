@@ -103,6 +103,11 @@ function Shell({ onLogout, onSwitch }: { onLogout: () => void; onSwitch?: () => 
     else if (o === 'standby') { reloadStandby(); go('home') }
     else if (o === 'tasks') { tasksView = 'studio'; go('tasks') }
     else if (o === 'perf') open({ k: 'perf' })
+    // Direktlinks aus Unterlagen und Schulungen
+    else if (o === 'home' || o === 'ai' || o === 'wiki' || o === 'menu') go(o)
+    else if (o === 'benni') go('ai')
+    else if (o === 'onboarding' || o === 'book' || o === 'me' || o === 'team' || o === 'install') open({ k: o })
+    else if (o === 'clients') open({ k: 'clients' })
   }
   // „Mit Benni lernen“ aus dem Onboarding: in den Benni-Reiter wechseln, die Frage stellt der Reiter selbst
   useEffect(() => { const f = () => go('ai'); window.addEventListener('th-benni', f); return () => window.removeEventListener('th-benni', f) }, []) // eslint-disable-line react-hooks/exhaustive-deps

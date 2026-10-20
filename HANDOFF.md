@@ -2,6 +2,10 @@
 
 Interne Mitarbeiter-App (PWA + Desktop-Backoffice) der Beautylounge AG. Kundin: Renée Baumann. PM-Projekt: `projekt.aleksa.ai`, Key **BLTH** (`d4ee5d5c-4553-436c-bba7-137a03a2b704`). ⚠️ Das Repo `beautyloungeag/Teamhub` ist **öffentlich** — nie Personendaten committen.
 
+### Nachtrag 2026-10-20 mittags (3) — Direktlinks
+
+- `src/lib/start.ts` liest die Startadresse, bevor die App sie aufräumt. `?open=<ziel>` öffnet die Mitarbeiterin-App an einer Stelle (home, tasks, todos, ai/benni, wiki, menu, book, clients, perf, tickets, events, onboarding, me, team, install, news:<id>, ticket:<id>), auch für Leitung und Büro am Desktop. `?bo=<seite>` öffnet das Backoffice auf einer Seite (overview, book, news, tasks, tickets, events, standby, learn, team, performance, wiki, settings, benni, me); nicht erlaubte Seiten fallen auf die Übersicht zurück. Genutzt im Ablauf-PDF der Vorstellung (claude-team `ai-team/assets/beautylounge-teamhub/vorstellung-2026-10-20/`).
+
 ### Nachtrag 2026-10-20 mittags (2) — Wissen neu im Backoffice, Lernziel für Freitext-Quiz
 
 - **Wissen (`src/admin/Wiki.tsx`, nur Büro):** gleiche Ansicht wie in der App. Themen als Kacheln mit Emoji → Artikel eines Themas → Artikel im Aussehen der App, direkt bearbeitbar. Inhalt sind die Bausteine in `wiki_articles.blocks` (Text, Überschrift, Aufzählung, Nummerierung, Hinweis, Bild, Video hochgeladen oder YouTube, Datei). Plus zwischen den Bausteinen fügt ein, der Griff links ändert Typ, Reihenfolge, entfernt. Enter teilt einen Absatz, markierter Text bekommt fett/kursiv/Link (gespeichert als `**`, `*`, `[Text](Link)` wie beim Import). Vorher waren die 180 importierten Artikel inhaltlich gar nicht bearbeitbar. Beim Speichern wird `body` (Klartext für Suche und Benni) und die Lesezeit aus den Bausteinen erzeugt; ein altes Einzelmedium (`media_url`) wird zum ersten Baustein. Dateien liegen unter `media/wiki/<Sichtbarkeit>/…` und ziehen beim Speichern mit, wenn sich die Sichtbarkeit ändert. Die Übersetzung erneuert sich von selbst (Hash über body + blocks).

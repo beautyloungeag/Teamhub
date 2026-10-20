@@ -3,6 +3,7 @@ import { AppProvider } from './store'
 import { AuthProvider, useAuth } from './lib/auth'
 import Mobile from './Mobile'
 import Backoffice from './Backoffice'
+import { startParams } from './lib/start'
 import Login from './Login'
 import { tr } from './lib/i18n'
 import { Toaster } from './Toast'
@@ -43,7 +44,8 @@ const LoginFrame = ({ children }: { children: React.ReactNode }) => (
 function Gate() {
   const { ready, employee, orphan, offline, retry, signOut } = useAuth()
   const desktop = useDesktop()
-  const [mode, setMode] = useState<'app' | 'office' | null>(null)
+  // Direktlink: ?open=… zeigt die App, ?bo=… das Backoffice
+  const [mode, setMode] = useState<'app' | 'office' | null>(() => startParams.has('open') ? 'app' : startParams.has('bo') ? 'office' : null)
   if (!ready) return <div className="min-h-full flex items-center justify-center text-mute">…</div>
   if (!employee && offline) return (
     <div className="min-h-full flex flex-col items-center justify-center gap-3 p-6 text-center">

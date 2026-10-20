@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { LayoutDashboard, LifeBuoy, GraduationCap, Smartphone, Newspaper, ListChecks, Lightbulb, CalendarDays, Users, BookOpen, CalendarClock, TrendingUp, Settings as SettingsIcon } from 'lucide-react'
 import { Terminbuch } from './Calendar'
 import { useApp } from './store'
+import { startParams } from './lib/start'
 import { ASSISTANT } from './Mobile'
 
 import { BMark } from './Logo'
@@ -29,11 +30,13 @@ const NAV: [View, string, typeof Users][] = [['overview', 'Übersicht', LayoutDa
 export default function Backoffice({ onSwitch }: { onSwitch?: () => void }) {
   const { me } = useApp()
   const { signOut } = useAuth()
-  const [v, setV] = useState<View>('overview')
+  const [v, setV] = useState<View>(() => (startParams.get('bo') as View | null) ?? 'overview')
+  useEffect(() => { if (startParams.has('bo') && location.search.includes('bo=')) history.replaceState(null, '', '/') }, [])
   // Filialleitung gestaltet für ihr Studio (News, Termine, Checklisten, Quiz zu eigenen News); Wissen und Studios pflegt das Büro.
   const nav = me.app_role === 'buero' ? NAV : NAV.filter(([k]) => ['overview', 'book', 'news', 'tasks', 'tickets', 'events', 'standby', 'learn', 'team', 'performance', 'settings'].includes(k))
   const allowed = new Set(nav.map(([k]) => k))
   const go = (k: View) => { if (allowed.has(k)) setV(k) }
+  useEffect(() => { if (!allowed.has(v) && v !== 'benni' && v !== 'me') setV('overview') }, [v]) // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div className="flex h-full bg-white overflow-hidden">
       <SideNav
