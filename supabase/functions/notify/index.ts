@@ -85,6 +85,8 @@ Deno.serve(async (req) => {
     const ids = staff.filter((e) => e.branch_id !== 'buero' && !answered.has(e.id) && inBranches(e, ev.audience_branches ?? [])
       && ((ev.audience_skills ?? []).length === 0 || (e.skills ?? []).some((k: string) => ev.audience_skills.includes(k)))
       && (me.app_role === 'buero' || mine.some((b) => e.branch_id === b || (e.extra_branch_ids ?? []).includes(b)))).map((e) => e.id)
+      // Einzelne Personen: nur wer davon wirklich noch offen ist
+      .filter((id) => !Array.isArray(body.employee_ids) || body.employee_ids.includes(id))
     const r = await sendByLang(admin, staff, ids, (l) => ({ title: fill(L[l].evRem, { t: ev.title }), body: L[l].evRemBody, url: '/?open=events', tag: `event-${ev.id}` }))
     return json({ ok: true, people: ids.length, ...r })
   }

@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowLeft, ChevronLeft, ChevronRight, Mail, Phone, Search, Smartphone, Bell, X } from 'lucide-react'
+import { ArrowLeft, ChevronLeft, ChevronRight, Search, Smartphone, Bell, X } from 'lucide-react'
 import { useApp, addDays, fmtDate, inNewsAudience, type Staff } from '../store'
 import { supabase } from '../lib/supabase'
 import { phorest, type StaffWeek } from '../lib/phorest'
-import { Avatar, ContactRow } from '../People'
+import { Avatar } from '../People'
 import { toast } from '../Toast'
 import { PersonPerformance } from '../Performance'
-import { H, New, Sec, Th, Bar, Field, inpStone, btn, btn2, Err, isTest, inBranch, Select, Modal, Dot, InfoTip } from './kit'
+import { H, New, Th, Field, Section, DataRow, Status, Empty, inpStone, btn, btn2, Err, isTest, inBranch, Select, Modal, Dot, InfoTip } from './kit'
 
 // Team: Liste mit Filtern über die ganze Breite; ein Klick öffnet die Seite der Person (mit Blättern).
 // Filialleitung: eigenes Studio (Personen anlegen, Skills, Funktion, deaktivieren). Büro: alle Studios, Rechte, löschen.
@@ -144,7 +144,6 @@ function PersonPage({ p, pos, onBack, onStep }: { p: Staff; pos: { i: number; n:
   const tried = new Set(attempts.filter(a => a.employeeId === p.id).map(a => a.quizId))
   const sbDays = standby.filter(x => x.employee_id === p.id && x.day >= addDays(0) && x.day <= addDays(60)).map(x => x.day).sort()
   const day = (x: string) => fmtDate(x + 'T12:00:00Z', { weekday: 'short', day: 'numeric', month: 'numeric' })
-  const card = 'rounded-[16px] border border-line'
   return (<>
     <div className="flex items-center justify-between mb-6">
       <button onClick={onBack} className="h-9 pl-2 pr-3 -ml-2 rounded-[10px] hover:bg-sage-50 flex items-center gap-1.5 text-[14px] text-ink/80"><ArrowLeft size={16} />Team</button>
@@ -169,15 +168,15 @@ function PersonPage({ p, pos, onBack, onStep }: { p: Staff; pos: { i: number; n:
 
     <div className="grid grid-cols-[1.1fr_1fr] gap-8 mt-8">
       <div className="space-y-8 min-w-0">
-        <section><Sec>Kontakt</Sec>
-          <div className={`${card} divide-y divide-line`}>
-            {p.phone ? <ContactRow label="Telefon" value={p.phone} href={`tel:${p.phone.replace(/\s/g, '')}`} icon={<Phone size={15} />} action="Anrufen" /> : <p className="px-4 py-3 text-[14px] text-mute">Keine Telefonnummer hinterlegt</p>}
-            <ContactRow label="E-Mail" value={p.email} href={`mailto:${p.email}`} icon={<Mail size={15} />} action="E-Mail schreiben" />
-          </div></section>
-        <section><Sec>Skills</Sec>
+        <Section title="Kontakt">
+          <DataRow label="Telefon" value={p.phone || 'keine Nummer hinterlegt'} muted={!p.phone} copy={p.phone} href={p.phone ? `tel:${p.phone.replace(/\s/g, '')}` : undefined} />
+          <DataRow label="E-Mail" value={p.email} copy={p.email} href={`mailto:${p.email}`} />
+          <DataRow label="Studio" value={[p.branch, ...(p.extra ?? []).map(b => branches.find(x => x.id === b)?.name).filter(Boolean)].join(', ')} />
+        </Section>
+        <section><p className="text-[15px] font-medium mb-2">Skills</p>
           <div className="flex flex-wrap gap-1.5">{skillCatalog.map(k => <button key={k} onClick={() => tog(k)} className={`px-3 h-9 rounded-[10px] text-[13.5px] transition ${skills.includes(k) ? 'bg-olive-700 text-white' : 'bg-sage-50 text-ink/80 hover:bg-sage-100'}`}>{k}</button>)}</div>
           <p className="mt-2 text-[12.5px] text-mute">Antippen zum Vergeben oder Entfernen. Wird sofort gespeichert.</p></section>
-        <section><Sec>Funktion{office ? ' und Rechte' : ''}</Sec>
+        <section><p className="text-[15px] font-medium mb-2">Funktion{office ? ' und Rechte' : ''}</p>
           <div className="grid grid-cols-2 gap-3">
             {office ? <Field label="Funktion"><input value={d.job_title} onChange={e => setD({ ...d, job_title: e.target.value })} className={inpStone} /></Field>
               : <input value={d.job_title} onChange={e => setD({ ...d, job_title: e.target.value })} aria-label="Funktion" className={inpStone} />}
@@ -189,24 +188,21 @@ function PersonPage({ p, pos, onBack, onStep }: { p: Staff; pos: { i: number; n:
       </div>
 
       <div className="space-y-8 min-w-0">
-        <section><Sec>Diese Woche · aus Phorest</Sec>
-          <div className={`${card} divide-y divide-line`}>
-            {!week ? <p className="px-4 py-3 text-[14px] text-mute">Lädt …</p> : !week.ok || !week.mapped ? <p className="px-4 py-3 text-[14px] text-mute">Keine Schichten in Phorest gefunden.</p>
-              : Array.from({ length: 7 }, (_, i) => addDays(i)).map(x => { const sh = week.days.filter(s => s.date === x)
-                return <div key={x} className="px-4 py-2.5 flex justify-between text-[14px]"><span className="text-ink/80">{day(x)}</span>{sh.length ? <span className="tabular-nums">{sh.map(s => `${s.start}–${s.end}`).join(', ')}</span> : <span className="text-mute">frei</span>}</div> })}
-          </div></section>
-        <section><Sec>Lernstand</Sec>
-          <div className={`${card} p-4 space-y-4 text-[14px]`}>
-            <div><div className="flex justify-between mb-1.5"><span>Onboarding</span><span className="text-mute tabular-nums">{ob ? `${steps.filter(s => ob.has(s.id)).length} von ${steps.length}` : '…'}</span></div><Bar p={ob && steps.length ? steps.filter(s => ob.has(s.id)).length / steps.length * 100 : 0} /></div>
-            <div><div className="flex justify-between mb-1.5"><span>Pflicht-News bestätigt</span><span className="text-mute tabular-nums">{mustOk} von {must.length}</span></div><Bar p={must.length ? mustOk / must.length * 100 : 0} /></div>
-            <div className="flex justify-between"><span>Quiz bestanden</span><span className="text-mute tabular-nums">{passed.size} von {quizzes.length}{tried.size > passed.size ? ` · ${tried.size - passed.size} nicht bestanden` : ''}</span></div>
-          </div></section>
-        <section><Sec>App und Aushilfe</Sec>
-          <div className={`${card} divide-y divide-line text-[14px]`}>
-            <div className="px-4 py-2.5 flex justify-between"><span>App auf dem Handy</span>{p.appInstalled ? <Dot tone="ok">installiert</Dot> : <Dot tone="mute">noch nicht</Dot>}</div>
-            <div className="px-4 py-2.5 flex justify-between"><span>Mitteilungen</span>{p.pushEnabled ? <Dot tone="ok">an</Dot> : <Dot tone="mute">aus</Dot>}</div>
-            <div className="px-4 py-2.5 flex justify-between gap-4"><span>Kann aushelfen</span><span className="text-mute text-right">{sbDays.length ? sbDays.slice(0, 4).map(day).join(' · ') + (sbDays.length > 4 ? ` +${sbDays.length - 4}` : '') : 'keine Tage eingetragen'}</span></div>
-          </div></section>
+        <Section title="Diese Woche" action={<span className="text-[12.5px] text-mute">aus Phorest</span>}>
+          {!week ? <p className="py-2 text-[14px] text-mute">Lädt …</p> : !week.ok || !week.mapped ? <Empty>Keine Schichten in Phorest gefunden.</Empty>
+            : Array.from({ length: 7 }, (_, i) => addDays(i)).map(x => { const sh = week.days.filter(s => s.date === x)
+              return <DataRow key={x} label={day(x)} value={sh.length ? sh.map(s => `${s.start}–${s.end}`).join(', ') : 'frei'} muted={!sh.length} /> })}
+        </Section>
+        <Section title="Lernstand">
+          <DataRow label="Lektionen" value={ob ? `${steps.filter(s => ob.has(s.id)).length} von ${steps.length}` : '…'} />
+          <DataRow label="Pflicht-News bestätigt" value={`${mustOk} von ${must.length}`} />
+          <DataRow label="Quiz bestanden" value={`${passed.size} von ${quizzes.length}${tried.size > passed.size ? ` · ${tried.size - passed.size} nicht bestanden` : ''}`} />
+        </Section>
+        <Section title="App und Aushilfe">
+          <DataRow label="App auf dem Handy" value={p.appInstalled ? <Status kind="yes">Installiert</Status> : <Status kind="none">Noch nicht</Status>} />
+          <DataRow label="Mitteilungen" value={p.pushEnabled ? <Status kind="yes">An</Status> : <Status kind="none">Aus</Status>} />
+          <DataRow label="Kann aushelfen" value={sbDays.length ? sbDays.slice(0, 4).map(day).join(' · ') + (sbDays.length > 4 ? ` +${sbDays.length - 4}` : '') : 'keine Tage eingetragen'} muted={!sbDays.length} />
+        </Section>
       </div>
     </div>
 

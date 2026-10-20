@@ -345,15 +345,21 @@ Deno.serve(async (req) => {
       const item = (r: any) => ({ date: String(r.reviewDate ?? '').slice(0, 10), rating: r.rating, text: String(r.text ?? '').trim(), client: `${(r.clientFirstName ?? '').trim()} ${(r.clientLastName ?? '').trim().slice(0, 1)}.`.trim(), staff: `${r.staffFirstName ?? ''}`.trim() })
       const cur = curA.filter(mine), prev = prevA.filter(mine)
       const total = { ...metrics(cur), reviews: rvSum(rvCur) }, prevTotal = { ...metrics(prev), reviews: rvSum(rvPrev) }
-      if (!studio) return json({ ok: true, mapped: true, from, to, prev_from: pFrom, prev_to: pTo, metrics: total, prev: prevTotal, reviews: rvCur.slice(0, 30).map(item) })
+      // Werte je Tag für Verläufe (Termine = alle nicht abgesagten, Behandlungen/Umsatz = bezahlt)
+      const perDay = (list: any[], f: string, t: string) => { const out: { date: string; booked: number; treatments: number; revenue: number }[] = []
+        for (let d = f; d <= t; d = shift(d, 1)) { const x = list.filter((a) => a.appointmentDate === d), paid = x.filter((a) => a.state === 'PAID')
+          out.push({ date: d, booked: x.length, treatments: paid.length, revenue: Math.round(paid.reduce((s, a) => s + Number(a.price ?? 0), 0)) }) }
+        return out }
+      const series = perDay(cur, from, to), prevSeries = perDay(prev, pFrom, pTo)
+      if (!studio) return json({ ok: true, mapped: true, from, to, prev_from: pFrom, prev_to: pTo, metrics: total, prev: prevTotal, series, prev_series: prevSeries, reviews: rvCur.slice(0, 30).map(item) })
       const lead = me.app_role === 'buero' || (me.app_role === 'filialleitung' && myBranches.includes(studio))
-      if (!lead) return json({ ok: true, from, to, metrics: total, prev: prevTotal })
+      if (!lead) return json({ ok: true, from, to, metrics: total, prev: prevTotal, series, prev_series: prevSeries })
       const staffIds = [...new Set(cur.map((a) => a.staffId).concat(rvCur.map((r) => r.staffId)))].filter(Boolean)
       const people = staffIds.map((sid) => {
         const m = maps.find((x) => x.branch_id === studio && x.staff_id === sid)
         return { staff_id: sid, employee_id: m?.employee_id ?? null, name: names.get(sid) ?? 'Unbekannt', ...metrics(cur.filter((a) => a.staffId === sid)), reviews: rvSum(rvCur.filter((r) => r.staffId === sid)) }
       }).sort((a, b) => b.revenue - a.revenue)
-      return json({ ok: true, from, to, prev_from: pFrom, prev_to: pTo, metrics: total, prev: prevTotal, people, reviews: rvCur.slice(0, 30).map(item) })
+      return json({ ok: true, from, to, prev_from: pFrom, prev_to: pTo, metrics: total, prev: prevTotal, series, prev_series: prevSeries, people, reviews: rvCur.slice(0, 30).map(item) })
     }
 
     // Freie Leseabfrage für Benni (nur Filialleitung und Büro). Nur GET, nur unterhalb des eigenen Business.

@@ -14,7 +14,8 @@ import { Modal } from './admin/kit'
 export type Metrics = { treatments: number; revenue: number; clients: number; visits: number; avg_ticket: number; requested: number; requested_pct: number; booked: number; online_pct: number; reviews: { count: number; avg: number | null } }
 export type Review = { date: string; rating: number; text: string; client: string; staff: string }
 export type PerfPerson = Metrics & { staff_id: string; employee_id: string | null; name: string }
-export type Perf = { ok: boolean; mapped?: boolean; from: string; to: string; prev_from?: string; prev_to?: string; metrics: Metrics; prev: Metrics; reviews?: Review[]; people?: PerfPerson[]; error?: string }
+export type Day = { date: string; booked: number; treatments: number; revenue: number }
+export type Perf = { ok: boolean; mapped?: boolean; from: string; to: string; prev_from?: string; prev_to?: string; metrics: Metrics; prev: Metrics; series?: Day[]; prev_series?: Day[]; reviews?: Review[]; people?: PerfPerson[]; error?: string }
 export type Goal = { id: string; scope: 'person' | 'team'; employee_id: string | null; branch_id: string | null; metric: Metric; target: number; starts_on: string; ends_on: string; title: string | null; created_by_name: string | null }
 export type Metric = 'revenue' | 'treatments' | 'avg_ticket' | 'clients' | 'requested' | 'rating' | 'reviews'
 

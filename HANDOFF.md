@@ -2,6 +2,22 @@
 
 Interne Mitarbeiter-App (PWA + Desktop-Backoffice) der Beautylounge AG. Kundin: Renée Baumann. PM-Projekt: `projekt.aleksa.ai`, Key **BLTH** (`d4ee5d5c-4553-436c-bba7-137a03a2b704`). ⚠️ Das Repo `beautyloungeag/Teamhub` ist **öffentlich** — nie Personendaten committen.
 
+### Nachtrag 2026-10-20 vormittags — Backoffice neu gestaltet nach den Regeln des feleo-Designsystems
+
+Aleksas Rückmeldung: zu generisch, zu viel Text, Kästen in Kästen, rechte Spalten, nichts sieht klickbar aus, keine Diagramme, Kundendaten wirken wie Fliesstext. Übernommen wurden die bei feleo abgenommenen Regeln (Datenzeilen, flache Listen, Detailseiten mit Zurück, Status als Icon plus Wort, Statistik mit Verläufen, Dialog mit Unschärfe).
+
+- **Bausteine** `admin/kit.tsx`: `Seg` mit gleitender Markierung, `Back`, `Section` (Titel + Zähler + Aktion), `Empty` (ein Satz), `Status` (Icon + Wort), `DataRow` (Bezeichnung links, Wert rechts, Kopieren beim Darüberfahren), `RecordHead` (Link-Icon + Quelle), `ReadOnly` (Schloss + Grund), `RowLink`; Dialog-Hintergrund mit `backdrop-blur`. **Diagramme** ohne Bibliothek in `admin/charts.tsx`: `Donut`, `DonutParts`, `LineChart` (Linie + gestrichelter Vergleich, Hover), `Columns`, `BarList`.
+- **Übersicht** `admin/Overview.tsx`: Kennzahlen ohne Kacheln, jede klickbar (Checklisten heute, Pflicht-News, Meldungen, Behandlungen 7 Tage), Termine je Tag aus Phorest mit Vorwoche, Checklisten der letzten 14 Tage als Säulen, Meldungen als Ring, Heute im Studio, Als Nächstes, Startbereitschaft. Büro mit Studio-Umschalter. `phorest` → `performance` liefert dafür `series`/`prev_series` je Tag.
+- **Aufgaben** neu (`admin/Tasks.tsx`): Heute je Studio als Tabelle je Checkliste („für alle in Basel 1“, Fälligkeit, wer wann abgehakt hat, Foto) plus Einzelaufgaben mit Frist; Einzelaufgaben anklickbar und bearbeitbar (Frist, für wen, wieder öffnen, löschen); Checklisten als **eigene Seite** mit Punkten zum direkten Bearbeiten, Büro-Listen für die Filialleitung nur lesend mit Begründung.
+- **Schulungen & Events**: Liste ohne Seitenspalte, Klick öffnet die Seite des Termins (Datenzeilen, Ring Kommen/Warteliste/Absagen/offen, Teilnehmende filterbar, **Erinnern je Person** und für alle, CSV). `notify` → `remind_event` nimmt `employee_ids`.
+- **Aushilfe**: „Wer kann wann“ als Einsatzplan (Personen × 14 Tage, Punkt = kann, Klick fragt an); Anfragen als Liste mit Detailseite (Können/Können nicht, Einteilen, Telefon). Testkonten erscheinen, wenn sie Tage eingetragen haben (markiert).
+- **Lernen**: Fortschritt mit drei Ringen; **Lektionen** (vorher Onboarding) mit Studio-Bezug — Migration `0022_lektionen_je_studio.sql`: `onboarding_steps.branch_ids`, Lesen über `in_audience`, Filialleitung schreibt fürs eigene Studio; **Quiz** mit Detailseite (Ergebnisse je Person) und Editor als Seite. „Neues Quiz“ hat die Filialleitung jetzt immer: Lernstoff neu schreiben (wird Pflicht-News mit Quiz) oder an eine eigene News hängen. Fehler behoben: gewählte Zahl bei den Kontrollfragen wurde beim Darüberfahren weiss auf weiss.
+- **News** und **Meldungen & Ideen** (`admin/Tickets.tsx`): Liste, Klick öffnet Detailseite (Lesebestätigung je Person bzw. Status/Zuständig/Verlauf). Zuweisen und Status bleiben in der Liste änderbar.
+- **Benni** im Backoffice als Vollbild-Chat mit Chatliste (wie in der App), die Seitenleiste ist weg.
+- **Kundendaten** im Termin (`Calendar.tsx` `AppointmentSheet`, App und Backoffice): Datensatz mit Link-Icon, Datenzeilen mit Kopieren (Telefon, E-Mail), „Mehr anzeigen“, Historie mit Zähler; Zusatzleistungen („- ohne Achseln“) hängen an der Hauptbehandlung desselben Tages.
+- **Personenseite**, **Wissen** (Bearbeiten im Dialog) ohne Kästen.
+- Getestet 20.10. im Browser als Filialleitung (alle Seiten oben). Testdaten (Aushilfe-Tage, Lektion) per ID gelöscht.
+
 ### Nachtrag 2026-10-20 nachts — Audit gegen Projektplan und Gespräche: Protokoll, Einstellungen, Umfragen, Performance
 
 Abgleich mit Projektplan/Roadmap (18.08.), Vertrag, Gesprächen 25./26.08., Abnahmeprüfung 28.09. und Renées zwei Mails nach dem Update-Meeting 25.09. (Performance-Tool aus Phorest, Umfragefunktion). Beides war bis heute nicht gebaut.

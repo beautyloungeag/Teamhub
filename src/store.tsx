@@ -17,7 +17,7 @@ export type Comment = { id: string; author: string; authorId: string | null; bod
 export type Ev = { id: string; title: string; kind: string; description: string; startsAt: string; endsAt: string | null; place: string; link: string | null; capacity: number | null; registerUntil: string | null; audienceBranches: string[]; audienceSkills: string[]; taken: number; waiting: number; createdBy: string | null; raw: { title: string; description: string; place: string } }
 export type WikiBlock = { t: 'h' | 'p' | 'ul' | 'ol' | 'quote' | 'img' | 'video' | 'file'; text?: string; items?: string[]; src?: string; url?: string; name?: string; level?: number }
 export type WikiArticle = { id: string; cat: string; catKey: string; title: string; minutes: number; updated: string; body: string[]; mediaKind: string; mediaUrl: string | null; published: boolean; fromNews?: boolean; intro: string; tags: string[]; accessLevel: 'alle' | 'filialleitung' | 'buero'; imported: boolean }
-export type Step = { id: string; title: string; minutes: number; articleId: string | null; proposed: boolean }
+export type Step = { id: string; title: string; minutes: number; articleId: string | null; proposed: boolean; branchIds: string[] }
 export type Branch = { id: string; name: string; is_office: boolean }
 export type Quiz = { id: string; newsId: string | null; articleId: string | null; title: string; passPct: number; sample: boolean }
 export type Attempt = { quizId: string; employeeId: string; scorePct: number; passed: boolean; at: string }
@@ -71,7 +71,7 @@ type Ctx = {
   addComment: (ticketId: string, body: string) => Promise<boolean>; toggleVote: (ticketId: string) => Promise<void>
   assign: (id: string, a: string) => Promise<void>; setStatus: (id: string, s: Ticket['status']) => Promise<void>
   events: Ev[]; joined: Set<string>; declined: Set<string>; waiting: Set<string>; toggleEvent: (id: string) => Promise<string | null>; declineEvent: (id: string) => Promise<void>
-  registrations: { event_id: string; employee_id: string; coming: boolean; waitlist: boolean }[]
+  registrations: { event_id: string; employee_id: string; coming: boolean; waitlist: boolean; created_at?: string }[]
   polls: Poll[]; pollAnswers: Map<string, PollValue>; submitPoll: (pollId: string, answers: Record<string, PollValue>) => Promise<boolean>
   standby: { employee_id: string; day: string; note: string }[]; toggleStandby: (day: string) => Promise<void>
   demoData: boolean; setDemoData: (on: boolean) => Promise<void>
@@ -228,7 +228,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setAttempts((qa.data ?? []).map((a: any) => ({ quizId: a.quiz_id, employeeId: a.employee_id, scorePct: a.score_pct, passed: a.passed, at: a.created_at })))
     newsForWiki.current = keep(nw.data).map((n: any) => ({ ...n, title: tx(n, 'title', lang), teaser: tx(n, 'teaser', lang), body: tx(n, 'body', lang) }))
     void wk
-    setAllSteps(keep(ob.data).map((s: any) => ({ id: s.id, title: tx(s, 'title', lang), minutes: s.minutes, articleId: s.article_id, proposed: !!s.proposed })))
+    setAllSteps(keep(ob.data).map((s: any) => ({ id: s.id, title: tx(s, 'title', lang), minutes: s.minutes, articleId: s.article_id, proposed: !!s.proposed, branchIds: s.branch_ids ?? [] })))
     setObDone(new Set((obp.data ?? []).map((x: any) => x.step_id)))
     setMyPhorest((mp.data ?? []) as Ctx['myPhorest'])
     setLoading(false)

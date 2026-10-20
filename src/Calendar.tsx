@@ -3,6 +3,7 @@ import { ChevronDown, ChevronLeft, ChevronRight, MapPin, Search, Check, Calendar
 import { useApp, isoDay, addDays, fmtTime, zurichHour, type Ev } from './store'
 import { phorest, toHours, type BranchDay, type MyDay, type Appt, type ClientHistory } from './lib/phorest'
 import { tr, locale } from './lib/i18n'
+import { DataRow, RecordHead } from './admin/kit'
 
 /* ---------- Kundentermine (lesend aus Phorest) ---------- */
 const START = 8, END = 20, SLOT = 44 // px je halbe Stunde
@@ -100,41 +101,74 @@ export function Terminbuch({ compact }: { compact?: boolean }) {
   )
 }
 
-/* Termin antippen: Details wie in Phorest, dazu die Historie der Kundin */
+/* Termin antippen: Datensatz aus Phorest wie in einem System, Historie als Liste */
+type Visit = ClientHistory['visits'][number] & { upcoming?: boolean }
+// Zusatzleistungen heissen in Phorest „- ohne Achseln“ und hängen am Haupttermin derselben Zeit
+function groupVisits(list: Visit[]) {
+  const isExtra = (v: Visit) => /^\s*[-–+]\s*/.test(v.service)
+  const out: (Visit & { extras: string[] })[] = list.filter(v => !isExtra(v)).map(v => ({ ...v, extras: [] }))
+  for (const v of list.filter(isExtra)) {
+    // gleicher Tag und gleiche Person, am liebsten der Haupttermin direkt davor
+    const cands = out.filter(o => o.date === v.date && o.staff === v.staff && !!o.upcoming === !!v.upcoming)
+    const host = cands.filter(o => o.time <= v.time).sort((x, y) => y.time.localeCompare(x.time))[0] ?? cands[0]
+    if (host) host.extras.push(v.service.replace(/^\s*[-–+]\s*/, ''))
+    else out.push({ ...v, service: v.service.replace(/^\s*[-–+]\s*/, ''), extras: [] })
+  }
+  return out.sort((x, y) => Number(!x.upcoming) - Number(!y.upcoming) || `${y.date}${y.time}`.localeCompare(`${x.date}${x.time}`))
+}
 function AppointmentSheet({ a, onClose }: { a: Appt & { who: string }; onClose: () => void }) {
   const { t } = useApp()
-  const [h, setH] = useState<ClientHistory | null>(null)
+  const [h, setH] = useState<ClientHistory | null>(null), [more, setMore] = useState(false), [all, setAll] = useState(false)
   useEffect(() => { if (!a.client_id) return; let alive = true; phorest<ClientHistory>({ action: 'client_history', client_id: a.client_id, months: 12 }).then(r => { if (alive) setH(r) }); return () => { alive = false } }, [a.client_id])
+  useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }; document.addEventListener('keydown', k); return () => document.removeEventListener('keydown', k) }, [onClose])
   const d = (s: string) => new Intl.DateTimeFormat(locale(), { timeZone: 'UTC', day: '2-digit', month: '2-digit', year: '2-digit' }).format(new Date(s + 'T12:00:00Z'))
+  const c = h?.ok ? h.client : null
+  const hist = h?.ok ? groupVisits([...(h.upcoming ?? []).map(v => ({ ...v, cancelled: false, notes: '', upcoming: true })), ...h.visits]) : []
+  const shown = all ? hist : hist.slice(0, 8)
+  const extra: [string, string | null | undefined][] = c ? [[t('Geschlecht'), c.gender === 'FEMALE' ? t('weiblich') : c.gender === 'MALE' ? t('männlich') : c.gender], [t('Geburtstag'), c.birth_date ? d(c.birth_date) : null], [t('Adresse'), c.address],
+    [t('Treuepunkte'), c.loyalty_points != null ? String(c.loyalty_points) : null], [t('Offener Betrag'), c.balance ? `CHF ${c.balance.toFixed(2)}` : null], [t('Kategorien'), c.categories?.join(', ')], [t('Kundennotiz'), c.notes]] : []
+  const extraShown = extra.filter(([, v]) => v)
   return (
     <div className="fixed inset-0 z-40 flex items-end md:items-stretch md:justify-end" onClick={onClose}>
       <div className="absolute inset-0 bg-ink/25" />
-      <div onClick={e => e.stopPropagation()} className="relative w-full md:w-[400px] max-h-[85dvh] md:max-h-none overflow-y-auto no-scrollbar bg-paper rounded-t-[24px] md:rounded-none p-6 pb-10 md:pb-6 shadow-[0_-12px_40px_-16px_rgba(29,34,28,.4)]">
-        <div className="flex items-start justify-between gap-3">
-          <div><p className="text-[12px] text-mute">{a.start}–{a.end} · {a.who}</p><h2 className="font-display text-[24px] leading-tight mt-1">{a.client}</h2></div>
-          <button onClick={onClose} aria-label={t('Schliessen')} className="w-9 h-9 rounded-full hover:bg-sage-50 flex items-center justify-center text-mute shrink-0"><X size={18} /></button>
+      <div onClick={e => e.stopPropagation()} className="relative w-full md:w-[440px] max-h-[88dvh] md:max-h-none overflow-y-auto no-scrollbar bg-paper rounded-t-[24px] md:rounded-none px-6 pt-5 pb-10 md:pb-6 shadow-[0_-12px_40px_-16px_rgba(29,34,28,.4)]">
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <p className="text-[13px] text-mute tabular-nums">{a.start}–{a.end} · {a.who}</p>
+          <button onClick={onClose} aria-label={t('Schliessen')} className="w-9 h-9 -mr-2 rounded-full hover:bg-sage-50 flex items-center justify-center text-mute shrink-0"><X size={18} /></button>
         </div>
-        <div className="mt-4 rounded-[14px] bg-white divide-y divide-line text-[14px]">
-          <div className="px-4 py-3 flex justify-between gap-3"><span className="text-mute">{t('Behandlung')}</span><span className="text-right">{a.service}</span></div>
-          {a.price != null && <div className="px-4 py-3 flex justify-between gap-3"><span className="text-mute">{t('Preis')}</span><span>CHF {a.price}</span></div>}
-          <div className="px-4 py-3"><p className="text-mute">{t('Notiz am Termin')}</p><p className="mt-1 whitespace-pre-wrap">{a.notes || <span className="text-mute">{t('Keine Notiz.')}</span>}</p></div>
+        {a.client_id ? <RecordHead name={c?.name || a.client} source={t('Kundendatensatz aus Phorest')} /> : <p className="text-[17px] font-medium">{a.client}</p>}
+
+        <div className="mt-5">
+          <DataRow label={t('Behandlung')} value={a.service} />
+          {a.price != null && <DataRow label={t('Preis')} value={`CHF ${a.price}`} />}
+          <DataRow label={t('Notiz am Termin')} value={a.notes || t('Keine Notiz')} muted={!a.notes} />
         </div>
+
         {a.client_id && <>
-          <p className="mt-6 mb-2 px-1 rubric text-ink/70">{t('Kundin')}</p>
-          {!h && <p className="px-1 text-[13px] text-mute">{t('Lädt aus Phorest …')}</p>}
-          {h && !h.ok && <p className="px-1 text-[13px] text-mute">{t('Phorest ist gerade nicht erreichbar. Bitte später noch einmal versuchen.')}</p>}
-          {h?.ok && <div className="rounded-[14px] bg-white divide-y divide-line text-[14px]">
-            <div className="px-4 py-3 text-[13px] text-mute">{[h.client.since && t('Kundin seit {d}', { d: d(h.client.since) }), h.client.last_visit && t('zuletzt {d}', { d: d(h.client.last_visit) }), h.client.preferred && t('bevorzugt {n}', { n: h.client.preferred })].filter(Boolean).join(' · ') || '–'}</div>
-            {(h.upcoming ?? []).slice(0, 2).map((v, i) => <div key={'u' + i} className="px-4 py-2.5 flex justify-between gap-3"><span><span className="text-[11px] text-olive-700 block">{t('Kommend')}</span>{v.service}</span><span className="text-mute shrink-0">{d(v.date)}</span></div>)}
-            {h.visits.slice(0, 6).map((v, i) => <div key={i} className="px-4 py-2.5">
-              <div className="flex justify-between gap-3"><span className={v.cancelled ? 'line-through text-mute' : ''}>{v.service}</span><span className="text-mute shrink-0">{d(v.date)}</span></div>
-              <p className="text-[12px] text-mute">{[v.branch, v.staff].filter(Boolean).join(' · ')}</p>
+          {!h && <p className="mt-6 text-[13px] text-mute">{t('Lädt aus Phorest …')}</p>}
+          {h && !h.ok && <p className="mt-6 text-[13px] text-mute">{t('Phorest ist gerade nicht erreichbar. Bitte später noch einmal versuchen.')}</p>}
+          {c && <div className="mt-7">
+            <p className="text-[15px] font-medium mb-1">{t('Kundin')}</p>
+            {c.phone && <DataRow label={t('Telefon')} value={c.phone} copy={c.phone} href={`tel:${c.phone.replace(/\s/g, '')}`} />}
+            {c.email && <DataRow label={t('E-Mail')} value={c.email} copy={c.email} href={`mailto:${c.email}`} />}
+            {c.since && <DataRow label={t('Kundin seit')} value={d(c.since)} />}
+            {c.last_visit && <DataRow label={t('Letzter Besuch')} value={`${d(c.last_visit)}${c.last_branch ? ` · ${c.last_branch}` : ''}`} />}
+            {c.preferred && <DataRow label={t('Bevorzugt')} value={c.preferred} />}
+            {more && extraShown.map(([l, v]) => <DataRow key={l} label={l} value={v} />)}
+            {extraShown.length > 0 && <button onClick={() => setMore(!more)} className="mt-2 text-[13.5px] text-ink/80 hover:text-ink inline-flex items-center gap-1">{more ? t('Weniger anzeigen') : t('Mehr anzeigen')}<ChevronDown size={15} className={`transition ${more ? 'rotate-180' : ''}`} /></button>}
+          </div>}
+          {c && <div className="mt-7">
+            <p className="text-[15px] font-medium mb-1">{t('Historie')} <span className="text-mute font-normal tabular-nums ml-1">{hist.length}</span></p>
+            {hist.length === 0 ? <p className="py-2 text-[13.5px] text-mute">{t('Keine Besuche in diesem Zeitraum.')}</p> :
+            <ul className="divide-y divide-line">{shown.map((v, i) => <li key={i} className="py-2.5">
+              <div className="flex items-start justify-between gap-3"><span className={`min-w-0 text-[14px] ${v.cancelled ? 'line-through text-mute' : ''}`}>{v.service}{v.extras.length > 0 && <span className="text-mute"> · {v.extras.join(' · ')}</span>}</span><span className="text-[13px] text-mute shrink-0 tabular-nums">{d(v.date)}</span></div>
+              <p className="text-[12.5px] text-mute mt-0.5">{v.upcoming ? <span className="text-olive-700">{t('Kommend')} · </span> : v.cancelled ? <span>{t('Abgesagt')} · </span> : null}{[v.branch, v.staff].filter(Boolean).join(' · ')}</p>
               {v.notes && <p className="text-[13px] mt-1 text-ink/80 whitespace-pre-wrap">{v.notes}</p>}
-            </div>)}
-            {h.visits.length === 0 && <div className="px-4 py-3 text-[13px] text-mute">{t('Keine Besuche in diesem Zeitraum.')}</div>}
+            </li>)}</ul>}
+            {hist.length > 8 && <button onClick={() => setAll(!all)} className="mt-2 text-[13.5px] text-ink/80 hover:text-ink inline-flex items-center gap-1">{all ? t('Weniger anzeigen') : t('Alle {n} anzeigen', { n: hist.length })}<ChevronDown size={15} className={`transition ${all ? 'rotate-180' : ''}`} /></button>}
           </div>}
         </>}
-        <p className="mt-4 px-1 text-[11px] text-mute">{t('Ändern, Bezahlen und Check-in bleiben in Phorest.')}</p>
+        <p className="mt-6 text-[11.5px] text-mute">{t('Ändern, Bezahlen und Check-in bleiben in Phorest.')}</p>
       </div>
     </div>
   )

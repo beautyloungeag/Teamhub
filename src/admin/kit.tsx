@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { motion } from 'motion/react'
-import { Check, ChevronDown, Info, Plus, Search, X } from 'lucide-react'
+import { AlertCircle, ArrowLeft, Check, CheckCircle2, ChevronDown, ChevronRight, Circle, CircleDashed, Copy, Hourglass, Info, Link2, Lock, Plus, Search, X, XCircle } from 'lucide-react'
+import { toast } from '../Toast'
+import { tr } from '../lib/i18n'
 import { supabase } from '../lib/supabase'
 import type { Staff } from '../store'
 
@@ -107,10 +109,13 @@ export function Select({ value, onChange, options, placeholder = 'Auswählen …
   )
 }
 
-/** Segmente (z. B. Offen · Erledigt). */
+/** Segmente (z. B. Offen · Erledigt): die Markierung gleitet weich zum gewählten Teil. */
 export function Seg<T extends string>({ value, onChange, items }: { value: T; onChange: (v: T) => void; items: [T, ReactNode][] }) {
+  const id = useId()
   return <div className="inline-flex gap-1 p-1 rounded-[10px] bg-sage-50 shrink-0">{items.map(([k, l]) =>
-    <button key={k} onClick={() => onChange(k)} className={`h-8 px-3 rounded-[8px] text-[13px] transition whitespace-nowrap ${value === k ? 'bg-white text-ink shadow-[0_1px_2px_rgba(29,34,28,.08)]' : 'text-ink/60 hover:text-ink'}`}>{l}</button>)}</div>
+    <button key={k} onClick={() => onChange(k)} className={`relative h-8 px-3 rounded-[8px] text-[13px] transition-colors whitespace-nowrap ${value === k ? 'text-ink' : 'text-ink/60 hover:text-ink'}`}>
+      {value === k && <motion.span layoutId={`seg-${id}`} transition={{ duration: .3, ease: [.22, 1, .36, 1] }} className="absolute inset-0 rounded-[8px] bg-white shadow-[0_1px_2px_rgba(29,34,28,.08)]" />}
+      <span className="relative">{l}</span></button>)}</div>
 }
 
 /** Mehrfachauswahl als Chips (Studios, Skills, Gruppen). */
@@ -125,7 +130,7 @@ export function Modal({ title, onClose, children, footer, width = 560 }: { title
   useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }; document.addEventListener('keydown', k); return () => document.removeEventListener('keydown', k) }, [onClose])
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-6" onMouseDown={onClose}>
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="absolute inset-0 bg-ink/30" />
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="absolute inset-0 bg-ink/20 backdrop-blur-[6px]" />
       <motion.div initial={{ opacity: 0, y: 12, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: 0.16 }} onMouseDown={e => e.stopPropagation()}
         style={{ maxWidth: width }} className="relative w-full max-h-[calc(100dvh-48px)] flex flex-col rounded-[20px] bg-white shadow-[0_24px_64px_-24px_rgba(29,34,28,.45)]">
         <div className="flex items-center justify-between gap-4 px-6 pt-5 pb-3"><p className="text-[18px] font-medium">{title}</p>
@@ -140,3 +145,52 @@ export function Modal({ title, onClose, children, footer, width = 560 }: { title
 /** Status-Punkt mit Text (offen, erledigt, überfällig …). */
 export const Dot = ({ tone, children }: { tone: 'ok' | 'alert' | 'brass' | 'mute' | 'olive'; children: ReactNode }) =>
   <span className="inline-flex items-center gap-1.5"><span className={`w-[7px] h-[7px] rounded-full ${{ ok: 'bg-ok', alert: 'bg-alert', brass: 'bg-brass', mute: 'bg-sage-400', olive: 'bg-olive-700' }[tone]}`} />{children}</span>
+
+/* ---------- Seiten, Abschnitte, Zustände ---------- */
+
+/** Weg zurück zur Liste, oben links auf jeder Detailseite. */
+export const Back = ({ onClick, children }: { onClick: () => void; children: ReactNode }) =>
+  <button onClick={onClick} className="h-9 pl-2 pr-3 -ml-2 mb-4 rounded-[10px] hover:bg-sage-50 inline-flex items-center gap-1.5 text-[14px] text-ink/80"><ArrowLeft size={16} />{children}</button>
+
+/** Abschnittskopf: Titel in Satzschreibung, Zähler, rechts eine Aktion. */
+export const Section = ({ title, count, action, children, className = '' }: { title: ReactNode; count?: number | string; action?: ReactNode; children?: ReactNode; className?: string }) =>
+  <section className={className}><div className="flex items-baseline justify-between gap-3 mb-2"><h2 className="font-sans text-[15px] font-medium tracking-normal">{title}{count !== undefined && <span className="ml-2 text-mute font-normal tabular-nums">{count}</span>}</h2>{action}</div>{children}</section>
+
+/** Ein leerer Bereich: ein Satz, eine Aktion, oben links. */
+export const Empty = ({ children, action }: { children: ReactNode; action?: ReactNode }) =>
+  <p className="py-3 text-[14px] text-mute">{children}{action && <span className="ml-2">{action}</span>}</p>
+
+/** Status als Icon plus Wort, überall gleich. */
+type StatusKind = 'done' | 'open' | 'late' | 'wait' | 'no' | 'none' | 'yes'
+export function Status({ kind, children }: { kind: StatusKind; children: ReactNode }) {
+  const I = { done: CheckCircle2, yes: CheckCircle2, open: Circle, late: AlertCircle, wait: Hourglass, no: XCircle, none: CircleDashed }[kind]
+  const tone = { done: 'text-mute', yes: 'text-ok', open: 'text-ink/80', late: 'text-alert', wait: 'text-brass', no: 'text-mute', none: 'text-mute' }[kind]
+  return <span className={`inline-flex items-center gap-1.5 text-[13px] whitespace-nowrap ${tone}`}><I size={14} strokeWidth={2} className="shrink-0" />{children}</span>
+}
+
+/** Datenzeile wie in einem System: Bezeichnung links, Wert rechts, Kopieren beim Darüberfahren. */
+export function DataRow({ label, value, copy, href, muted }: { label: string; value: ReactNode; copy?: string | null; href?: string; muted?: boolean }) {
+  const [ok, setOk] = useState(false)
+  const doCopy = async () => { if (!copy) return; try { await navigator.clipboard.writeText(copy); setOk(true); toast(tr('{x} kopiert', { x: label })); setTimeout(() => setOk(false), 1400) } catch { /* Zwischenablage gesperrt */ } }
+  const v = <span className={`text-right min-w-0 break-words ${muted ? 'text-mute' : 'text-ink'}`}>{value}</span>
+  return (
+    <div className="group min-h-[40px] py-2 flex items-start justify-between gap-6 text-[14px] border-b border-line last:border-b-0">
+      <span className="text-mute shrink-0 pt-px">{label}</span>
+      <span className="flex items-center gap-1.5 min-w-0">
+        {copy && <button type="button" onClick={doCopy} aria-label={tr('{x} kopieren', { x: label })} className="w-6 h-6 -my-0.5 rounded-[6px] text-mute hover:text-ink hover:bg-sage-50 flex items-center justify-center opacity-0 group-hover:opacity-100 focus:opacity-100 transition shrink-0">{ok ? <Check size={13} /> : <Copy size={13} />}</button>}
+        {href ? <a href={href} className="text-right min-w-0 break-words hover:underline underline-offset-2">{value}</a> : v}
+      </span>
+    </div>
+  )
+}
+
+/** Kopf eines Datensatzes: Name mit Link-Icon, darunter woher er kommt. */
+export const RecordHead = ({ name, source, right }: { name: ReactNode; source: string; right?: ReactNode }) =>
+  <div className="flex items-start gap-2.5"><Link2 size={17} className="text-ok mt-1 shrink-0" /><div className="min-w-0 flex-1"><p className="text-[17px] font-medium leading-snug truncate">{name}</p><p className="text-[12.5px] text-mute">{source}</p></div>{right}</div>
+
+/** Nur lesen: Schloss plus kurzer Grund. */
+export const ReadOnly = ({ children }: { children: ReactNode }) => <span className="inline-flex items-center gap-1.5 text-[12.5px] text-mute"><Lock size={12} />{children}</span>
+
+/** Zeile, die man anklicken kann: Hover-Fläche und Pfeil am Ende. */
+export const RowLink = ({ onClick, children, className = '' }: { onClick: () => void; children: ReactNode; className?: string }) =>
+  <button type="button" onClick={onClick} className={`group w-full text-left flex items-center gap-4 px-3 -mx-3 rounded-[10px] hover:bg-sage-50 transition-colors ${className}`}>{children}<ChevronRight size={16} className="text-sage-400 group-hover:text-ink shrink-0 transition-colors" /></button>

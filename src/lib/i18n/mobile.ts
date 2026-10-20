@@ -1,5 +1,16 @@
 // Schlüssel = deutscher Text, Werte [Englisch, Französisch].
 export default {
+  "Kategorien": ["Categories", "Catégories"],
+  "Kundendatensatz aus Phorest": ["Client record from Phorest", "Fiche cliente Phorest"],
+  "Keine Notiz": ["No note", "Aucune note"],
+  "Kundin seit": ["Client since", "Cliente depuis"],
+  "Letzter Besuch": ["Last visit", "Dernière visite"],
+  "Weniger anzeigen": ["Show less", "Afficher moins"],
+  "Mehr anzeigen": ["Show more", "Afficher plus"],
+  "Historie": ["History", "Historique"],
+  "Alle {n} anzeigen": ["Show all {n}", "Afficher les {n}"],
+  "{x} kopiert": ["{x} copied", "{x} copié"],
+  "{x} kopieren": ["Copy {x}", "Copier {x}"],
   "1 Kundin": ["1 client", "1 cliente"],
   "1 Bewertung": ["1 review", "1 avis"],
   "Eine Person hat teilgenommen": ["One person took part", "Une personne a participé"],

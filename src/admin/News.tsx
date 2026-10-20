@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Bell, Check, Pencil, Plus, Trash2, X } from 'lucide-react'
-import { useApp, inNewsAudience, GROUPS, type News } from '../store'
+import { Bell, Check, ChevronRight, Pencil, Plus, Trash2, X } from 'lucide-react'
+import { useApp, inNewsAudience, fmtDate, GROUPS, type News, type Staff } from '../store'
 import { supabase } from '../lib/supabase'
 import { notifyNow } from '../lib/push'
 import { downloadCsv } from '../lib/csv'
@@ -8,7 +8,8 @@ import { BMark } from '../Logo'
 import { Avatar } from '../People'
 import { PollResults, usePollResults } from '../Poll'
 import { toast } from '../Toast'
-import { H, New, Th, Bar, Field, inpStone, btn, btn2, Err, retranslate, real, isTest, inBranch, Select, Modal, Chips } from './kit'
+import { H, New, Th, Field, inpStone, btn, btn2, Err, retranslate, real, isTest, inBranch, Select, Seg, Modal, Chips, Back, Section, Status, Empty, DataRow } from './kit'
+import { Donut } from './charts'
 
 // News: Büro für alle Studios, Filialleitung für ihr Studio. Zielgruppe nach Studio, Gruppe, Skill oder Personen,
 // Pflicht mit Lesebestätigung, zeitgesteuert, Entwurf und Bild von Benni, Umfrage anhängen, nachträglich bearbeiten.
@@ -20,46 +21,68 @@ export function useAudience() {
 }
 
 export function NewsAdmin() {
-  const { news, newsReads, me, reload, quizzes, polls } = useApp()
+  const { news, newsReads, me, polls } = useApp()
   const audience = useAudience()
   const office = me.app_role === 'buero'
   const mine = [me.branch_id, ...(me.extra ?? [])]
   // Filialleitung sieht News für ihr Studio und ihre eigenen
   const list = news.filter(n => office || n.authorId === me.id || n.audienceBranches.length === 0 || n.audienceBranches.some(b => mine.includes(b)))
-  const [sel, setSel] = useState<string | null>(null), [compose, setCompose] = useState<News | 'neu' | null>(null)
-  const n = list.find(x => x.id === sel) ?? list[0]
+  const [open, setOpen] = useState<string | null>(null), [compose, setCompose] = useState<News | 'neu' | null>(null)
   const reachOf = (x: News) => audience(x).filter(s => office || mine.some(b => inBranch(s, b)))
-  const pctOf = (x: News) => { const p = reachOf(x); return p.length ? Math.round(p.filter(s => newsReads.some(r => r.news_id === x.id && r.employee_id === s.id && r.confirmed_at)).length / p.length * 100) : 0 }
-  const people = n ? reachOf(n) : []
-  const canEdit = (x: News) => office || x.authorId === me.id
-  const poll = n ? polls.find(p => p.newsId === n.id) : undefined
+  const okOf = (x: News) => reachOf(x).filter(s => newsReads.some(r => r.news_id === x.id && r.employee_id === s.id && r.confirmed_at)).length
+  const n = open ? list.find(x => x.id === open) : null
+  if (n) return <><NewsPage n={n} people={reachOf(n)} onBack={() => setOpen(null)} onEdit={() => setCompose(n)} />{compose && <Compose edit={compose === 'neu' ? null : compose} onClose={() => setCompose(null)} />}</>
   return (<>
-    <H info={office ? 'News an alle oder an Studios, Gruppen, Skills und einzelne Personen. Pflicht-News brauchen eine Lesebestätigung, an jede News lässt sich eine Umfrage hängen.' : 'News für dein Studio. Pflicht-News brauchen eine Lesebestätigung, du siehst, wer bestätigt hat. An jede News lässt sich eine Umfrage hängen.'}
-      action={<New onClick={() => setCompose('neu')}>Neue News</New>}>News</H>
-    {list.length === 0 ? <p className="text-[14px] text-mute">Noch keine News. Oben rechts schreibst du eine, Benni hilft beim Entwurf.</p> : (
-    <div className="grid grid-cols-[minmax(0,1fr)_380px] gap-8">
-      <table className="tbl w-full text-[14px] self-start"><thead><tr><Th>Titel</Th><Th>Zielgruppe</Th><Th>Datum</Th><Th>Gelesen</Th></tr></thead>
-        <tbody className="divide-y divide-line">{list.map(x => { const p = x.mustRead ? pctOf(x) : null, planned = new Date(x.publishAt) > new Date()
-          return <tr key={x.id} onClick={() => setSel(x.id)} className={`cursor-pointer ${n?.id === x.id ? 'bg-sage-50' : 'hover:bg-sage-50/70'}`}>
-            <td className="px-4 py-3">{x.title}{x.mustRead && <span className="ml-2 text-xs text-brass">Pflicht</span>}{polls.some(pl => pl.newsId === x.id) && <span className="ml-2 text-xs text-olive-700">Umfrage</span>}{planned && <span className="ml-2 text-xs text-mute">geplant</span>}<p className="text-xs text-mute">{x.author}</p></td>
-            <td className="px-4 text-mute">{x.audience}</td><td className="px-4 text-mute">{x.date}</td>
-            <td className="px-4 w-32">{p !== null ? <span className="flex items-center gap-2"><Bar p={p} /><span className="text-xs text-mute">{p}%</span></span> : <span className="text-xs text-mute">–</span>}</td></tr> })}</tbody></table>
-      {n && <aside className="self-start rounded-[20px] border border-line p-5">
-        <div className="flex items-start justify-between gap-3"><p className="font-medium text-[16px]">{n.title}</p>
-          {canEdit(n) && <div className="flex gap-1 shrink-0">
-            <button onClick={() => setCompose(n)} title="Bearbeiten" className="w-8 h-8 rounded-full text-mute hover:text-ink hover:bg-sage-50 flex items-center justify-center"><Pencil size={14} /></button>
-            <button onClick={async () => { if (confirm(`„${n.title}“ löschen?${quizzes.some(q => q.newsId === n.id) ? ' Das Quiz dazu und alle Ergebnisse werden mit gelöscht.' : ''}${poll ? ' Die Umfrage und alle Antworten werden mit gelöscht.' : ''} Lesebestätigungen gehen verloren.`)) { const { error } = await supabase!.from('news').delete().eq('id', n.id); if (error) { toast('Löschen hat nicht geklappt', 'error'); return } setSel(null); await reload(); toast('News gelöscht') } }} title="Löschen" className="w-8 h-8 rounded-full text-mute hover:text-alert hover:bg-sage-50 flex items-center justify-center"><Trash2 size={14} /></button>
-          </div>}</div>
-        <p className="text-[12.5px] text-mute mt-1">{n.author} · {n.date}{n.mustRead ? ` · ${people.filter(s => newsReads.some(r => r.news_id === n.id && r.employee_id === s.id && r.confirmed_at)).length} von ${people.length} bestätigt` : ''}</p>
-        {n.teaser && <p className="mt-3 text-[13.5px] text-ink/80">{n.teaser}</p>}
-        {poll && <PollPanel key={poll.id} pollId={poll.id} anonymous={poll.anonymous} closed={!!poll.closesAt && new Date(poll.closesAt) < new Date()} title={n.title} reach={people.length} />}
-        {n.mustRead ? <ul className="mt-4 max-h-[420px] overflow-y-auto no-scrollbar divide-y divide-line">{people.map(s => { const r = newsReads.find(x => x.news_id === n.id && x.employee_id === s.id)
-          return <li key={s.id} className="py-2 flex items-center gap-2.5 text-[13px]"><Avatar s={s} photo={s.photo} size="w-6 h-6 text-[10px]" /><span className="flex-1 truncate">{s.first} {s.last} <span className="text-mute">· {s.branch}</span></span>{r?.confirmed_at ? <Check size={15} className="text-ok" /> : <span className="text-xs text-mute">{r ? 'geöffnet' : 'offen'}</span>}</li> })}</ul>
-          : <p className="mt-4 text-[13px] text-mute">Ohne Lesebestätigung · erreicht {people.length} Personen</p>}
-      </aside>}
-    </div>)}
+    <H action={<New onClick={() => setCompose('neu')}>Neue News</New>}>News</H>
+    {list.length === 0 ? <Empty>Noch keine News.</Empty> : (
+      <table className="tbl w-full text-[14px] table-fixed"><thead><tr><Th>Titel</Th><th className="w-[220px] text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">Für</th><th className="w-[120px] text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">Datum</th><th className="w-[200px] text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">Gelesen</th><th className="w-10 border-b border-line" /></tr></thead>
+        <tbody className="divide-y divide-line">{list.map(x => { const planned = new Date(x.publishAt) > new Date(), reach = reachOf(x).length, ok = x.mustRead ? okOf(x) : 0
+          return <tr key={x.id} onClick={() => setOpen(x.id)} className="cursor-pointer hover:bg-sage-50/70">
+            <td className="px-4 py-3"><span className="block truncate">{x.title}</span><span className="block text-[12.5px] text-mute truncate">{x.author}{x.mustRead ? ' · Pflicht' : ''}{polls.some(p => p.newsId === x.id) ? ' · mit Umfrage' : ''}{planned ? ' · geplant' : ''}</span></td>
+            <td className="px-4 text-mute truncate">{x.audience}</td><td className="px-4 text-mute">{x.date}</td>
+            <td className="px-4">{x.mustRead ? <span className="flex items-center gap-3"><span className="flex-1 h-1.5 rounded-full bg-line overflow-hidden"><span className={`block h-full rounded-full ${ok < reach ? 'bg-brass' : 'bg-olive-700'}`} style={{ width: `${reach ? ok / reach * 100 : 0}%` }} /></span><span className="text-[12.5px] text-mute tabular-nums w-12 text-right">{ok}/{reach}</span></span> : <span className="text-[13px] text-mute">ohne Bestätigung</span>}</td>
+            <td className="px-2 text-right text-mute"><ChevronRight size={15} className="inline" /></td></tr> })}</tbody></table>)}
     {compose && <Compose edit={compose === 'neu' ? null : compose} onClose={() => setCompose(null)} />}
   </>)
+}
+
+function NewsPage({ n, people, onBack, onEdit }: { n: News; people: Staff[]; onBack: () => void; onEdit: () => void }) {
+  const { newsReads, me, reload, quizzes, polls } = useApp()
+  const canEdit = me.app_role === 'buero' || n.authorId === me.id
+  const poll = polls.find(p => p.newsId === n.id)
+  const [who, setWho] = useState<'alle' | 'ok' | 'offen'>('alle')
+  const rows = people.map(s => ({ s, r: newsReads.find(x => x.news_id === n.id && x.employee_id === s.id) }))
+  const ok = rows.filter(x => x.r?.confirmed_at).length
+  const list = rows.filter(x => who === 'alle' || (who === 'ok' ? !!x.r?.confirmed_at : !x.r?.confirmed_at))
+  const del = async () => { if (!confirm(`„${n.title}“ löschen?${quizzes.some(q => q.newsId === n.id) ? ' Das Quiz dazu und alle Ergebnisse werden mit gelöscht.' : ''}${poll ? ' Die Umfrage und alle Antworten werden mit gelöscht.' : ''} Lesebestätigungen gehen verloren.`)) return
+    const { error } = await supabase!.from('news').delete().eq('id', n.id); if (error) { toast('Löschen hat nicht geklappt', 'error'); return } await reload(); toast('News gelöscht'); onBack() }
+  return (
+    <div className="max-w-[1000px]">
+      <Back onClick={onBack}>News</Back>
+      <div className="flex items-start justify-between gap-6">
+        <div className="min-w-0"><p className="text-[13px] text-mute">{n.author} · {n.date}{n.mustRead ? ' · Pflicht' : ''}</p><h1 className="text-[28px] leading-tight mt-1">{n.title}</h1></div>
+        {canEdit && <div className="flex items-center gap-2 shrink-0"><button onClick={del} title="Löschen" className="w-10 h-10 rounded-[10px] text-mute hover:text-alert hover:bg-sage-50 flex items-center justify-center"><Trash2 size={16} /></button><button onClick={onEdit} className={`${btn2} flex items-center gap-2`}><Pencil size={14} />Bearbeiten</button></div>}
+      </div>
+      <div className="grid grid-cols-[minmax(0,1fr)_300px] gap-12 mt-6">
+        <div>{n.image && <img src={n.image} alt="" className="w-full aspect-[3/2] object-cover rounded-[14px] mb-5" />}<div className="space-y-3 text-[15px] leading-relaxed text-ink/85">{n.body.split('\n\n').map((p, i) => <p key={i}>{p}</p>)}</div></div>
+        <div className="self-start">
+          <DataRow label="Für" value={n.audience} />
+          <DataRow label="Erreicht" value={`${people.length} ${people.length === 1 ? 'Person' : 'Personen'}`} />
+          {n.wikiCategory && <DataRow label="Im Wissen" value={n.wikiCategory} />}
+          {n.mustRead && <div className="flex items-center gap-4 mt-5"><Donut value={ok} total={people.length} size={64} stroke={7} /><span className="text-[14px]"><span className="block font-medium tabular-nums">{ok} von {people.length}</span><span className="text-mute">haben bestätigt</span></span></div>}
+        </div>
+      </div>
+      {poll && <PollPanel key={poll.id} pollId={poll.id} anonymous={poll.anonymous} closed={!!poll.closesAt && new Date(poll.closesAt) < new Date()} title={n.title} reach={people.length} />}
+      {n.mustRead && <Section className="mt-12" title="Lesebestätigung" count={people.length}>
+        <div className="mb-3"><Seg value={who} onChange={setWho} items={[['alle', 'Alle'], ['ok', `Bestätigt ${ok}`], ['offen', `Offen ${people.length - ok}`]]} /></div>
+        <table className="tbl w-full text-[14px] table-fixed"><thead><tr><Th>Person</Th><th className="w-[180px] text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">Studio</th><th className="w-[260px] text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">Stand</th></tr></thead>
+          <tbody className="divide-y divide-line">{list.map(({ s, r }) => <tr key={s.id}>
+            <td className="px-4 py-2.5"><span className="flex items-center gap-3 min-w-0"><Avatar s={s} photo={s.photo} size="w-8 h-8 text-[12px]" /><span className="truncate">{s.first} {s.last}</span></span></td>
+            <td className="px-4 text-mute">{s.branch}</td>
+            <td className="px-4">{r?.confirmed_at ? <Status kind="done">Bestätigt am {fmtDate(r.confirmed_at, { day: 'numeric', month: 'numeric' })}</Status> : r ? <Status kind="wait">Geöffnet, nicht bestätigt</Status> : <Status kind="none">Noch nicht geöffnet</Status>}</td></tr>)}</tbody></table>
+      </Section>}
+    </div>
+  )
 }
 
 /* Ergebnis einer Umfrage in der Seitenspalte: Teilnahme, Ergebnis je Frage (mit Namen, ausser anonym), erinnern, CSV */
@@ -73,14 +96,10 @@ function PollPanel({ pollId, anonymous, closed, title, reach }: { pollId: string
     toast(data?.ok ? (data.sent ? `Erinnerung an ${data.people} ${data.people === 1 ? 'Person' : 'Personen'} geschickt` : 'Erinnerung gesendet, aber niemand hat Mitteilungen eingeschaltet') : 'Das hat nicht geklappt', data?.ok ? 'ok' : 'error')
   }
   const csv = () => r && downloadCsv(`Umfrage ${title}`, r.questions.flatMap(q => q.answers.map(a => ({ Frage: q.prompt, Antwort: Array.isArray(a.value) ? a.value.map(i => q.options[i]).join(', ') : q.kind === 'single' ? q.options[Number(a.value)] : String(a.value), Name: a.name ?? (anonymous ? 'anonym' : '') }))))
-  return <div className="mt-4 pt-4 border-t border-line">
-    <div className="flex items-baseline justify-between"><p className="rubric text-olive-700">Umfrage{anonymous ? ' · anonym' : ''}{closed ? ' · beendet' : ''}</p>{r && <span className="text-[12.5px] text-mute">{r.respondents} von {reach} haben teilgenommen</span>}</div>
-    {!r ? <p className="text-[13px] text-mute mt-2">Lädt …</p> : <div className="mt-3 max-h-[380px] overflow-y-auto no-scrollbar"><PollResults data={r} names={!anonymous} /></div>}
-    <div className="mt-3 flex gap-2">
-      {!closed && r && r.respondents < reach && <button disabled={busy} onClick={remind} className={`${btn2} flex-1 flex items-center justify-center gap-2 !h-9 text-[13px]`}><Bell size={14} />{busy ? 'Sendet …' : 'Offene erinnern'}</button>}
-      {r && r.respondents > 0 && <button onClick={csv} className={`${btn2} !h-9 text-[13px]`}>Als CSV</button>}
-    </div>
-  </div>
+  return <Section className="mt-12" title={`Umfrage${anonymous ? ' · anonym' : ''}${closed ? ' · beendet' : ''}`} count={r ? `${r.respondents} von ${reach}` : undefined}
+    action={<span className="flex items-center gap-4">{!closed && r && r.respondents < reach && <button disabled={busy} onClick={remind} className="text-[13px] text-olive-700 inline-flex items-center gap-1.5"><Bell size={13} />{busy ? 'Sendet …' : 'Offene erinnern'}</button>}{r && r.respondents > 0 && <button onClick={csv} className="text-[13px] text-olive-700">Als CSV</button>}</span>}>
+    {!r ? <p className="text-[13px] text-mute">Lädt …</p> : <div className="max-w-[640px]"><PollResults data={r} names={!anonymous} /></div>}
+  </Section>
 }
 
 type QDraft = { id?: string; kind: 'single' | 'multi' | 'scale' | 'text'; prompt: string; options: string[] }
