@@ -108,6 +108,7 @@ function Lessons({ onOpen }: { onOpen: (s: Step) => void }) {
   const doneBy = (s: Step) => { const ps = people.filter(p => s.branchIds.length === 0 || s.branchIds.some(b => inBranch(p, b))); return [ps.filter(p => stats(p).steps.some(x => x.s.id === s.id && x.done)).length, ps.length] }
   return (<>
     <LearnSettings />
+    {office && <Proposal />}
     {steps.length === 0 ? <Empty>Noch keine Lektionen.</Empty> :
     <table className="tbl w-full text-[14px] table-fixed"><thead><tr><Th>Lektion</Th><th className="w-[260px] text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">Lernstoff</th><th className="w-[150px] text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">Für</th><th className="w-[200px] text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">Erledigt</th><th className="w-10 border-b border-line" /></tr></thead>
       <tbody className="divide-y divide-line">{steps.map((s, i) => { const [a, b] = doneBy(s), ed = canEdit(s)
@@ -262,7 +263,7 @@ function QuizEditor({ q, onBack }: { q: QuizEdit; onBack: () => void }) {
     if (edit.target === 'article' && !edit.articleId) { setErr('Bitte einen Artikel wählen.'); return }
     if (!qs.length) { setErr('Mindestens eine Frage ist nötig.'); return }
     const bad = qs.findIndex(x => x.kind === 'text' ? !x.rubric.trim() : x.options.filter(Boolean).length < 2 || x.correct.length === 0 || x.correct.some(c => !x.options[c]))
-    if (bad >= 0) { setErr(qs[bad].kind === 'text' ? `Frage ${bad + 1}: bitte beschreiben, woran eine richtige Antwort zu erkennen ist.` : `Frage ${bad + 1}: mindestens zwei Antworten und eine richtige markieren.`); return }
+    if (bad >= 0) { setErr(qs[bad].kind === 'text' ? `Frage ${bad + 1}: bitte das Lernziel für Benni ausfüllen.` : `Frage ${bad + 1}: mindestens zwei Antworten und eine richtige markieren.`); return }
     setBusy(true); setErr('')
     // Neuer Lernstoff: wird als Pflicht-News mit Lesebestätigung veröffentlicht, das Quiz hängt daran
     let newsId = edit.target === 'news' ? edit.newsId : null
@@ -315,7 +316,7 @@ function QuizEditor({ q, onBack }: { q: QuizEdit; onBack: () => void }) {
             <input value={x.prompt} onChange={e => setQ(i, { prompt: e.target.value })} placeholder="Frage" className="flex-1 h-10 rounded-[8px] px-2 bg-transparent hover:bg-sage-50 focus:bg-sage-50 outline-none text-[15px] font-medium" />
             <Seg value={x.kind} onChange={k => setQ(i, { kind: k, correct: k === 'single' ? x.correct.slice(0, 1) : x.correct })} items={[['single', 'Eine richtig'], ['multi', 'Mehrere'], ['text', 'Freitext']]} />
             <button onClick={() => setEdit({ ...edit, qs: edit.qs.filter((_, j) => j !== i) })} title="Frage entfernen" className="w-8 h-8 rounded-[8px] text-mute hover:text-alert hover:bg-sage-50 flex items-center justify-center shrink-0"><Trash2 size={15} /></button></div>
-          {x.kind === 'text' ? <div className="mt-2 pl-8"><textarea value={x.rubric} onChange={e => setQ(i, { rubric: e.target.value })} rows={2} placeholder="Woran erkennt Benni eine richtige Antwort? z. B. „Schutz vor Keimen, keine Übertragung zwischen Kunden“" className="w-full rounded-[10px] bg-sage-50 px-3 py-2 text-[14px] outline-none resize-none" /></div>
+          {x.kind === 'text' ? <Rubric prompt={x.prompt} value={x.rubric} onChange={v => setQ(i, { rubric: v })} />
             : <div className="mt-2 pl-8 space-y-1">{x.options.map((o, j) => { const on = x.correct.includes(j)
               return <div key={j} className="group flex items-center gap-2">
                 <button title={on ? 'Richtige Antwort' : 'Als richtig markieren'} onClick={() => setQ(i, { correct: x.kind === 'single' ? [j] : on ? x.correct.filter(c => c !== j) : [...x.correct, j] })} className={`w-5 h-5 shrink-0 flex items-center justify-center ${x.kind === 'single' ? 'rounded-full' : 'rounded-[6px]'} ${on ? 'bg-olive-700 text-white' : 'shadow-[inset_0_0_0_1.5px_#979E92]'}`}>{on && <Check size={12} strokeWidth={3} />}</button>
@@ -329,4 +330,51 @@ function QuizEditor({ q, onBack }: { q: QuizEdit; onBack: () => void }) {
       </Section>
     </div>
   )
+}
+
+/** Freitext: Lernziel für Benni, plus eine Probeantwort, die Benni sofort bewertet (nichts wird gespeichert). */
+function Rubric({ prompt, value, onChange }: { prompt: string; value: string; onChange: (v: string) => void }) {
+  const [answer, setAnswer] = useState(''), [busy, setBusy] = useState(false)
+  const [res, setRes] = useState<{ correct: boolean; feedback: string } | 'error' | null>(null)
+  const tryIt = async () => {
+    if (!value.trim() || !answer.trim()) return
+    setBusy(true); setRes(null)
+    const { data, error } = await supabase!.functions.invoke('quiz', { body: { action: 'try', prompt, rubric: value, answer } })
+    setBusy(false); setRes(error || !data?.ok ? 'error' : { correct: data.correct, feedback: data.feedback })
+  }
+  return (
+    <div className="mt-3 pl-8 space-y-4">
+      <div>
+        <p className="text-[13.5px] font-medium">Lernziel für Benni</p>
+        <p className="text-[12.5px] text-mute mt-0.5">Was soll die Person verstanden haben, und worauf kommt es an? Benni wertet die Antwort als richtig, wenn sie das im Kern trifft, auch mit eigenen Worten. Fehlt ein Punkt, den du hier als wichtig nennst, ist sie falsch.</p>
+        <textarea value={value} onChange={e => onChange(e.target.value)} rows={4} placeholder={'z. B. Die Person weiss, dass Instrumente nach jeder Kundin desinfiziert werden, damit keine Keime übertragen werden. Wichtig: Desinfektion nach jedem Einsatz und der Grund (Schutz der Kunden).'} className="mt-2 w-full rounded-[10px] bg-sage-50 px-3 py-2.5 text-[14px] outline-none resize-y" />
+      </div>
+      <div>
+        <p className="text-[13.5px] font-medium">Ausprobieren</p>
+        <div className="mt-1.5 flex gap-2"><input value={answer} onChange={e => setAnswer(e.target.value)} onKeyDown={e => e.key === 'Enter' && tryIt()} placeholder="So könnte jemand antworten …" className="flex-1 h-10 rounded-[10px] bg-sage-50 px-3 text-[14px] outline-none" />
+          <button disabled={busy || !value.trim() || !answer.trim()} onClick={tryIt} className="h-10 px-4 rounded-[10px] bg-sage-50 hover:bg-sage-100 text-[14px] disabled:opacity-50">{busy ? 'Benni prüft …' : 'Bewerten lassen'}</button></div>
+        {res === 'error' && <p className="mt-2 text-[13px] text-alert">Benni ist gerade nicht erreichbar.</p>}
+        {res && res !== 'error' && <p className="mt-2 text-[13.5px] flex items-start gap-2"><Status kind={res.correct ? 'yes' : 'late'}>{res.correct ? 'Richtig' : 'Falsch'}</Status><span className="text-ink/80">{res.feedback}</span></p>}
+      </div>
+    </div>
+  )
+}
+
+/** Vorschlag aus dem bisherigen Wiki: Onboarding-Lektionen, die das Büro übernehmen kann (nur sichtbar, solange er offen ist). */
+function Proposal() {
+  const { allSteps, steps, reload } = useApp()
+  const list = allSteps.filter(x => x.proposed)
+  const [show, setShow] = useState(false)
+  if (!list.length) return null
+  const take = async () => {
+    if (!confirm(`Die ${list.length} Lektionen aus dem bisherigen Wiki übernehmen? Die ${steps.length} Beispiel-Lektionen und der Fortschritt dazu werden dabei entfernt.`)) return
+    await supabase!.rpc('approve_wiki_proposals', { p_kind: 'onboarding' }); await reload(); retranslate(); toast('Übernommen')
+  }
+  return <div className="mb-8 pb-6 border-b border-line">
+    <div className="flex items-center gap-6">
+      <div className="flex-1"><p className="text-[15px] font-medium">{list.length} Lektionen aus dem bisherigen Wiki stehen bereit</p><p className="text-[13px] text-mute mt-0.5">Beim Import zusammengestellt. Wer sie übernimmt, ersetzt damit die {steps.length} Beispiel-Lektionen unten.</p></div>
+      <button onClick={() => setShow(!show)} className={btn2}>{show ? 'Ausblenden' : 'Ansehen'}</button><button onClick={take} className={btn}>Übernehmen</button>
+    </div>
+    {show && <ol className="mt-4 text-[13.5px] text-ink/80 list-decimal pl-5 columns-2 gap-8 space-y-1">{list.map(x => <li key={x.id}>{x.title} <span className="text-mute">· {x.minutes} Min.</span></li>)}</ol>}
+  </div>
 }

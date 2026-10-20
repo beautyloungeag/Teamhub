@@ -76,7 +76,7 @@ type Ctx = {
   standby: { employee_id: string; day: string; note: string }[]; toggleStandby: (day: string) => Promise<void>
   demoData: boolean; setDemoData: (on: boolean) => Promise<void>
   quizzes: Quiz[]; attempts: Attempt[]; submitQuiz: (quizId: string, answers: Record<string, number[] | string>) => Promise<QuizResult | null>
-  wiki: WikiArticle[]; reloadWiki: () => Promise<void>; steps: Step[]; allSteps: Step[]; obDone: Set<string>; toggleStep: (id: string) => Promise<void>
+  wiki: WikiArticle[]; reloadWiki: () => Promise<void>; catEmojis: Record<string, string>; steps: Step[]; allSteps: Step[]; obDone: Set<string>; toggleStep: (id: string) => Promise<void>
   skills: string[]; setSkills: (s: string[]) => void
   photo: string | null; setPhotoFile: (f: File) => Promise<void>
   myPhorest: { branch_id: string; staff_id: string }[]
@@ -120,11 +120,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [myPhorest, setMyPhorest] = useState<Ctx['myPhorest']>([])
   const newsForWiki = useRef<any[]>([])
   const [wikiRows, setWikiRows] = useState<any[]>([])
+  const [catEmojis, setCatEmojis] = useState<Record<string, string>>({})
   // Wissen: nur Liste laden (ohne Inhalte), einmal beim Start und nach Änderungen im Backoffice
   const reloadWiki = useCallback(async () => {
     if (!supabase || !employee) return
     const { data } = await supabase.from('wiki_articles').select('id, category, title, minutes, updated_at, media_kind, media_url, published, access_level, tags, intro, source_id, is_sample, i18n_en:i18n->EN, i18n_fr:i18n->FR').order('category').order('sort').order('title')
     setWikiRows(data ?? [])
+    const { data: cats } = await supabase.from('wiki_categories').select('key, emoji')
+    setCatEmojis(Object.fromEntries((cats ?? []).map((c: { key: string; emoji: string }) => [c.key, c.emoji])))
   }, [employee])
 
   const signedUrl = useCallback(async (bucket: string, path: string) => {
@@ -372,7 +375,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       toast(error ? tr('Das hat nicht geklappt') : had ? tr('Aushilfe-Tag entfernt') : tr('Aushilfe-Tag eingetragen'), error ? 'error' : 'ok')
     },
     setDemoData: async (on) => { await sb.from('app_settings').upsert({ key: 'demo_data', value: on, updated_at: new Date().toISOString() }); await reload(); await reloadWiki() },
-    wiki, reloadWiki, steps, allSteps, obDone,
+    wiki, reloadWiki, catEmojis, steps, allSteps, obDone,
     toggleStep: async (id) => {
       if (obDone.has(id)) await sb.from('onboarding_progress').delete().match({ step_id: id, employee_id: employee.id })
       else await sb.from('onboarding_progress').insert({ step_id: id, employee_id: employee.id })

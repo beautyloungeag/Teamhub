@@ -2,6 +2,15 @@
 
 Interne Mitarbeiter-App (PWA + Desktop-Backoffice) der Beautylounge AG. Kundin: Renée Baumann. PM-Projekt: `projekt.aleksa.ai`, Key **BLTH** (`d4ee5d5c-4553-436c-bba7-137a03a2b704`). ⚠️ Das Repo `beautyloungeag/Teamhub` ist **öffentlich** — nie Personendaten committen.
 
+### Nachtrag 2026-10-20 mittags (2) — Wissen neu im Backoffice, Lernziel für Freitext-Quiz
+
+- **Wissen (`src/admin/Wiki.tsx`, nur Büro):** gleiche Ansicht wie in der App. Themen als Kacheln mit Emoji → Artikel eines Themas → Artikel im Aussehen der App, direkt bearbeitbar. Inhalt sind die Bausteine in `wiki_articles.blocks` (Text, Überschrift, Aufzählung, Nummerierung, Hinweis, Bild, Video hochgeladen oder YouTube, Datei). Plus zwischen den Bausteinen fügt ein, der Griff links ändert Typ, Reihenfolge, entfernt. Enter teilt einen Absatz, markierter Text bekommt fett/kursiv/Link (gespeichert als `**`, `*`, `[Text](Link)` wie beim Import). Vorher waren die 180 importierten Artikel inhaltlich gar nicht bearbeitbar. Beim Speichern wird `body` (Klartext für Suche und Benni) und die Lesezeit aus den Bausteinen erzeugt; ein altes Einzelmedium (`media_url`) wird zum ersten Baustein. Dateien liegen unter `media/wiki/<Sichtbarkeit>/…` und ziehen beim Speichern mit, wenn sich die Sichtbarkeit ändert. Die Übersetzung erneuert sich von selbst (Hash über body + blocks).
+- **Themen (Migration `0025`):** Tabelle `wiki_categories` (key = Name klein, emoji), Standard-Emojis in `src/lib/wiki.ts`. Umbenennen per RPC `rename_wiki_category` zieht Artikel, News-Zuordnung und Emoji mit.
+- **„Prüfung fällig“ entfernt:** Datum und Filter waren unverständlich. `review_due` bleibt in der Datenbank, „Verantwortlich“ bleibt am Artikel.
+- **Onboarding-Vorschlag aus dem alten Wiki** steht jetzt unter Lernen → Lektionen (12 Lektionen, Übernehmen ersetzt die 5 Beispiel-Lektionen), nicht mehr im Wissen.
+- **Freitext-Quiz:** Feld „Lernziel für Benni“ mit Erklärung, dazu „Ausprobieren“: Probeantwort, Benni bewertet sofort (Function `quiz` Aktion `try`, nur Leitung/Büro, nichts gespeichert). Bewertungsanweisung geschärft: richtig, wenn der Kern verstanden ist, falsch, wenn ein im Lernziel als wichtig genannter Punkt fehlt.
+- ⚠️ **Typprüfung:** `npx tsc --noEmit -p .` prüft nichts (Root-tsconfig mit `files: []`). Richtig ist `npx tsc --noEmit -p tsconfig.app.json`.
+
 ### Nachtrag 2026-10-20 mittags — Anmeldung ohne Sperre, Studios wechseln, Rollen, Studio-Aufgaben
 
 - **Anmeldesperre aufgehoben:** Supabase Auth erlaubte nur 2 Anmelde-Mails pro Stunde (`rate_limit_email_sent`) und eine je Adresse pro 60 s. Per Management API gesetzt: `rate_limit_email_sent` 1000, `smtp_max_frequency` 5, `rate_limit_otp`/`rate_limit_verify` 300, `rate_limit_token_refresh` 600. Versand läuft über Resend (eigenes SMTP), deshalb sind die hohen Werte erlaubt.

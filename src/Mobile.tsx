@@ -13,6 +13,7 @@ import { pushState, enablePush, disablePush, testPush, reportDevice, isStandalon
 import { useApp, isoDay, addDays, type Lang, type News, type WikiArticle, type WikiBlock, type Staff } from './store'
 import { Terminbuch, EventCalendar } from './Calendar'
 import { tr, locale } from './lib/i18n'
+import { emojiOf } from './lib/wiki'
 import { BMark } from './Logo'
 import { Comments, Media } from './TicketParts'
 import { QuizRunner } from './QuizRunner'
@@ -463,19 +464,12 @@ function AI({ open }: { open: (s: Sub) => void }) {
   return <BenniChat variant="app" onOpenArticle={id => { const a = wiki.find(x => x.id === id); if (a) open({ k: 'wiki', item: a }) }} onOpenClient={cid => open({ k: 'clients', cid })} />
 }
 /* ---------- Wissen ---------- */
-// Jede Kategorie bekommt ein Emoji statt eines Fotos: einheitlich, ruhig, auch ohne Bilder im Artikel
-const CAT_EMOJI: Record<string, string> = {
-  ablauf: '📋', allgemein: '📌', 'how-to': '💡', behandlung: '💆‍♀️', filialen: '📍', füsse: '🦶', arbeitsplatz: '🪑', gerät: '🔌',
-  mitarbeiter: '👥', gutschein: '🎁', ausbildung: '🎓', arbeitszeit: '⏰', lehre: '📚', frei: '🌴', face: '✨', marketing: '📣',
-  reglement: '📜', kunden: '🤝', büro: '🗂️', hr: '🪪', kasse: '💳', bestellung: '📦', lohn: '💰', verkauf: '🛍️', nägel: '💅',
-  wichtig: '⭐', praktikum: '🧑‍🎓', massage: '🤲', body: '🧴', leitfaden: '🧭', versicherung: '🛡️', hygiene: '🧼', news: '📰',
-}
-const catEmoji = (key: string) => CAT_EMOJI[key.trim().toLowerCase()] ?? '📄'
+// Jede Kategorie bekommt ein Emoji statt eines Fotos: einheitlich, ruhig, auch ohne Bilder im Artikel (Standard in lib/wiki, Büro kann es ändern)
 const catName = (name: string) => name.slice(0, 1).toUpperCase() + name.slice(1)
 const articleIcon = (a: WikiArticle) => a.mediaKind === 'video' || a.mediaKind === 'youtube' ? <Video size={17} /> : a.fromNews ? <Newspaper size={17} /> : <BookOpen size={17} />
 
 function Wiki({ open }: { open: (s: Sub) => void }) {
-  const { t, wiki: allWiki, steps, obDone } = useApp()
+  const { t, wiki: allWiki, steps, obDone, catEmojis } = useApp()
   const wiki = allWiki.filter(a => a.published)
   const [q, setQ] = useState('')
   const cats = [...wiki.reduce((m, a) => { const c = m.get(a.catKey) ?? { key: a.catKey, name: a.cat, n: 0 }; c.n++; return m.set(a.catKey, c) }, new Map<string, { key: string; name: string; n: number }>()).values()]
@@ -494,7 +488,7 @@ function Wiki({ open }: { open: (s: Sub) => void }) {
           <Label>{t('Themen')}</Label>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">{cats.map(c => (
             <button key={c.key} onClick={() => open({ k: 'wiki-cat', key: c.key, name: c.name })} className="text-left rounded-[16px] bg-white p-4 h-[116px] flex flex-col justify-between transition hover:shadow-[0_1px_2px_rgba(29,34,28,.05),0_10px_24px_-14px_rgba(29,34,28,.28)] active:scale-[.99]">
-              <span className="text-[26px] leading-none" aria-hidden="true">{catEmoji(c.key)}</span>
+              <span className="text-[26px] leading-none" aria-hidden="true">{emojiOf(c.key, catEmojis)}</span>
               <span className="min-w-0"><span className="block font-display text-[17px] leading-tight truncate">{catName(c.name)}</span><span className="block text-[12px] text-mute mt-0.5">{c.n === 1 ? t('1 Thema') : t('{n} Themen', { n: c.n })}</span></span>
             </button>))}</div>
         </>}
@@ -508,13 +502,13 @@ function Wiki({ open }: { open: (s: Sub) => void }) {
 }
 
 function WikiCategory({ k, name, open }: { k: string; name: string; open: (s: Sub) => void }) {
-  const { t, wiki } = useApp()
+  const { t, wiki, catEmojis } = useApp()
   const items = wiki.filter(a => a.published && a.catKey === k).sort((x, y) => x.title.localeCompare(y.title))
   return (
     <div className="pb-10">
       <div className="px-5">
         <div className="mt-2 flex items-center gap-4">
-          <span className="w-14 h-14 rounded-[16px] bg-white flex items-center justify-center text-[28px] shrink-0" aria-hidden="true">{catEmoji(k)}</span>
+          <span className="w-14 h-14 rounded-[16px] bg-white flex items-center justify-center text-[28px] shrink-0" aria-hidden="true">{emojiOf(k, catEmojis)}</span>
           <div className="min-w-0"><h1 className="font-display text-[28px] leading-tight truncate">{catName(name)}</h1><p className="text-[13px] text-mute">{items.length === 1 ? t('1 Thema') : t('{n} Themen', { n: items.length })}</p></div>
         </div>
         <div className="mt-4"><List>{items.map(a => <Row key={a.id} icon={articleIcon(a)} title={a.title} sub={t('{n} Min. · aktualisiert {date}', { n: a.minutes, date: a.updated })} onClick={() => open({ k: 'wiki', item: a })} />)}</List></div>
@@ -550,7 +544,7 @@ function WikiDetail({ a }: { a: WikiArticle }) {
     if (a.fromNews || !supabase) return
     supabase.from('wiki_articles').select('title, intro, body, blocks').eq('id', a.id).maybeSingle().then(async ({ data }) => {
       setFull({ body: data?.body ?? '', blocks: (data?.blocks as WikiBlock[] | null) ?? null, title: data?.title, intro: data?.intro ?? '' })
-      const paths = [...new Set(((data?.blocks ?? []) as WikiBlock[]).filter(b => (b.t === 'img' || b.t === 'file') && b.src).map(b => b.src!))]
+      const paths = [...new Set(((data?.blocks ?? []) as WikiBlock[]).filter(b => (b.t === 'img' || b.t === 'file' || b.t === 'video') && b.src).map(b => b.src!))]
       if (a.mediaUrl && !/^https?:/.test(a.mediaUrl)) paths.push(a.mediaUrl)
       if (paths.length) {
         const { data: signed } = await supabase!.storage.from('media').createSignedUrls(paths, 3600)
@@ -581,7 +575,8 @@ function WikiDetail({ a }: { a: WikiArticle }) {
           case 'ul': case 'ol': { const L = b.t === 'ul' ? 'ul' : 'ol'
             return <L key={i} className={`${b.t === 'ul' ? 'list-disc' : 'list-decimal'} pl-5 space-y-1.5`}>{b.items?.map((x, j) => <li key={j}><Rich text={x} /></li>)}</L> }
           case 'img': return urls[b.src!] ? <img key={i} src={urls[b.src!]} alt="" loading="lazy" className="w-full rounded-[16px] bg-sage-100" /> : <div key={i} className="w-full aspect-[4/3] rounded-[16px] bg-sage-100" />
-          case 'video': { const id = b.url ? ytId(b.url) : null
+          case 'video': { if (b.src) return urls[b.src] ? <video key={i} src={urls[b.src]} controls playsInline className="w-full rounded-[16px] bg-olive-700" /> : <div key={i} className="w-full aspect-video rounded-[16px] bg-sage-100" />
+            const id = b.url ? ytId(b.url) : null
             return id ? <iframe key={i} className="w-full aspect-video rounded-[16px]" src={`https://www.youtube-nocookie.com/embed/${id}`} title={t('Video')} allow="encrypted-media; picture-in-picture" allowFullScreen loading="lazy" />
               : <a key={i} href={b.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-sage-800 underline"><Play size={16} />{t('Video öffnen')}</a> }
           case 'file': return <a key={i} href={urls[b.src!] ?? '#'} target="_blank" rel="noreferrer" className="flex items-center gap-3 rounded-2xl bg-white px-4 py-3 text-[15px]"><span className="w-9 h-9 rounded-xl bg-sage-50 flex items-center justify-center text-sage-800 shrink-0"><FileText size={17} /></span><span className="flex-1 min-w-0 truncate">{b.name ?? t('Datei')}</span><ArrowUpRight size={16} className="text-sage-400" /></a>
@@ -627,7 +622,7 @@ function MenuView({ open, onLogout }: { open: (s: Sub) => void; onLogout: () => 
           <Row title={`${me.first} ${me.last}`} sub={`${me.role} · ${me.branch}`} onClick={() => open({ k: 'me' })} />
         </List>
         <div className="mt-3"><List>
-          <Row icon={<CalendarDays size={19} strokeWidth={1.6} />} title={t('Kundentermine')} sub={`${me.app_role === 'buero' ? t('Alle Studios') : t('Dein Studio')} · ${t('live aus Phorest')}`} onClick={() => open({ k: 'book' })} />
+          <Row icon={<CalendarDays size={19} strokeWidth={1.6} />} title={t('Kundentermine')} sub={`${t('Alle Studios')} · ${t('live aus Phorest')}`} onClick={() => open({ k: 'book' })} />
           <Row icon={<Search size={19} strokeWidth={1.6} />} title={t('Kundenhistorie')} sub={t('Besuche und Notizen von Kunden')} onClick={() => open({ k: 'clients' })} />
           {me.app_role !== 'buero' && <Row icon={<TrendingUp size={19} strokeWidth={1.6} />} title={t('Meine Performance')} sub={t('Kennzahlen, Ziele und Bewertungen')} onClick={() => open({ k: 'perf' })} />}
           {tiles.map(([title, sub, Icon, target]) => <Row key={title} icon={<Icon size={19} strokeWidth={1.6} />} title={t(title)} sub={sub} onClick={() => open(target)} />)}
