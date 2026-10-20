@@ -4,11 +4,11 @@ Interne Mitarbeiter-App (PWA + Desktop-Backoffice) der Beautylounge AG. Kundin: 
 
 ### Was wurde in dieser Session gemacht (2026-10-20)
 
-- **Demo mit Renée 20.10. 12:00 (Google Meet), lokal gezeigt:** grundsätzlich zufrieden. **Offen: Design der Mitarbeiter-App** — Renée schickt Verbesserungsvorschläge anhand eines PDFs mit 24 nummerierten Ansichten (claude-team `ai-team/assets/beautylounge-teamhub/app-ansichten/`, dort auch die Skripte zum Neu-Aufnehmen; Bilder/PDF bewusst nicht im Repo).
+- **Demo mit der Inhaberin 20.10. 12:00 (Google Meet), lokal gezeigt:** grundsätzlich zufrieden. **Offen: Design der Mitarbeiter-App** — Sie schickt Verbesserungsvorschläge anhand eines PDFs mit 24 nummerierten Ansichten (claude-team `ai-team/assets/beautylounge-teamhub/app-ansichten/`, dort auch die Skripte zum Neu-Aufnehmen; Bilder/PDF bewusst nicht im Repo).
 - **Vorgeschlagen (Ablauf-PDF, claude-team `…/vorstellung-2026-10-20/`):** Fr 23.10. Schulung Pilotteam → Pilot bis Fr 30.10. → Go-Live Mo 02.11. Von Beautylounge bis Freitag: Pilotteam, Netlify-Abo (9 USD), Timebutler-API-Token, Facility-E-Mail. Zum Go-Live Supabase Pro empfohlen (tägliche Sicherung).
 - ⚠️ **Live ist noch der Stand vom 19.10.** (Netlify-Deploys pausiert). Alles aus den Nachträgen unten läuft nur lokal; nach dem Netlify-Upgrade einmal pushen/deployen und `teamhub.beautylounge.ch` prüfen.
 - **Supabase Auth:** `rate_limit_email_sent` war 2/Stunde → 1000, `smtp_max_frequency` 60 → 5 s (gilt live).
-- **Noch zu tun:** Testkonten nach der Demo zurücksetzen (Abschnitt „Testkonten für die Demo“), Renée ein Büro-Konto anlegen (Adresse fehlt), Design-Runde nach Renées Feedback.
+- **Noch zu tun:** Testkonten nach der Demo zurücksetzen (Abschnitt „Testkonten für die Demo“), der Inhaberin ein Büro-Konto anlegen (Adresse fehlt), Design-Runde nach ihrem Feedback.
 - Code dieser Session: Nachträge „vormittags“ bis „mittags (4)“ unten, Migrationen `0022`–`0026`.
 
 ### Nachtrag 2026-10-20 mittags (4) — Favicon, Meldungen löschen
