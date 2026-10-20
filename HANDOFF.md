@@ -9,7 +9,7 @@ Interne Mitarbeiter-App (PWA + Desktop-Backoffice) der Beautylounge AG. Kundin: 
 
 ### Nachtrag 2026-10-20 mittags (3) — Direktlinks
 
-- `src/lib/start.ts` liest die Startadresse, bevor die App sie aufräumt. `?open=<ziel>` öffnet die Mitarbeiterin-App an einer Stelle (home, tasks, todos, ai/benni, wiki, menu, book, clients, perf, tickets, events, onboarding, me, team, install, news:<id>, ticket:<id>), auch für Leitung und Büro am Desktop. `?bo=<seite>` öffnet das Backoffice auf einer Seite (overview, book, news, tasks, tickets, events, standby, learn, team, performance, wiki, settings, benni, me); nicht erlaubte Seiten fallen auf die Übersicht zurück. Genutzt im Ablauf-PDF der Vorstellung (claude-team `ai-team/assets/beautylounge-teamhub/vorstellung-2026-10-20/`).
+- `src/lib/start.ts` liest die Startadresse, bevor die App sie aufräumt. `?open=<ziel>` öffnet die Mitarbeiterin-App an einer Stelle (home, tasks, todos, ai/benni, wiki, menu, book, clients, perf, tickets, events, onboarding, me, team, install, news-list, conn, time, news:<id>, ticket:<id>), auch für Leitung und Büro am Desktop. `?bo=<seite>` öffnet das Backoffice auf einer Seite (overview, book, news, tasks, tickets, events, standby, learn, team, performance, wiki, settings, benni, me); nicht erlaubte Seiten fallen auf die Übersicht zurück. Genutzt im Ablauf-PDF der Vorstellung (claude-team `ai-team/assets/beautylounge-teamhub/vorstellung-2026-10-20/`).
 
 ### Nachtrag 2026-10-20 mittags (2) — Wissen neu im Backoffice, Lernziel für Freitext-Quiz
 

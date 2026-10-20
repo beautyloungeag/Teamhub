@@ -106,7 +106,7 @@ function Shell({ onLogout, onSwitch }: { onLogout: () => void; onSwitch?: () => 
     // Direktlinks aus Unterlagen und Schulungen
     else if (o === 'home' || o === 'ai' || o === 'wiki' || o === 'menu') go(o)
     else if (o === 'benni') go('ai')
-    else if (o === 'onboarding' || o === 'book' || o === 'me' || o === 'team' || o === 'install') open({ k: o })
+    else if (o === 'onboarding' || o === 'book' || o === 'me' || o === 'team' || o === 'install' || o === 'news-list' || o === 'conn' || o === 'time') open({ k: o })
     else if (o === 'clients') open({ k: 'clients' })
   }
   // „Mit Benni lernen“ aus dem Onboarding: in den Benni-Reiter wechseln, die Frage stellt der Reiter selbst
