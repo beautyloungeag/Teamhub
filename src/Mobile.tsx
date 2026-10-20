@@ -628,7 +628,7 @@ function MenuView({ open, onLogout }: { open: (s: Sub) => void; onLogout: () => 
         </List>
         <div className="mt-3"><List>
           <Row icon={<CalendarDays size={19} strokeWidth={1.6} />} title={t('Kundentermine')} sub={`${me.app_role === 'buero' ? t('Alle Studios') : t('Dein Studio')} · ${t('live aus Phorest')}`} onClick={() => open({ k: 'book' })} />
-          <Row icon={<Search size={19} strokeWidth={1.6} />} title={t('Kundenhistorie')} sub={t('Besuche und Notizen einer Kundin')} onClick={() => open({ k: 'clients' })} />
+          <Row icon={<Search size={19} strokeWidth={1.6} />} title={t('Kundenhistorie')} sub={t('Besuche und Notizen von Kunden')} onClick={() => open({ k: 'clients' })} />
           {me.app_role !== 'buero' && <Row icon={<TrendingUp size={19} strokeWidth={1.6} />} title={t('Meine Performance')} sub={t('Kennzahlen, Ziele und Bewertungen')} onClick={() => open({ k: 'perf' })} />}
           {tiles.map(([title, sub, Icon, target]) => <Row key={title} icon={<Icon size={19} strokeWidth={1.6} />} title={t(title)} sub={sub} onClick={() => open(target)} />)}
         </List></div>
@@ -689,13 +689,13 @@ function ClientHistoryView({ cid }: { cid?: string }) {
           <button disabled={busy || q.trim().length < 3} onClick={search} className="h-11 px-4 rounded-[10px] bg-olive-700 text-white text-[14px] disabled:opacity-40">{t('Suchen')}</button></div>
         {err && <p className="mt-3 text-[13px] text-alert">{err}</p>}
         {busy && <p className="mt-4 text-[14px] text-mute">{t('Lädt aus Phorest …')}</p>}
-        {hits && !busy && <div className="mt-4"><List>{hits.length === 0 && <Empty>{t('Keine Kundin gefunden.')}</Empty>}
+        {hits && !busy && <div className="mt-4"><List>{hits.length === 0 && <Empty>{t('Keine Kunden gefunden.')}</Empty>}
           {hits.map(c => <Row key={c.client_id} title={c.name} sub={[c.since && t('seit {d}', { d: fmt(c.since) }), c.phone_tail && `…${c.phone_tail}`].filter(Boolean).join(' · ')} onClick={() => pick(c.client_id)} />)}</List></div>}
         {!hits && !busy && <>
-          <Label>{t('Deine Kundinnen heute')}</Label>
+          <Label>{t('Deine Kunden heute')}</Label>
           <List>
             {!day && <Empty>{t('Lädt aus Phorest …')}</Empty>}
-            {day && todays.length === 0 && <Empty>{t('Heute keine Termine. Such eine Kundin über Name, E-Mail oder Telefon.')}</Empty>}
+            {day && todays.length === 0 && <Empty>{t('Heute keine Termine. Such Kunden über Name, E-Mail oder Telefon.')}</Empty>}
             {todays.map(a => <Row key={a.client_id} title={a.client} sub={`${a.start} · ${a.service}`} onClick={() => pick(a.client_id!)} />)}
           </List>
         </>}
@@ -732,8 +732,8 @@ function ClientDetail({ h, fmt, onBack }: { h: ClientHistory & { id: string }; f
       <div className="mt-2 flex items-center gap-4">
         <span className="w-14 h-14 rounded-full bg-white text-sage-800 flex items-center justify-center text-[18px] font-medium shrink-0">{ini}</span>
         <div className="min-w-0 flex-1"><h1 className="text-[24px] leading-tight truncate">{c.name}</h1>
-          <p className="text-[13px] text-mute mt-0.5">{[c.since && t('Kundin seit {d}', { d: fmt(c.since) }), t('{n} Besuche', { n: visits })].filter(Boolean).join(' · ')}</p></div>
-        <button onClick={onBack} title={t('Andere Kundin suchen')} aria-label={t('Andere Kundin suchen')} className="w-10 h-10 rounded-full bg-white text-ink/70 hover:text-ink flex items-center justify-center shrink-0"><Search size={17} /></button>
+          <p className="text-[13px] text-mute mt-0.5">{[c.since && t('Kunde seit {d}', { d: fmt(c.since) }), t('{n} Besuche', { n: visits })].filter(Boolean).join(' · ')}</p></div>
+        <button onClick={onBack} title={t('Andere Kunden suchen')} aria-label={t('Andere Kunden suchen')} className="w-10 h-10 rounded-full bg-white text-ink/70 hover:text-ink flex items-center justify-center shrink-0"><Search size={17} /></button>
       </div>
       {((c.categories?.length ?? 0) > 0 || c.membership || c.banned) && <div className="mt-3 flex flex-wrap gap-1.5">
         {c.banned && <span className="h-7 px-2.5 rounded-full bg-alert/10 text-alert text-[12.5px] flex items-center">{t('Gesperrt')}</span>}
@@ -899,7 +899,7 @@ function Tickets({ open }: { open: (s: Sub) => void }) {
   const file = useRef<HTMLInputElement>(null)
   const submit = async () => {
     if (!text.trim() || busy) return
-    setBusy(true); const good = await addTicket({ kind, title: text.trim(), photo: photo ?? undefined, branchId }); setBusy(false)
+    setBusy(true); const good = await addTicket({ kind, title: text.trim(), photo: photo ?? undefined, ...(branchId === '*' ? { allStudios: true } : { branchId }) }); setBusy(false)
     if (good) { setText(''); setPhoto(null); setOk(t('Gesendet. Du siehst hier, was daraus wird.')) } else setOk(t('Das hat nicht geklappt. Bitte versuche es noch einmal.'))
     setTimeout(() => setOk(''), 3000)
   }
@@ -916,8 +916,8 @@ function Tickets({ open }: { open: (s: Sub) => void }) {
         <Card className="mt-3 p-4">
           <textarea value={text} onChange={e => setText(e.target.value)} rows={3} placeholder={kind === 'Meldung' ? t('Was ist kaputt oder fehlt?') : t('Was könnten wir besser machen?')} className="w-full resize-none outline-none text-[15px] placeholder:text-mute bg-transparent" />
           <div className="mt-2 flex items-center justify-between text-[13px] text-mute">
-            <span className="flex items-center gap-3"><button onClick={() => file.current?.click()} className={`flex items-center gap-1 ${photo ? 'text-olive-700' : ''}`}>{isVideo ? <Video size={15} /> : <Camera size={15} />}{photo ? (isVideo ? t('Video dabei') : t('Foto dabei')) : t('Foto oder Video')}</button><span className="relative"><button onClick={() => setPickB(!pickB)} className="flex items-center gap-1 hover:text-ink"><MapPin size={15} />{branches.find(b => b.id === branchId)?.name ?? me.branch}<ChevronRight size={13} className={`transition ${pickB ? 'rotate-90' : ''}`} /></button>
-              {pickB && <span className="absolute z-20 left-0 bottom-7 w-48 rounded-[12px] bg-white shadow-[0_12px_32px_-12px_rgba(29,34,28,.45)] p-1 flex flex-col">{studios.map(b => <button key={b.id} onClick={() => { setBranchId(b.id); setPickB(false) }} className={`h-9 px-3 rounded-[8px] text-left text-[14px] flex items-center justify-between ${b.id === branchId ? 'bg-sage-50 text-ink' : 'text-ink/80 hover:bg-sage-50'}`}>{b.name}{b.id === branchId && <Check size={14} />}</button>)}</span>}
+            <span className="flex items-center gap-3"><button onClick={() => file.current?.click()} className={`flex items-center gap-1 ${photo ? 'text-olive-700' : ''}`}>{isVideo ? <Video size={15} /> : <Camera size={15} />}{photo ? (isVideo ? t('Video dabei') : t('Foto dabei')) : t('Foto oder Video')}</button><span className="relative"><button onClick={() => setPickB(!pickB)} className="flex items-center gap-1 hover:text-ink"><MapPin size={15} />{branchId === '*' ? t('Alle Studios') : branches.find(b => b.id === branchId)?.name ?? me.branch}<ChevronRight size={13} className={`transition ${pickB ? 'rotate-90' : ''}`} /></button>
+              {pickB && <span className="absolute z-20 left-0 bottom-7 w-48 rounded-[12px] bg-white shadow-[0_12px_32px_-12px_rgba(29,34,28,.45)] p-1 flex flex-col">{[{ id: '*', name: t('Alle Studios') }, ...studios].map(b => <button key={b.id} onClick={() => { setBranchId(b.id); setPickB(false) }} className={`h-9 px-3 rounded-[8px] text-left text-[14px] flex items-center justify-between ${b.id === branchId ? 'bg-sage-50 text-ink' : 'text-ink/80 hover:bg-sage-50'}`}>{b.name}{b.id === branchId && <Check size={14} />}</button>)}</span>}
             </span></span>
             <button disabled={busy} onClick={submit} className="h-9 px-4 rounded-[10px] bg-olive-700 text-white flex items-center gap-1.5 disabled:opacity-60"><Send size={13} />{t('Senden')}</button>
           </div>

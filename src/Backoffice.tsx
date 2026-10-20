@@ -19,10 +19,11 @@ import { TicketsAdmin } from './admin/Tickets'
 import { Overview } from './admin/Overview'
 import { SettingsAdmin } from './admin/Settings'
 import { StudioPerformance } from './Performance'
+import { ProfileAdmin } from './admin/Profile'
 
 import { H, New, Panel, Th, Field, inp, btn, Err, retranslate, Select, Seg, InfoTip, Modal } from './admin/kit'
 
-type View = 'overview' | 'book' | 'news' | 'tasks' | 'tickets' | 'events' | 'standby' | 'learn' | 'team' | 'performance' | 'wiki' | 'settings' | 'benni'
+type View = 'overview' | 'book' | 'news' | 'tasks' | 'tickets' | 'events' | 'standby' | 'learn' | 'team' | 'performance' | 'wiki' | 'settings' | 'benni' | 'me'
 const NAV: [View, string, typeof Users][] = [['overview', 'Übersicht', LayoutDashboard], ['book', 'Kundentermine', CalendarClock], ['news', 'News', Newspaper], ['tasks', 'Aufgaben', ListChecks], ['tickets', 'Meldungen & Ideen', Lightbulb], ['events', 'Schulungen & Events', CalendarDays], ['standby', 'Aushilfe', LifeBuoy], ['learn', 'Lernen', GraduationCap], ['team', 'Team', Users], ['performance', 'Performance', TrendingUp], ['wiki', 'Wissen', BookOpen], ['settings', 'Einstellungen', SettingsIcon]]
 
 export default function Backoffice({ onSwitch }: { onSwitch?: () => void }) {
@@ -39,9 +40,10 @@ export default function Backoffice({ onSwitch }: { onSwitch?: () => void }) {
         items={nav.map(([k, l, I]) => ({ key: k, label: l, active: v === k, onClick: () => setV(k), icon: <I size={18} strokeWidth={1.6} /> }))}
         extra={[...(onSwitch ? [{ key: 'switch', label: 'Mitarbeiterin-App', icon: <Smartphone size={18} strokeWidth={1.6} />, onClick: onSwitch }] : []),
           { key: 'ai', label: `Frag ${ASSISTANT}`, active: v === 'benni', icon: <BMark className="w-[18px] h-[18px]" />, onClick: () => setV('benni') }]}
-        onLogout={signOut} />
+        onProfile={() => setV('me')} profileActive={v === 'me'} onLogout={signOut} />
       <main className={`flex-1 no-scrollbar ${v === 'benni' ? 'overflow-hidden bg-sage-50' : v === 'book' ? 'p-8 flex flex-col overflow-hidden' : 'p-8 overflow-y-auto'}`}>
         {v === 'benni' && <BenniChat variant="app" />}
+        {v === 'me' && <ProfileAdmin onSettings={() => setV('settings')} />}
         {v === 'book' && <><H>Kundentermine</H><div className="flex-1 min-h-0"><Terminbuch /></div></>}
         {v === 'overview' && <Overview go={go} can={k => allowed.has(k as View)} />}{allowed.has('news') && v === 'news' && <NewsAdmin />}{v === 'tasks' && <TasksAdmin />}
         {v === 'tickets' && <TicketsAdmin />}{v === 'standby' && <StandbyAdmin />}{v === 'learn' && <LearnAdmin />}{v === 'events' && <EventsAdmin />}{allowed.has('team') && v === 'team' && <TeamAdmin />}{v === 'performance' && <StudioPerformance header={a => <H info="Kennzahlen aus Phorest je Person, Teamziele und neueste Bewertungen. Mitarbeiterinnen sehen in der App nur ihre eigenen Zahlen und die Teamziele." action={a}>Performance</H>} />}{allowed.has('wiki') && v === 'wiki' && <WikiAdmin />}{v === 'settings' && <SettingsAdmin />}

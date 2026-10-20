@@ -50,7 +50,8 @@ const toIso = (date: string, time: string) => date ? new Date(`${date}T${time ||
 
 async function setDone(x: Todo, done: boolean, t: (s: string) => string) {
   const { error } = await supabase!.rpc('todo_done', { p_id: x.id, p_done: done })
-  if (error) toast(t('Das hat nicht geklappt'), 'error')
+  // Studio-Aufgabe: jemand anderes war schneller
+  if (error) toast(t(/already_done/.test(error.message) ? 'Schon erledigt, jemand war schneller.' : 'Das hat nicht geklappt'), 'error')
   await reloadTodos()
 }
 
@@ -81,7 +82,7 @@ export function MyTodos() {
         <p className={`text-[15px] leading-snug ${x.done_at ? 'text-mute line-through decoration-sage-400' : ''}`}>{x.title}</p>
         <p className="text-[12px] text-mute mt-0.5">{[
           x.done_at ? <span key="d">{t('Erledigt von {name}', { name: x.done_by_name ?? '' })}</span> : x.due_at ? <span key="d" className={isLate(x) ? 'text-alert' : ''}>{t('bis {when}', { when: due(x.due_at) })}</span> : null,
-          !x.assignee_id && x.branch_id ? <span key="b">{t('ganzes Studio {name}', { name: branches.find(b => b.id === x.branch_id)?.name ?? '' })}</span> : null,
+          !x.assignee_id && x.branch_id ? <span key="b">{t('fürs Studio {name}, eine Person reicht', { name: branches.find(b => b.id === x.branch_id)?.name ?? '' })}</span> : null,
           from(x) ? <span key="f">{from(x)}</span> : null,
         ].filter(Boolean).flatMap((el, i) => i ? [<span key={'s' + i}> · </span>, el] : [el])}</p>
       </div>
@@ -175,7 +176,7 @@ function TodoDetail({ x, onClose, onToggle }: { x: Todo; onClose: () => void; on
       {x.note && <p className="mt-2 text-[14px] text-ink/80 whitespace-pre-wrap">{x.note}</p>}
       <div className="mt-4 rounded-[14px] bg-sage-50 divide-y divide-white text-[14px]">
         <div className="px-4 py-3 flex justify-between gap-3"><span className="text-mute">{t('Frist')}</span><span className={isLate(x) ? 'text-alert' : ''}>{x.due_at ? due(x.due_at) : t('Keine')}</span></div>
-        <div className="px-4 py-3 flex justify-between gap-3"><span className="text-mute">{t('Für')}</span><span>{x.assignee_id ? (x.assignee_id === me.id ? t('dich') : '') : t('ganzes Studio {name}', { name: branches.find(b => b.id === x.branch_id)?.name ?? '' })}</span></div>
+        <div className="px-4 py-3 flex justify-between gap-3"><span className="text-mute">{t('Für')}</span><span>{x.assignee_id ? (x.assignee_id === me.id ? t('dich') : '') : t('fürs Studio {name}, eine Person reicht', { name: branches.find(b => b.id === x.branch_id)?.name ?? '' })}</span></div>
         {x.created_by !== me.id && <div className="px-4 py-3 flex justify-between gap-3"><span className="text-mute">{t('Von')}</span><span>{x.created_by_name}</span></div>}
         {x.done_at && <div className="px-4 py-3 flex justify-between gap-3"><span className="text-mute">{t('Erledigt')}</span><span>{x.done_by_name}</span></div>}
       </div>

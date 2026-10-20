@@ -61,7 +61,7 @@ export function sentence(l: Log, staff: Staff[]) {
     }
     case 'goals': {
       const snap = (l.changes ?? {}) as Record<string, unknown>
-      const metric: Record<string, string> = { revenue: 'DL-Umsatz', treatments: 'Behandlungen', avg_ticket: 'Ø je Besuch', clients: 'Kundinnen', requested: 'Wunschtermine', rating: 'Bewertung Ø', reviews: 'Bewertungen' }
+      const metric: Record<string, string> = { revenue: 'DL-Umsatz', treatments: 'Behandlungen', avg_ticket: 'Ø je Besuch', clients: 'Kunden', requested: 'Wunschtermine', rating: 'Bewertung Ø', reviews: 'Bewertungen' }
       const what = l.title ? q(l.title) : snap.metric ? `${metric[String(snap.metric)] ?? snap.metric} ${snap.target ?? ''}`.trim() : ''
       return `${{ insert: 'setzt', update: 'ändert', delete: 'löscht' }[l.action]} ${snap.scope === 'team' ? 'ein Teamziel' : 'ein Ziel'}${what ? `: ${what}` : ''}`
     }

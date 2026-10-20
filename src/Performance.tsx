@@ -19,7 +19,7 @@ export type Perf = { ok: boolean; mapped?: boolean; from: string; to: string; pr
 export type Goal = { id: string; scope: 'person' | 'team'; employee_id: string | null; branch_id: string | null; metric: Metric; target: number; starts_on: string; ends_on: string; title: string | null; created_by_name: string | null }
 export type Metric = 'revenue' | 'treatments' | 'avg_ticket' | 'clients' | 'requested' | 'rating' | 'reviews'
 
-export const METRIC: Record<Metric, string> = { revenue: 'DL-Umsatz', treatments: 'Behandlungen', avg_ticket: 'Ø je Besuch', clients: 'Kundinnen', requested: 'Wunschtermine', rating: 'Bewertung Ø', reviews: 'Bewertungen' }
+export const METRIC: Record<Metric, string> = { revenue: 'DL-Umsatz', treatments: 'Behandlungen', avg_ticket: 'Ø je Besuch', clients: 'Kunden', requested: 'Wunschtermine', rating: 'Bewertung Ø', reviews: 'Bewertungen' }
 const money = (n: number) => new Intl.NumberFormat('de-CH', { style: 'currency', currency: 'CHF', maximumFractionDigits: 0 }).format(n)
 export const fmtMetric = (m: Metric, v: number | null) => v === null || Number.isNaN(v) ? '–' : m === 'revenue' || m === 'avg_ticket' ? money(v) : m === 'rating' ? v.toFixed(1) : String(Math.round(v))
 export const valueOf = (x: Metrics, m: Metric): number | null => m === 'rating' ? x.reviews.avg : m === 'reviews' ? x.reviews.count : x[m]
@@ -66,9 +66,9 @@ export function KpiGrid({ p, admin }: { p: Perf; admin?: boolean }) {
   const m = p.metrics, pv = p.prev
   const items: [string, string, number | null, number | null, string?][] = [
     [t('DL-Umsatz'), money(m.revenue), m.revenue, pv.revenue, t('laut Terminpreisen')],
-    [t('Behandlungen'), String(m.treatments), m.treatments, pv.treatments, m.clients === 1 ? t('1 Kundin') : t('{n} Kundinnen', { n: m.clients })],
+    [t('Behandlungen'), String(m.treatments), m.treatments, pv.treatments, m.clients === 1 ? t('1 Kunde') : t('{n} Kunden', { n: m.clients })],
     [t('Ø je Besuch'), money(m.avg_ticket), m.avg_ticket, pv.avg_ticket],
-    [t('Wunschtermine'), `${m.requested_pct} %`, m.requested_pct, pv.requested_pct, t('Kundin hat dich gewählt')],
+    [t('Wunschtermine'), `${m.requested_pct} %`, m.requested_pct, pv.requested_pct, t('Kunde hat dich gewählt')],
     [t('Online gebucht'), `${m.online_pct} %`, m.online_pct, pv.online_pct],
     [t('Bewertungen'), m.reviews.avg !== null ? `${m.reviews.avg.toFixed(1)} ★` : '–', m.reviews.avg, pv.reviews.avg, m.reviews.count === 1 ? t('1 Bewertung') : t('{n} Bewertungen', { n: m.reviews.count })],
   ]
@@ -250,7 +250,7 @@ export function StudioPerformance({ header }: { header: (action: ReactNode) => R
   const [sort, setSort] = useState<Metric>('revenue')
   const people = [...(p?.people ?? [])].sort((x, y) => (valueOf(y, sort) ?? -1) - (valueOf(x, sort) ?? -1))
   const exportCsv = () => {
-    downloadCsv(`Performance ${studios.find(x => x.id === b)?.name} ${r.from} bis ${r.to}`, people.map(x => ({ Person: (() => { const s = staff.find(y => y.id === x.employee_id); return s ? `${s.first} ${s.last}` : x.name })(), Behandlungen: x.treatments, 'DL-Umsatz CHF': x.revenue, 'Ø je Besuch CHF': x.avg_ticket, Kundinnen: x.clients, 'Wunschtermine %': x.requested_pct, 'Online %': x.online_pct, 'Bewertung Ø': x.reviews.avg ?? '', Bewertungen: x.reviews.count })))
+    downloadCsv(`Performance ${studios.find(x => x.id === b)?.name} ${r.from} bis ${r.to}`, people.map(x => ({ Person: (() => { const s = staff.find(y => y.id === x.employee_id); return s ? `${s.first} ${s.last}` : x.name })(), Behandlungen: x.treatments, 'DL-Umsatz CHF': x.revenue, 'Ø je Besuch CHF': x.avg_ticket, Kunden: x.clients, 'Wunschtermine %': x.requested_pct, 'Online %': x.online_pct, 'Bewertung Ø': x.reviews.avg ?? '', Bewertungen: x.reviews.count })))
   }
   const th = (m: Metric | null, l: string) => <th className="text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">{m ? <button onClick={() => setSort(m)} className={sort === m ? 'text-ink' : ''}>{l}{sort === m ? ' ↓' : ''}</button> : l}</th>
   return <>

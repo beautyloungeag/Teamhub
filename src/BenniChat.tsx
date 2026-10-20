@@ -304,7 +304,7 @@ function ClientCardView({ c, onOpen }: { c: ClientCard; onOpen?: (id: string) =>
         <span className="w-10 h-10 rounded-full bg-sage-100 text-sage-800 flex items-center justify-center text-[14px] font-medium shrink-0">{ini}</span>
         <div className="min-w-0">
           <p className="text-[16px] font-medium truncate">{c.name}</p>
-          <p className="text-[12.5px] text-mute">{[c.since && t('Kundin seit {d}', { d: shortDate(c.since) }), t('{n} Besuche', { n: c.visits }), c.preferred && t('bevorzugt {name}', { name: c.preferred })].filter(Boolean).join(' · ')}</p>
+          <p className="text-[12.5px] text-mute">{[c.since && t('Kunde seit {d}', { d: shortDate(c.since) }), t('{n} Besuche', { n: c.visits }), c.preferred && t('bevorzugt {name}', { name: c.preferred })].filter(Boolean).join(' · ')}</p>
         </div>
       </div>
       {(c.phone || c.email) && <div className="border-t border-line divide-y divide-line">
@@ -570,7 +570,7 @@ export function BenniChat({ variant = 'app', onOpenArticle, onOpenClient, onClos
         <div className={variant === 'app' ? 'pt-6 md:pt-0 md:text-center' : 'pt-2'}>
           <BMark className={variant === 'app' ? 'w-12 h-12' : 'w-10 h-10'} />
           <h1 className={`mt-5 leading-tight ${variant === 'app' ? 'text-[28px]' : 'text-[22px]'}`}>{t('Hallo {name}, wie kann ich helfen?', { name: me.first })}</h1>
-          <p className="mt-1.5 text-[14.5px] text-mute">{t('Termine, Kundinnen, Wissen, Dateien: frag einfach.')}</p>
+          <p className="mt-1.5 text-[14.5px] text-mute">{t('Termine, Kunden, Wissen, Dateien: frag einfach.')}</p>
           <div className={`mt-6 rounded-[16px] divide-y divide-line ${variant === 'app' ? 'bg-white md:hidden' : 'border border-line'}`}>{IDEAS.map(i => <button key={i} onClick={() => send(t(i))} className="w-full text-left px-4 py-3.5 text-[15px] flex items-center gap-3"><span className="flex-1">{t(i)}</span><ArrowUpRight size={16} className="text-sage-400 shrink-0" /></button>)}</div>
           {variant === 'app' && <div className="hidden md:flex mt-7 flex-wrap justify-center gap-2">{IDEAS.map(i => <button key={i} onClick={() => send(t(i))} className="h-9 px-3.5 rounded-full bg-white border border-line text-[13.5px] text-ink/80 hover:border-sage-400 hover:text-ink transition">{t(i)}</button>)}</div>}
         </div>

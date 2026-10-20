@@ -6,28 +6,68 @@ import { pushState, enablePush, disablePush, testPush, type PushState } from '..
 import { downloadCsv, type Row } from '../lib/csv'
 import { loadPollResults } from '../Poll'
 import { toast } from '../Toast'
-import { H, Seg, Select, Th, btn, btn2, real, inBranch } from './kit'
+import { H, Seg, Select, Th, btn, btn2, real, inBranch, Section, isTest } from './kit'
 import { ProtocolView } from './Protocol'
 import { StudiosAdmin, DemoSwitch, MailSettings } from './Studios'
+import { RoleSelect, ROLE } from './Team'
+import { Avatar } from '../People'
 
 // Einstellungen: Mitteilungen (eigene), Protokoll, Export für Filialleitung und Büro; Allgemein, Studios, System nur Büro.
 
-type Tab = 'notify' | 'log' | 'export' | 'general' | 'studios' | 'system'
+type Tab = 'notify' | 'roles' | 'log' | 'export' | 'general' | 'studios' | 'system'
 export function SettingsAdmin() {
   const { me } = useApp()
   const office = me.app_role === 'buero'
   const [tab, setTab] = useState<Tab>('notify')
-  const tabs: [Tab, string][] = [['notify', 'Mitteilungen'], ['log', 'Protokoll'], ['export', 'Export'], ...(office ? [['general', 'Allgemein'], ['studios', 'Studios'], ['system', 'System']] as [Tab, string][] : [])]
+  const tabs: [Tab, string][] = [['notify', 'Mitteilungen'], ['roles', 'Rollen'], ['log', 'Protokoll'], ['export', 'Export'], ...(office ? [['general', 'Allgemein'], ['studios', 'Studios'], ['system', 'System']] as [Tab, string][] : [])]
   return (<>
-    <H info="Eigene Mitteilungen, wer was geändert hat (Protokoll) und Listen zum Herunterladen. Das Büro stellt hier ausserdem Studios, E-Mail-Versand und Beispielinhalte ein.">Einstellungen</H>
+    <H info="Eigene Mitteilungen, wer welche Rechte hat, wer was geändert hat (Protokoll) und Listen zum Herunterladen. Das Büro stellt hier ausserdem Studios, E-Mail-Versand und Beispielinhalte ein.">Einstellungen</H>
     <div className="mb-6"><Seg value={tab} onChange={setTab} items={tabs} /></div>
     {tab === 'notify' && <NotifySettings />}
+    {tab === 'roles' && <Roles />}
     {tab === 'log' && <ProtocolView />}
     {tab === 'export' && <Exports />}
     {tab === 'general' && office && <General />}
     {tab === 'studios' && office && <StudiosAdmin />}
     {tab === 'system' && office && <SystemLog />}
   </>)
+}
+
+/* ---------- Rollen ---------- */
+// Was jede Rolle darf (gleiche Regeln wie RLS und Functions) und wer sie hat. Rolle ändern: nur das Büro.
+const RIGHTS: [string, string, string, string][] = [
+  ['App: Mein Tag, Aufgaben, News, Melden, Events, Aushilfe, Lernen, Benni', 'ja', 'ja', 'ja'],
+  ['Kundentermine ansehen', 'alle Studios', 'alle Studios', 'alle Studios'],
+  ['Performance', 'eigene Zahlen', 'Team der eigenen Studios', 'alle Studios'],
+  ['Backoffice öffnen', '–', 'ja', 'ja'],
+  ['Personen anlegen und deaktivieren', '–', 'eigene Studios', 'alle Studios'],
+  ['Aufgaben zuweisen, Checklisten anlegen', '–', 'eigene Studios', 'alle Studios'],
+  ['News, Umfragen, Quiz und Events', '–', 'eigene Studios', 'alle Studios'],
+  ['Meldungen', 'eigene sehen', 'eigene Studios bearbeiten', 'alle bearbeiten'],
+  ['Lektionen anlegen', '–', 'eigene Studios', 'alle Studios'],
+  ['Protokoll und Export', '–', 'eigene Studios', 'alle Studios'],
+  ['Kontrollfragen, Studios, E-Mail-Versand, Systemfehler', '–', '–', 'ja'],
+  ['Rollen vergeben, Personen endgültig löschen', '–', '–', 'ja'],
+]
+function Roles() {
+  const { staff, me, branches } = useApp()
+  const office = me.app_role === 'buero'
+  const by = (r: string) => staff.filter(s => s.active && s.app_role === r).sort((a, b) => Number(a.email.includes('+')) - Number(b.email.includes('+')) || a.first.localeCompare(b.first))
+  const cell = (v: string) => <td className={`px-4 py-2.5 ${v === '–' ? 'text-mute' : 'text-ink/85'}`}>{v}</td>
+  const people = (r: string) => <table className="tbl w-full text-[14px] table-fixed"><tbody className="divide-y divide-line">{by(r).map(p => <tr key={p.id}>
+    <td className="px-4 py-2.5"><span className="flex items-center gap-3 min-w-0"><Avatar s={p} photo={p.photo} size="w-7 h-7 text-[11px]" /><span className="truncate">{p.first} {p.last}</span>{isTest(p) && p.email.includes('+') && <span className="text-xs text-mute">Testkonto</span>}{p.id === me.id && <span className="text-xs text-mute">du</span>}</span></td>
+    <td className="px-4 w-[260px] text-mute truncate">{r === 'buero' ? p.email : [p.branch, ...(p.extra ?? []).map(b => branches.find(x => x.id === b)?.name)].filter(Boolean).join(', ')}</td>
+    <td className="px-4 w-[200px]">{office && p.id !== me.id ? <RoleSelect p={p} /> : <span className="text-mute">{ROLE[p.app_role]}</span>}</td>
+  </tr>)}</tbody></table>
+  return (<div className="max-w-[1000px] space-y-10">
+    <Section title="Was jede Rolle darf">
+      <table className="tbl w-full text-[14px] table-fixed"><thead><tr><Th>Bereich</Th><th className="w-[170px] text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">Mitarbeiterin</th><th className="w-[200px] text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">Filialleitung</th><th className="w-[150px] text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">Büro</th></tr></thead>
+        <tbody className="divide-y divide-line">{RIGHTS.map(([a, m, f, b]) => <tr key={a}><td className="px-4 py-2.5">{a}</td>{cell(m)}{cell(f)}{cell(b)}</tr>)}</tbody></table>
+    </Section>
+    <Section title="Büro" count={by('buero').length}>{people('buero')}</Section>
+    <Section title="Filialleitung" count={by('filialleitung').length}>{people('filialleitung')}</Section>
+    <p className="text-[13px] text-mute">{by('mitarbeiterin').length} Personen haben die Rolle Mitarbeiterin.{office ? ' Ändern lässt sich die Rolle auch auf der Personenseite unter Team.' : ' Rollen vergibt das Büro.'}</p>
+  </div>)
 }
 
 /* ---------- Mitteilungen ---------- */

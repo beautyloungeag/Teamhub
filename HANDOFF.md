@@ -2,6 +2,15 @@
 
 Interne Mitarbeiter-App (PWA + Desktop-Backoffice) der Beautylounge AG. Kundin: Renée Baumann. PM-Projekt: `projekt.aleksa.ai`, Key **BLTH** (`d4ee5d5c-4553-436c-bba7-137a03a2b704`). ⚠️ Das Repo `beautyloungeag/Teamhub` ist **öffentlich** — nie Personendaten committen.
 
+### Nachtrag 2026-10-20 mittags — Anmeldung ohne Sperre, Studios wechseln, Rollen, Studio-Aufgaben
+
+- **Anmeldesperre aufgehoben:** Supabase Auth erlaubte nur 2 Anmelde-Mails pro Stunde (`rate_limit_email_sent`) und eine je Adresse pro 60 s. Per Management API gesetzt: `rate_limit_email_sent` 1000, `smtp_max_frequency` 5, `rate_limit_otp`/`rate_limit_verify` 300, `rate_limit_token_refresh` 600. Versand läuft über Resend (eigenes SMTP), deshalb sind die hohen Werte erlaubt.
+- **Kundentermine:** alle Studios wählbar, das eigene ist voreingestellt und markiert (Function `phorest` `branch_day` für alle Angemeldeten offen, `team_today` bleibt bei der Leitung). Phorest-Knopf mit Logo (`public/phorest.png`): Computer → `app.phorest.com` (PhorestDesktop im Browser), Android → App `com.phorest.go`, iPhone → App Store `id1584319502`. „Kundin“ in der Oberfläche durch „Kunden“ ersetzt (Aleksas Wunsch, es gibt auch Männer als Kunden).
+- **Studio-Aufgaben (Migration `0023`):** eine Aufgabe fürs Studio ist eine Zeile; wer zuerst abhakt, gilt, ein zweites Abhaken wirft `already_done` statt den Namen zu überschreiben. Dialog und App erklären „eine Person reicht“. Büro und Filialleitung mit mehreren Studios können „Alle Studios“ wählen, dann bekommt jedes Studio die Aufgabe einmal.
+- **Rollen:** Einstellungen → Rollen zeigt, was Mitarbeiterin, Filialleitung und Büro dürfen und wer welche Rolle hat. Das Büro ändert Rollen dort oder auf der Personenseite (Function `admin-employee` Aktion `set_role`, nie die eigene, wird protokolliert). Stand 20.10.: 5 Büro-Konten, 10 Filialleitungen; **Die Inhaberin hat noch kein Konto.**
+- **Meldungen für alle Studios (Migration `0024`):** `tickets.all_studios`; `branch_id` bleibt das Studio der meldenden Person (Zuständigkeit, Rechte), sichtbar ist die Meldung für alle.
+- **Profil im Backoffice:** Klick auf den eigenen Namen unten links öffnet „Mein Profil“ (Profilbild, Kontakt, Sprache). Kommentare zeigen das Profilbild der Person.
+
 ### Nachtrag 2026-10-20 vormittags — Backoffice neu gestaltet nach den Regeln des feleo-Designsystems
 
 Aleksas Rückmeldung: zu generisch, zu viel Text, Kästen in Kästen, rechte Spalten, nichts sieht klickbar aus, keine Diagramme, Kundendaten wirken wie Fliesstext. Übernommen wurden die bei feleo abgenommenen Regeln (Datenzeilen, flache Listen, Detailseiten mit Zurück, Status als Icon plus Wort, Statistik mit Verläufen, Dialog mit Unschärfe).

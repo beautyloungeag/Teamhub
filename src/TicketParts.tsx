@@ -1,14 +1,18 @@
 import { useState } from 'react'
 import { Send, Check } from 'lucide-react'
 import { useApp, type Ticket } from './store'
+import { Avatar } from './People'
 
 // Ein Verlauf mit Kommentaren, damit alle sehen, was passiert („Techniker kommt Montag 8 Uhr“)
 export function Comments({ tk, compact }: { tk: Ticket; compact?: boolean }) {
-  const { addComment, t } = useApp()
+  const { addComment, t, staff } = useApp()
   const [v, setV] = useState(''), [busy, setBusy] = useState(false)
   const send = async () => { if (!v.trim() || busy) return; setBusy(true); if (await addComment(tk.id, v)) setV(''); setBusy(false) }
   return (<div>
-    {tk.comments.map(c => <div key={c.id} className="py-2 border-b border-line text-[13px]"><p className="text-mute text-xs">{c.author} · {c.when}</p><p className="mt-0.5 whitespace-pre-wrap">{c.body}</p></div>)}
+    {tk.comments.map(c => { const p = c.authorId ? staff.find(s => s.id === c.authorId) : null
+      return <div key={c.id} className="py-2.5 border-b border-line text-[13px] flex gap-2.5">
+        {p ? <Avatar s={p} photo={p.photo} size="w-7 h-7 text-[10px] shrink-0" /> : <span className="w-7 h-7 rounded-full bg-sage-100 text-mute text-[10px] flex items-center justify-center shrink-0">{c.author.slice(0, 1)}</span>}
+        <div className="min-w-0"><p className="text-xs"><span className="text-ink font-medium">{c.author}</span><span className="text-mute"> · {c.when}</span></p><p className="mt-0.5 whitespace-pre-wrap">{c.body}</p></div></div> })}
     <div className={`flex gap-2 ${compact ? 'mt-2' : 'mt-3'}`}><input value={v} onChange={e => setV(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} placeholder={t('Kommentar schreiben …')} className="flex-1 h-9 rounded-[8px] bg-sage-50 px-3 text-[13px] outline-none" />
       <button disabled={busy || !v.trim()} onClick={send} className="h-9 w-9 rounded-[8px] bg-olive-700 text-white flex items-center justify-center disabled:opacity-40"><Send size={14} /></button></div>
   </div>)

@@ -40,7 +40,7 @@ export function TasksAdmin() {
 const forWhom = (x: Todo, staff: Staff[], branches: { id: string; name: string }[]) => {
   const p = x.assignee_id ? staff.find(s => s.id === x.assignee_id) : null
   return p ? <span className="flex items-center gap-2 min-w-0"><Avatar s={p} photo={p.photo} size="w-6 h-6 text-[10px]" /><span className="truncate">{p.first} {p.last}</span></span>
-    : <span className="text-ink/80">Ganzes Studio {branches.find(b => b.id === x.branch_id)?.name ?? ''}</span>
+    : <span className="min-w-0"><span className="block truncate text-ink/80">Studio {branches.find(b => b.id === x.branch_id)?.name ?? ''}</span><span className="block text-[12px] text-mute">eine Person reicht</span></span>
 }
 const todoStatus = (x: Todo, due: (s: string | null) => string) => x.done_at ? <Status kind="done">Erledigt · {x.done_by_name}, {fmtDate(x.done_at, { day: 'numeric', month: 'numeric' })} {hm(x.done_at)}</Status>
   : isLate(x) ? <Status kind="late">Überfällig seit {due(x.due_at)}</Status> : <Status kind="open">Offen</Status>
@@ -134,6 +134,7 @@ function AssignModal({ todo, onClose }: { todo: Todo | null; onClose: () => void
   const { me, employee, staff, branches } = useApp()
   const mineBr = me.app_role === 'buero' ? branches.filter(b => !b.is_office).map(b => b.id) : [me.branch_id, ...(me.extra ?? [])].filter(b => b !== 'buero')
   const people = staff.filter(s => s.active && mineBr.includes(s.branch_id)).sort((a, b) => a.first.localeCompare(b.first))
+  const myStudios = branches.filter(b => mineBr.includes(b.id) && !b.is_office)
   const d0 = todo?.due_at ? isoDay(new Date(todo.due_at)) : '', t0 = todo?.due_at ? hm(todo.due_at) : ''
   const [title, setTitle] = useState(todo?.title ?? ''), [note, setNote] = useState(todo?.note ?? ''), [target, setTarget] = useState(todo ? (todo.assignee_id ? `p:${todo.assignee_id}` : `b:${todo.branch_id}`) : '')
   const [date, setDate] = useState(d0), [time, setTime] = useState(t0 === '23:59' ? '' : t0), [err, setErr] = useState(''), [busy, setBusy] = useState(false)
@@ -142,7 +143,11 @@ function AssignModal({ todo, onClose }: { todo: Todo | null; onClose: () => void
     const [kind, id] = target.split(':')
     setBusy(true)
     const row = { title: title.trim(), note: note.trim(), due_at: date ? new Date(`${date}T${time || '23:59'}:00`).toISOString() : null, assignee_id: kind === 'p' ? id : null, branch_id: kind === 'b' ? id : null }
-    const { error } = todo ? await supabase!.from('todos').update(row).eq('id', todo.id) : await supabase!.from('todos').insert({ ...row, created_by: employee.id, created_by_name: `${me.first} ${me.last.slice(0, 1)}.` })
+    const by = { created_by: employee.id, created_by_name: `${me.first} ${me.last.slice(0, 1)}.` }
+    // Alle Studios: je Studio eine eigene Aufgabe, jedes Studio hakt seine ab
+    const { error } = todo ? await supabase!.from('todos').update(row).eq('id', todo.id)
+      : id === '*' ? await supabase!.from('todos').insert(myStudios.map(b => ({ ...row, branch_id: b.id, ...by })))
+      : await supabase!.from('todos').insert({ ...row, ...by })
     setBusy(false)
     if (error) { setErr('Speichern hat nicht geklappt.'); return }
     toast(todo ? 'Aufgabe gespeichert' : 'Aufgabe zugewiesen'); await reloadTodos(); onClose()
@@ -159,9 +164,11 @@ function AssignModal({ todo, onClose }: { todo: Todo | null; onClose: () => void
         {todo?.done_at && <Status kind="done">Erledigt von {todo.done_by_name} am {fmtDate(todo.done_at, { day: 'numeric', month: 'long' })}, {hm(todo.done_at)}</Status>}
         <input autoFocus value={title} onChange={e => setTitle(e.target.value)} placeholder="Was ist zu tun? z. B. Schaufenster neu dekorieren" className={inpStone} />
         <textarea value={note} onChange={e => setNote(e.target.value)} rows={2} placeholder="Notiz (optional)" className="w-full rounded-[10px] bg-sage-50 px-3 py-2.5 text-[14px] outline-none resize-none" />
-        <Select label="Für wen" tone="stone" value={target} onChange={setTarget} placeholder="Eine Person oder ein ganzes Studio" options={[
-          ...branches.filter(b => mineBr.includes(b.id)).map(b => ({ value: `b:${b.id}`, label: `Ganzes Studio ${b.name}`, hint: 'Jede im Studio kann sie erledigen', group: 'Studio' })),
+        <Select label="Für wen" tone="stone" value={target} onChange={setTarget} placeholder="Eine Person oder ein Studio" options={[
+          ...(!todo && myStudios.length > 1 ? [{ value: 'b:*', label: me.app_role === 'buero' ? 'Alle Studios' : 'Alle deine Studios', hint: 'Je Studio eine Aufgabe, eine Person reicht', group: 'Studio' }] : []),
+          ...myStudios.map(b => ({ value: `b:${b.id}`, label: `Studio ${b.name}`, hint: 'Eine Person reicht', group: 'Studio' })),
           ...people.map(p => ({ value: `p:${p.id}`, label: `${p.first} ${p.last}${/@aleksa\.ai$/i.test(p.email) ? ' (Testkonto)' : ''}`, hint: `${p.role} · ${p.branch}`, group: 'Person' }))]} />
+        {target.startsWith('b:') && <p className="text-[13px] text-mute -mt-1">{target === 'b:*' ? 'Jedes Studio bekommt die Aufgabe einmal. ' : ''}Alle im Studio sehen die Aufgabe. Eine Person erledigt sie, dann ist sie für alle abgehakt, mit Name und Uhrzeit.</p>}
         <div><span className="block text-xs text-mute mb-1">Frist</span>
           <div className="flex flex-wrap items-center gap-2">
             {quick.map(([l, d]) => <button key={l} onClick={() => setDate(date === d ? '' : d)} className={`h-9 px-3 rounded-[9px] text-[13.5px] ${date === d ? 'bg-olive-700 text-white' : 'bg-sage-50 hover:bg-sage-100'}`}>{l}</button>)}

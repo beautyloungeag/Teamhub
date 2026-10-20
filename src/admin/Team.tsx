@@ -11,12 +11,12 @@ import { H, New, Th, Field, Section, DataRow, Status, Empty, inpStone, btn, btn2
 // Team: Liste mit Filtern über die ganze Breite; ein Klick öffnet die Seite der Person (mit Blättern).
 // Filialleitung: eigenes Studio (Personen anlegen, Skills, Funktion, deaktivieren). Büro: alle Studios, Rechte, löschen.
 
-const call = async (body: Record<string, unknown>) => {
+export const call = async (body: Record<string, unknown>) => {
   const { data, error } = await supabase!.functions.invoke('admin-employee', { body })
   if (!error) return data
   try { return (await (error as { context?: Response }).context?.json()) ?? { ok: false, error: 'failed' } } catch { return { ok: false, error: 'failed' } }
 }
-const ROLE: Record<string, string> = { mitarbeiterin: 'Mitarbeiterin', filialleitung: 'Filialleitung', buero: 'Büro' }
+export const ROLE: Record<string, string> = { mitarbeiterin: 'Mitarbeiterin', filialleitung: 'Filialleitung', buero: 'Büro' }
 
 export function TeamAdmin() {
   const { staff, branches, me } = useApp()
@@ -172,6 +172,7 @@ function PersonPage({ p, pos, onBack, onStep }: { p: Staff; pos: { i: number; n:
           <DataRow label="Telefon" value={p.phone || 'keine Nummer hinterlegt'} muted={!p.phone} copy={p.phone} href={p.phone ? `tel:${p.phone.replace(/\s/g, '')}` : undefined} />
           <DataRow label="E-Mail" value={p.email} copy={p.email} href={`mailto:${p.email}`} />
           <DataRow label="Studio" value={[p.branch, ...(p.extra ?? []).map(b => branches.find(x => x.id === b)?.name).filter(Boolean)].join(', ')} />
+          <DataRow label="Rolle" value={me.app_role === 'buero' && p.id !== me.id ? <RoleSelect p={p} /> : ROLE[p.app_role] ?? p.app_role} />
         </Section>
         <section><p className="text-[15px] font-medium mb-2">Skills</p>
           <div className="flex flex-wrap gap-1.5">{skillCatalog.map(k => <button key={k} onClick={() => tog(k)} className={`px-3 h-9 rounded-[10px] text-[13.5px] transition ${skills.includes(k) ? 'bg-olive-700 text-white' : 'bg-sage-50 text-ink/80 hover:bg-sage-100'}`}>{k}</button>)}</div>
@@ -214,4 +215,15 @@ function PersonPage({ p, pos, onBack, onStep }: { p: Staff; pos: { i: number; n:
       <span className="ml-auto"><InfoTip side="left" text="Deaktivierte Personen können sich nicht mehr anmelden, ihr Verlauf bleibt. Löschen kann nur das Büro." /></span>
     </div>}
   </>)
+}
+
+/** Rolle einer Person ändern (nur Büro, nie die eigene). Was jede Rolle darf: Einstellungen → Rollen. */
+export function RoleSelect({ p }: { p: Staff }) {
+  const { reload } = useApp()
+  const set = async (v: string) => {
+    if (v === p.app_role || !confirm(`${p.first} ${p.last} bekommt die Rolle ${ROLE[v]}. Fortfahren?`)) return
+    const r = await call({ action: 'set_role', employee_id: p.id, app_role: v })
+    toast(r?.ok ? `Rolle ist jetzt ${ROLE[v]}` : 'Das hat nicht geklappt', r?.ok ? 'ok' : 'error'); await reload()
+  }
+  return <Select compact className="w-44" value={p.app_role} onChange={set} options={Object.entries(ROLE).map(([value, label]) => ({ value, label }))} />
 }

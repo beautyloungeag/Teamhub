@@ -13,10 +13,19 @@ const fmt = (h: number) => `${String(Math.floor(h)).padStart(2, '0')}:${String(M
 const dayOffset = (n: number) => addDays(n)
 const dayLabel = (n: number) => n === 0 ? tr('Heute') : new Intl.DateTimeFormat(locale(), { timeZone: 'Europe/Zurich', weekday: 'short', day: 'numeric' }).format(new Date(addDays(n) + 'T12:00:00Z'))
 
+// Phorest: am Handy die App PhorestGo (Android öffnet sie direkt, iPhone über den App Store), am Computer die Web-Version
+const phorestUrl = () => {
+  const ua = navigator.userAgent
+  if (/android/i.test(ua)) return 'intent://#Intent;package=com.phorest.go;S.browser_fallback_url=https%3A%2F%2Fplay.google.com%2Fstore%2Fapps%2Fdetails%3Fid%3Dcom.phorest.go;end'
+  if (/iphone|ipad|ipod/i.test(ua) || (navigator.maxTouchPoints > 1 && /macintosh/i.test(ua))) return 'https://apps.apple.com/ch/app/id1584319502'
+  return 'https://app.phorest.com'
+}
+
 export function Terminbuch({ compact }: { compact?: boolean }) {
   const { me, branches, myPhorest, t } = useApp()
-  // Gleiche Regel wie der Server: eigenes Studio und Zusatzstudios, das Büro alle
-  const allowed = branches.filter(b => !b.is_office && (me.app_role === 'buero' || [me.branch_id, ...(me.extra ?? [])].includes(b.id)))
+  // Alle Studios lassen sich ansehen, voreingestellt ist das eigene. Eigene Studios stehen oben.
+  const mine = [me.branch_id, ...(me.extra ?? [])]
+  const allowed = branches.filter(b => !b.is_office).sort((a, b) => Number(mine.includes(b.id)) - Number(mine.includes(a.id)))
   const [branch, setBranch] = useState(allowed.find(b => b.id === me.branch_id)?.id ?? allowed[0]?.id ?? '')
   const [day, setDay] = useState(0)
   const [pick, setPick] = useState(false)
@@ -39,18 +48,19 @@ export function Terminbuch({ compact }: { compact?: boolean }) {
     <div className="flex flex-col h-full">
       <div className="flex items-center gap-2 flex-wrap">
         <div className="relative">
-          <button onClick={() => allowed.length > 1 && setPick(!pick)} className="h-10 pl-3 pr-2.5 rounded-xl bg-white border border-sage-200 flex items-center gap-2 text-[14px] font-medium"><MapPin size={16} className="text-sage-800" />{bname}{allowed.length > 1 && <ChevronDown size={16} className="text-mute" />}</button>
-          {pick && <div className="absolute z-20 mt-1.5 w-64 rounded-2xl bg-white shadow-lg border border-sage-100 p-1.5">
-            <p className="px-3 pt-2 pb-1 text-xs text-mute">{t('Deine Standorte')}</p>
-            {allowed.map(b => <button key={b.id} onClick={() => { setBranch(b.id); setPick(false) }} className={`w-full h-10 px-3 rounded-xl flex items-center gap-2.5 text-[14px] ${b.id === branch ? 'bg-sage-50 font-medium' : ''}`}><MapPin size={15} className="text-sage-600" />Beautylounge {b.name}{b.id === branch && <Check size={16} className="ml-auto" />}</button>)}
-          </div>}
+          <button onClick={() => allowed.length > 1 && setPick(!pick)} className="h-10 pl-3 pr-2.5 rounded-xl bg-white border border-sage-200 hover:border-sage-400 flex items-center gap-2 text-[14px] font-medium"><MapPin size={16} className="text-sage-800" />{bname}{allowed.length > 1 && <ChevronDown size={16} className="text-mute" />}</button>
+          {pick && <><div className="fixed inset-0 z-10" onClick={() => setPick(false)} /><div className="absolute z-20 mt-1.5 w-64 max-h-[60vh] overflow-y-auto rounded-2xl bg-white shadow-lg border border-sage-100 p-1.5">
+            <p className="px-3 pt-2 pb-1 text-xs text-mute">{t('Studio wählen')}</p>
+            {allowed.map(b => <button key={b.id} onClick={() => { setBranch(b.id); setPick(false) }} className={`w-full h-10 px-3 rounded-xl flex items-center gap-2.5 text-[14px] hover:bg-sage-50 ${b.id === branch ? 'bg-sage-50 font-medium' : ''}`}><MapPin size={15} className="text-sage-600" />{b.name}{mine.includes(b.id) && <span className="text-[12px] text-mute">{t('dein Studio')}</span>}{b.id === branch && <Check size={16} className="ml-auto" />}</button>)}
+          </div></>}
         </div>
-        {!compact && <div className="h-10 flex-1 min-w-[200px] max-w-sm rounded-xl bg-white border border-sage-200 px-3 flex items-center gap-2"><Search size={16} className="text-mute" /><input value={q} onChange={e => setQ(e.target.value)} placeholder={t('Kundin suchen')} className="flex-1 outline-none text-[14px] bg-transparent" /></div>}
+        <a href={phorestUrl()} target="_blank" rel="noreferrer" title={t('Phorest öffnen')} aria-label={t('Phorest öffnen')} className="h-10 w-10 rounded-xl bg-white border border-sage-200 flex items-center justify-center shrink-0 hover:border-sage-400"><img src="/phorest.png" alt="" className="w-5 h-5" /></a>
+        {!compact && <div className="h-10 flex-1 min-w-[200px] max-w-sm rounded-xl bg-white border border-sage-200 px-3 flex items-center gap-2"><Search size={16} className="text-mute" /><input value={q} onChange={e => setQ(e.target.value)} placeholder={t('Kunden suchen')} className="flex-1 outline-none text-[14px] bg-transparent" /></div>}
         {compact && myStaff.length > 0 && <div className="h-10 p-1 rounded-xl bg-white border border-sage-200 flex">{([[true, t('Nur ich')], [false, t('Ganzes Team')]] as const).map(([v, l]) => <button key={l} onClick={() => setOnlyMe(v)} className={`px-3 rounded-lg text-[13px] transition ${onlyMe === v ? 'bg-olive-700 text-white' : 'text-ink/80'}`}>{l}</button>)}</div>}
       </div>
-      {compact && <div className="mt-2 h-10 rounded-xl bg-white border border-sage-200 px-3 flex items-center gap-2"><Search size={16} className="text-mute" /><input value={q} onChange={e => setQ(e.target.value)} placeholder={t('Kundin suchen')} className="flex-1 outline-none text-[14px] bg-transparent" /></div>}
+      {compact && <div className="mt-2 h-10 rounded-xl bg-white border border-sage-200 px-3 flex items-center gap-2"><Search size={16} className="text-mute" /><input value={q} onChange={e => setQ(e.target.value)} placeholder={t('Kunden suchen')} className="flex-1 outline-none text-[14px] bg-transparent" /></div>}
 
-      {q.length > 1 && data?.ok && hits.length === 0 && <p className="mt-2 px-1 text-[13px] text-mute">{t('An diesem Tag keine Kundin mit diesem Namen.')}</p>}
+      {q.length > 1 && data?.ok && hits.length === 0 && <p className="mt-2 px-1 text-[13px] text-mute">{t('An diesem Tag kein Termin unter diesem Namen.')}</p>}
       {hits.length > 0 && <div className="mt-2 rounded-2xl bg-white border border-sage-100 divide-y divide-sage-50">{hits.slice(0, 5).map((h, i) => <button key={i} onClick={() => setDetail(h)} className="w-full text-left px-3 py-2 text-[13px] flex justify-between hover:bg-sage-50"><span>{h.client} · {h.service}</span><span className="text-mute">{h.start} · {h.who}</span></button>)}</div>}
 
       <div className="mt-3 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
@@ -148,10 +158,10 @@ function AppointmentSheet({ a, onClose }: { a: Appt & { who: string }; onClose: 
           {!h && <p className="mt-6 text-[13px] text-mute">{t('Lädt aus Phorest …')}</p>}
           {h && !h.ok && <p className="mt-6 text-[13px] text-mute">{t('Phorest ist gerade nicht erreichbar. Bitte später noch einmal versuchen.')}</p>}
           {c && <div className="mt-7">
-            <p className="text-[15px] font-medium mb-1">{t('Kundin')}</p>
+            <p className="text-[15px] font-medium mb-1">{t('Kundendaten')}</p>
             {c.phone && <DataRow label={t('Telefon')} value={c.phone} copy={c.phone} href={`tel:${c.phone.replace(/\s/g, '')}`} />}
             {c.email && <DataRow label={t('E-Mail')} value={c.email} copy={c.email} href={`mailto:${c.email}`} />}
-            {c.since && <DataRow label={t('Kundin seit')} value={d(c.since)} />}
+            {c.since && <DataRow label={t('Kunde seit')} value={d(c.since)} />}
             {c.last_visit && <DataRow label={t('Letzter Besuch')} value={`${d(c.last_visit)}${c.last_branch ? ` · ${c.last_branch}` : ''}`} />}
             {c.preferred && <DataRow label={t('Bevorzugt')} value={c.preferred} />}
             {more && extraShown.map(([l, v]) => <DataRow key={l} label={l} value={v} />)}

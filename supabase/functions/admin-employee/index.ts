@@ -43,15 +43,24 @@ Deno.serve(async (req) => {
     return json({ ok: true, employee_id: emp.id })
   }
 
-  // Für set_active und delete: Zielperson laden und Rechte prüfen
+  // Für set_active, set_role und delete: Zielperson laden und Rechte prüfen
   const { data: target } = await admin.from('employees').select('id, auth_user_id, branch_id, extra_branch_ids, app_role, first_name, last_name, active').eq('id', String(b.employee_id ?? '')).maybeSingle()
   if (!target) return json({ ok: false, error: 'not_found' }, 404)
-  if (target.id === me.id && (b.action === 'delete' || !b.active)) return json({ ok: false, error: 'self' }, 400)
+  if (target.id === me.id && (b.action === 'delete' || b.action === 'set_role' || !b.active)) return json({ ok: false, error: 'self' }, 400)
   if (lead && (!mine.includes(target.branch_id) || target.app_role === 'buero')) return json({ ok: false, error: 'forbidden' }, 403)
 
   if (b.action === 'set_active') {
     const { error } = await admin.from('employees').update({ active: !!b.active, updated_at: new Date().toISOString() }).eq('id', target.id)
     if (!error) await log('update', target.id, `${target.first_name} ${target.last_name}`, [target.branch_id, ...(target.extra_branch_ids ?? [])], { active: [target.active, !!b.active] })
+    return error ? json({ ok: false, error: error.message }, 400) : json({ ok: true })
+  }
+  // Rolle vergeben: nur das Büro, die eigene Rolle nie (sonst sperrt man sich aus)
+  if (b.action === 'set_role') {
+    if (!office) return json({ ok: false, error: 'forbidden' }, 403)
+    const role = String(b.app_role ?? '')
+    if (!['mitarbeiterin', 'filialleitung', 'buero'].includes(role)) return json({ ok: false, error: 'bad_role' }, 400)
+    const { error } = await admin.from('employees').update({ app_role: role, updated_at: new Date().toISOString() }).eq('id', target.id)
+    if (!error) await log('update', target.id, `${target.first_name} ${target.last_name}`, [target.branch_id, ...(target.extra_branch_ids ?? [])], { app_role: [target.app_role, role] })
     return error ? json({ ok: false, error: error.message }, 400) : json({ ok: true })
   }
   if (b.action === 'delete') {

@@ -3,7 +3,7 @@
 // Aktionen:
 //   my_day      {date?}          eigene Schichten + Termine (alle eigenen Phorest-Spalten)
 //   my_month    {from, to}       Anzahl eigener Termine je Tag (Kalender)
-//   branch_day  {branch, date?}  Filialkalender: nur eigene Filiale(n), Büro alle
+//   branch_day  {branch, date?}  Filialkalender: alle Studios für alle Angemeldeten (eigenes ist in der App voreingestellt)
 //   team_today  {branch}         wer arbeitet heute: nur Filialleitung der Filiale oder Büro
 //   staff_week  {employee_id?}   Schichten der nächsten 7 Tage einer Person (ohne Kundendaten; für Profil)
 //   client_search {q}            Kundin suchen (Name, E-Mail oder Telefon), protokolliert
@@ -111,7 +111,8 @@ Deno.serve(async (req) => {
 
     if (body.action === 'branch_day' || body.action === 'team_today') {
       const b = String(body.branch ?? me.branch_id)
-      const allowed = me.app_role === 'buero' || (body.action === 'branch_day' ? myBranches.includes(b) : (me.app_role === 'filialleitung' && myBranches.includes(b)))
+      // Kundentermine aller Studios darf jede angemeldete Person ansehen (Aleksa 20.10.), Team heute bleibt bei der Leitung
+      const allowed = me.app_role === 'buero' || body.action === 'branch_day' || (me.app_role === 'filialleitung' && myBranches.includes(b))
       if (!allowed) return json({ ok: false, error: 'forbidden' }, 403)
       const pbid = pb(b); if (!pbid) return json({ ok: false, error: 'no_phorest_branch' }, 400)
       const [staff, d] = await Promise.all([ph(`/branch/${pbid}/staff?size=200`), dayData(pbid, date)])
