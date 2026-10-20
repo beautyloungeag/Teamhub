@@ -1,5 +1,7 @@
 import { useState } from 'react'
-import { ChevronRight } from 'lucide-react'
+import { ChevronRight, Trash2 } from 'lucide-react'
+import { supabase } from '../lib/supabase'
+import { toast } from '../Toast'
 import { useApp, type Ticket } from '../store'
 import { Status as TicketStatus, ASSISTANT } from '../Mobile'
 import { Comments, Media } from '../TicketParts'
@@ -31,7 +33,16 @@ export function TicketsAdmin() {
 }
 
 function TicketPage({ tk, canEdit, assignees, onBack }: { tk: Ticket; canEdit: boolean; assignees: string[]; onBack: () => void }) {
-  const { assign, setStatus } = useApp()
+  const { assign, setStatus, reload } = useApp()
+  // Löschen: zuerst Foto/Video (die Speicherregel prüft über die Meldung), dann die Meldung samt Kommentaren und Stimmen
+  const del = async () => {
+    if (!confirm(`${tk.kind} „${tk.title}“ endgültig löschen? Kommentare und Foto werden mitgelöscht.`)) return
+    const { data } = await supabase!.from('tickets').select('photo_path').eq('id', tk.id).maybeSingle()
+    if (data?.photo_path) await supabase!.storage.from('ticket-photos').remove([data.photo_path])
+    const { error } = await supabase!.from('tickets').delete().eq('id', tk.id)
+    if (error) { toast('Löschen hat nicht geklappt', 'error'); return }
+    await reload(); toast('Gelöscht'); onBack()
+  }
   return (
     <div className="max-w-[1000px]">
       <Back onClick={onBack}>Meldungen & Ideen</Back>
@@ -51,6 +62,7 @@ function TicketPage({ tk, canEdit, assignees, onBack }: { tk: Ticket; canEdit: b
           <DataRow label="Studio" value={tk.branch} />
           {tk.kind === 'Idee' && <DataRow label="Unterstützen" value={String(tk.votes)} />}
           {tk.viaAI && <DataRow label="Erfasst" value={`über ${ASSISTANT}`} muted />}
+          {canEdit && <button onClick={del} className="mt-6 text-[13px] text-mute hover:text-alert flex items-center gap-1.5"><Trash2 size={14} />{tk.kind} löschen</button>}
         </div>
       </div>
     </div>

@@ -2,6 +2,11 @@
 
 Interne Mitarbeiter-App (PWA + Desktop-Backoffice) der Beautylounge AG. Kundin: Renée Baumann. PM-Projekt: `projekt.aleksa.ai`, Key **BLTH** (`d4ee5d5c-4553-436c-bba7-137a03a2b704`). ⚠️ Das Repo `beautyloungeag/Teamhub` ist **öffentlich** — nie Personendaten committen.
 
+### Nachtrag 2026-10-20 mittags (4) — Favicon, Meldungen löschen
+
+- Favicon und App-Symbole (`public/favicon.svg`, `icon-192.png`, `icon-512.png`) zeigen das B aus dem Logo, weiss auf Olive. Vorher Vite-Blitz bzw. Platzhalter „bl“.
+- Meldungen und Ideen löschen (Migration `0026`): Büro alle, Filialleitung die ihres Studios, im Backoffice auf der Meldungsseite. Zuerst Foto/Video aus `ticket-photos`, dann die Zeile (Kommentare, Stimmen, Verlauf per CASCADE). Das Protokoll hält das Löschen fest.
+
 ### Nachtrag 2026-10-20 mittags (3) — Direktlinks
 
 - `src/lib/start.ts` liest die Startadresse, bevor die App sie aufräumt. `?open=<ziel>` öffnet die Mitarbeiterin-App an einer Stelle (home, tasks, todos, ai/benni, wiki, menu, book, clients, perf, tickets, events, onboarding, me, team, install, news:<id>, ticket:<id>), auch für Leitung und Büro am Desktop. `?bo=<seite>` öffnet das Backoffice auf einer Seite (overview, book, news, tasks, tickets, events, standby, learn, team, performance, wiki, settings, benni, me); nicht erlaubte Seiten fallen auf die Übersicht zurück. Genutzt im Ablauf-PDF der Vorstellung (claude-team `ai-team/assets/beautylounge-teamhub/vorstellung-2026-10-20/`).
