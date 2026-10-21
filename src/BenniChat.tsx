@@ -12,7 +12,7 @@ import { TicketDraft } from './TicketParts'
 import { toast } from './Toast'
 import { reloadTodos } from './Todos'
 
-// Benni in App und Backoffice: mehrere Chats (parallel, löschbar, Titel vergibt der Server),
+// Marc in App und Backoffice: mehrere Chats (parallel, löschbar, Titel vergibt der Server),
 // Eingabeleiste mit Dateien, Diktat, Modellwahl und Websuche, Kundenkarte und Lernkarten.
 
 export type Step = { step: string; detail?: string }
@@ -63,7 +63,7 @@ async function deleteChat(id: string) {
   const { error } = await supabase!.from('benni_chats').delete().eq('id', id)
   return !error
 }
-/** Neuen Chat öffnen, optional gleich mit einer Frage (z. B. „Mit Benni lernen“ aus dem Onboarding). */
+/** Neuen Chat öffnen, optional gleich mit einer Frage (z. B. „Mit Marc lernen“ aus dem Onboarding). */
 export function openNewBenniChat(question?: string) {
   S.active = null; pendingAsk = question ?? null; bump()
   window.dispatchEvent(new Event('th-benni'))
@@ -98,7 +98,7 @@ async function sendMessage(owner: string, text: string, files: Attach[], opts: {
   after()
 }
 
-/** Fragt Benni; meldet Arbeitsschritte und den Chat-Titel, sobald sie da sind (NDJSON-Stream der Function). */
+/** Fragt Marc; meldet Arbeitsschritte und den Chat-Titel, sobald sie da sind (NDJSON-Stream der Function). */
 async function askBenni(body: Record<string, unknown>, onEvent: (e: Step | { title: string }) => void): Promise<BenniAnswer> {
   const { data: { session } } = await supabase!.auth.getSession()
   const r = await fetch(`${SUPABASE_URL}/functions/v1/assistant`, {
@@ -379,7 +379,7 @@ function BenniMessage({ m, next, latest, busy, hidden, variant, send, onOpenArti
     <div className="flex gap-2.5 items-start">
       <BenniAvatar className="w-7 h-7 mt-0.5" />
       <div className="min-w-0 flex-1 max-w-[560px]">
-        <p className="text-[13px] text-mute mb-1"><span className="text-ink/80 font-medium">Benni</span> · {hhmm(m.at)}</p>
+        <p className="text-[13px] text-mute mb-1"><span className="text-ink/80 font-medium">Marc</span> · {hhmm(m.at)}</p>
         {cards.length > 0 && <div className="space-y-2 mb-2">{cards.map((c, i) => <LessonCard key={i} c={c} i={i} n={cards.length} hidden={hidden} />)}</div>}
         {m.t && <div className={bubble(variant)}><BenniText text={m.t} />
           {!hidden && !d.quiz && d.sources?.map(s => onOpenArticle
@@ -465,7 +465,7 @@ function Composer({ busy, variant, onSend }: { busy: boolean; variant: 'app' | '
       {dict.state === 'idle' ? (
         <textarea ref={area} rows={1} value={v} onChange={e => setV(e.target.value)} onPaste={onPaste}
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !touch && !e.nativeEvent.isComposing) { e.preventDefault(); send() } }}
-          placeholder={t('Frag Benni …')} className="block w-full resize-none bg-transparent px-4 pt-3.5 pb-1 text-[17px] leading-[22px] outline-none placeholder:text-mute max-h-[168px]" />
+          placeholder={t('Frag Marc …')} className="block w-full resize-none bg-transparent px-4 pt-3.5 pb-1 text-[17px] leading-[22px] outline-none placeholder:text-mute max-h-[168px]" />
       ) : (
         <div className="px-4 pt-3.5 pb-1 min-h-[36px] text-[17px] leading-[22px]" aria-live="polite">
           {v.trim() && <span>{v.trim()} </span>}
@@ -527,7 +527,7 @@ function ChatList({ onPicked }: { onPicked?: () => void }) {
           return (
             <li key={c.id} className={`group relative flex items-center rounded-[10px] transition ${on ? 'bg-sage-100' : 'hover:bg-sage-50'}`}>
               <button onClick={() => { openChat(c.id); onPicked?.() }} className="flex-1 min-w-0 text-left pl-3 pr-2 h-10 flex items-center gap-2">
-                {c.busy && <span className="w-1.5 h-1.5 rounded-full bg-olive-700 animate-pulse shrink-0" aria-label={t('Benni arbeitet …')} />}
+                {c.busy && <span className="w-1.5 h-1.5 rounded-full bg-olive-700 animate-pulse shrink-0" aria-label={t('Marc arbeitet …')} />}
                 <span className={`truncate text-[15.5px] ${on ? 'text-ink' : 'text-ink/80'}`}>{c.title || t('Neuer Chat')}</span>
               </button>
               {armed === c.id
@@ -554,7 +554,7 @@ export function BenniChat({ variant = 'app', onOpenArticle, onOpenClient, onClos
   useEffect(() => { loadChats(employee.id) }, [employee.id, st.loaded])
   const send = (text: string, files: Attach[] = [], opts = { model: tierPref, web: false }) =>
     sendMessage(employee.id, text, files, opts, t('Ich bin gerade nicht erreichbar. Bitte versuche es gleich noch einmal.'), () => { reload(); reloadTodos() })
-  // Frage aus dem Onboarding („Mit Benni lernen“)
+  // Frage aus dem Onboarding („Mit Marc lernen“)
   useEffect(() => { if (pendingAsk) { const q = pendingAsk; pendingAsk = null; send(q) } }, [st.ver]) // eslint-disable-line react-hooks/exhaustive-deps
   // Neue Antwort: Frage und Antwortanfang zeigen (lange Antworten liest man von oben); sonst ans Ende
   useEffect(() => {

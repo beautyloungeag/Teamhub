@@ -29,8 +29,8 @@ import { useStandbyRequests, answerStandby, reloadStandby, timeSpan } from './st
 export { Avatar }
 import { toast } from './Toast'
 
-// Name des KI-Reiters (im Vertrag „Marc Beau“, im abgestimmten Prototyp „Benni“)
-export const ASSISTANT = 'Benni'
+// Name des KI-Reiters (im Vertrag „Marc Beau“, im abgestimmten Prototyp „Marc“)
+export const ASSISTANT = 'Marc'
 
 type Tab = 'home' | 'tasks' | 'ai' | 'wiki' | 'menu'
 type Sub = null | { k: 'news-list' } | { k: 'news'; item: News } | { k: 'wiki'; item: WikiArticle } | { k: 'wiki-cat'; key: string; name: string } | { k: 'onboarding' } | { k: 'team' } | { k: 'profile'; item: Staff }
@@ -111,7 +111,7 @@ function Shell({ onLogout, onSwitch }: { onLogout: () => void; onSwitch?: () => 
     else if (o === 'onboarding' || o === 'book' || o === 'me' || o === 'team' || o === 'install' || o === 'news-list' || o === 'conn' || o === 'time') open({ k: o })
     else if (o === 'clients') open({ k: 'clients' })
   }
-  // „Mit Benni lernen“ aus dem Onboarding: in den Benni-Reiter wechseln, die Frage stellt der Reiter selbst
+  // „Mit Marc lernen“ aus dem Onboarding: in den Marc-Reiter wechseln, die Frage stellt der Reiter selbst
   useEffect(() => { const f = () => go('ai'); window.addEventListener('th-benni', f); return () => window.removeEventListener('th-benni', f) }, []) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     reportDevice()
@@ -146,7 +146,7 @@ function Shell({ onLogout, onSwitch }: { onLogout: () => void; onSwitch?: () => 
         : tab === 'wiki' ? <Wiki open={open} /> : <MenuView open={open} onLogout={onLogout} />
   }
   const key = (sub ? sub.k + ('item' in sub ? String((sub.item as { id?: string }).id) : '') : tab) + stack.length
-  const nav: [Tab, string, typeof Home][] = [['home', 'Heute', Home], ['tasks', 'Aufgaben', ListChecks], ['ai', 'Benni', Sparkles], ['wiki', 'Wissen', BookOpen], ['menu', 'Menü', LayoutGrid]]
+  const nav: [Tab, string, typeof Home][] = [['home', 'Heute', Home], ['tasks', 'Aufgaben', ListChecks], ['ai', 'Marc', Sparkles], ['wiki', 'Wissen', BookOpen], ['menu', 'Menü', LayoutGrid]]
   return (
     <div className="flex-1 min-h-0 flex">
       {/* Desktop: Navigation als Seitenleiste wie im Backoffice, zuklappbar */}
@@ -158,7 +158,7 @@ function Shell({ onLogout, onSwitch }: { onLogout: () => void; onSwitch?: () => 
           onProfile={() => open({ k: 'me' })} profileActive={sub?.k === 'me'} onLogout={onLogout} />
       </div>
       <div className="relative flex-1 min-w-0 flex flex-col">
-        {/* Benni füllt die ganze Fläche und scrollt selbst (Chatliste links, Eingabe unten) */}
+        {/* Marc füllt die ganze Fläche und scrollt selbst (Chatliste links, Eingabe unten) */}
         <div ref={scroller} className={`flex-1 no-scrollbar bg-sage-50 ${tab === 'ai' && !sub && !loading ? 'overflow-hidden' : 'overflow-y-auto'}`}>
           {tab === 'ai' && !sub && !loading ? screen : (
           <div className="w-full md:mx-auto md:max-w-[760px]">
@@ -298,7 +298,7 @@ function Today({ open, go }: { open: (s: Sub) => void; go: (t: Tab) => void }) {
         <div className="flex-1 min-w-0">
           <p className="text-[15px] font-semibold">{ASSISTANT}</p>
           <p className="text-[16px] leading-snug mt-0.5">{upNext ? t('Soll ich dir sagen, was {name} meistens bucht und was du zusätzlich anbieten kannst?', { name: upNext.client }) : t('Frag mich zu Kundinnen, Abläufen oder Phorest.')}</p>
-          <button onClick={() => openNewBenniChat(upNext ? t('Was bucht {name} meistens, und was kann ich ihr heute zusätzlich anbieten?', { name: upNext.client }) : undefined)} className="mt-2 text-[15px] font-semibold text-olive-800">{upNext ? t('Ja, zeig mir das') : t('Benni fragen')}</button>
+          <button onClick={() => openNewBenniChat(upNext ? t('Was bucht {name} meistens, und was kann ich ihr heute zusätzlich anbieten?', { name: upNext.client }) : undefined)} className="mt-2 text-[15px] font-semibold text-olive-800">{upNext ? t('Ja, zeig mir das') : t('Marc fragen')}</button>
         </div>
       </div>
 
@@ -674,7 +674,7 @@ function Onboarding({ open }: { open: (s: Sub) => void }) {
     <div className="px-5 pb-10"><h1 className="mt-3 text-[26px] font-medium tracking-tight">{t('Onboarding')}</h1>
       <p className="mt-1 text-[15.5px] text-mute">{t('Alles für deine ersten Tage. Deine Respo sieht, wie weit du bist.')}</p>
       <Card onClick={() => open({ k: 'install' })} className="mt-4 p-4 flex items-center gap-3"><span className="w-10 h-10 rounded-xl bg-olive-700 text-white flex items-center justify-center"><Smartphone size={19} /></span><span className="flex-1"><span className="block text-[17px] font-medium">{t('Zuerst: TeamHub aufs Handy')}</span><span className="block text-[13px] text-mute">{t('Auf den Home-Bildschirm legen und Mitteilungen einschalten')}</span></span><ChevronRight size={18} className="text-sage-400" /></Card>
-      <button onClick={() => openNewBenniChat(t('Lass uns mit dem Onboarding weiterlernen.'))} className="mt-3 w-full rounded-[16px] bg-white p-4 flex items-center gap-3 text-left"><BMark className="w-10 h-10 text-[17px]" /><span className="flex-1"><span className="block text-[17px] font-medium">{t('Mit Benni lernen')}</span><span className="block text-[13px] text-mute">{t('Schritt für Schritt, mit kurzer Kontrollfrage')}</span></span><ChevronRight size={18} className="text-sage-400" /></button>
+      <button onClick={() => openNewBenniChat(t('Lass uns mit dem Onboarding weiterlernen.'))} className="mt-3 w-full rounded-[16px] bg-white p-4 flex items-center gap-3 text-left"><BMark className="w-10 h-10 text-[17px]" /><span className="flex-1"><span className="block text-[17px] font-medium">{t('Mit Marc lernen')}</span><span className="block text-[13px] text-mute">{t('Schritt für Schritt, mit kurzer Kontrollfrage')}</span></span><ChevronRight size={18} className="text-sage-400" /></button>
       <div className="mt-4 h-[3px] rounded-full bg-sage-100 overflow-hidden"><div className="h-full bg-olive-700 transition-all" style={{ width: (steps.length ? steps.filter(s => obDone.has(s.id)).length / steps.length * 100 : 0) + '%' }} /></div>
       <div className="mt-5 space-y-2">
         {steps.map((s, i) => { const art = wiki.find(w => w.id === s.articleId)
@@ -731,7 +731,7 @@ function Team({ open }: { open: (s: Sub) => void }) {
   )
 }
 
-/* ---------- Kundenhistorie aus Phorest (Zusammenfassung durch Benni) ---------- */
+/* ---------- Kundenhistorie aus Phorest (Zusammenfassung durch Marc) ---------- */
 function ClientHistoryView({ cid }: { cid?: string }) {
   const { t, me } = useApp()
   const [q, setQ] = useState(''), [hits, setHits] = useState<ClientHit[] | null>(null), [h, setH] = useState<(ClientHistory & { id: string }) | null>(null)
@@ -780,7 +780,7 @@ function ClientHistoryView({ cid }: { cid?: string }) {
   )
 }
 
-/** Kundin im Detail: Kontakt, Angaben aus Phorest, Kundennotiz, Benni-Zusammenfassung mit Rückfragen, Termine. */
+/** Kundin im Detail: Kontakt, Angaben aus Phorest, Kundennotiz, Marc-Zusammenfassung mit Rückfragen, Termine. */
 function ClientDetail({ h, fmt, onBack }: { h: ClientHistory & { id: string }; fmt: (d: string) => string; onBack: () => void }) {
   const { t } = useApp()
   const c = h.client
@@ -839,7 +839,7 @@ function ClientDetail({ h, fmt, onBack }: { h: ClientHistory & { id: string }; f
   )
 }
 
-/** Zusammenfassung von Benni und direkt Fragen zur Kundin stellen (ohne eigenen Chat). */
+/** Zusammenfassung von Marc und direkt Fragen zur Kundin stellen (ohne eigenen Chat). */
 function ClientAsk({ h }: { h: ClientHistory & { id: string } }) {
   const { t } = useApp()
   const first = h.client.name.split(' ')[0]

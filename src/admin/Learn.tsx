@@ -8,7 +8,7 @@ import { toast } from '../Toast'
 import { H, New, Th, Field, inpStone, btn, btn2, Err, retranslate, real, inBranch, Select, Seg, Modal, Chips, Back, Section, Status, Empty, ReadOnly } from './kit'
 import { Donut } from './charts'
 
-// Lernen: Fortschritt je Person, Lektionen (Benni geht sie mit Neuen durch) und Quiz.
+// Lernen: Fortschritt je Person, Lektionen (Marc geht sie mit Neuen durch) und Quiz.
 // Lektionen und Quiz des Büros gelten für alle Studios; die Filialleitung ergänzt eigene für ihr Studio.
 
 type Page = null | { k: 'quiz'; id: string } | { k: 'edit'; q: QuizEdit }
@@ -144,7 +144,7 @@ function LessonModal({ step, onClose }: { step: Step | null; onClose: () => void
       <div className="grid grid-cols-[1fr_120px] gap-3">
         <Field label="Titel"><input autoFocus value={title} onChange={e => setTitle(e.target.value)} placeholder="z. B. Kasse und Gutscheine" className={inpStone} /></Field>
         <Field label="Dauer (Min.)"><input type="number" min={1} value={minutes} onChange={e => setMinutes(e.target.value)} className={inpStone} /></Field>
-        <div className="col-span-2"><Select label="Lernstoff (Wissensartikel)" tone="stone" value={article} onChange={setArticle} placeholder="Benni sucht selbst den passenden Artikel" options={[{ value: '', label: 'Benni sucht selbst den passenden Artikel' }, ...wiki.filter(a => a.published && !a.fromNews).map(a => ({ value: a.id, label: a.title, hint: a.cat }))]} /></div>
+        <div className="col-span-2"><Select label="Lernstoff (Wissensartikel)" tone="stone" value={article} onChange={setArticle} placeholder="Marc sucht selbst den passenden Artikel" options={[{ value: '', label: 'Marc sucht selbst den passenden Artikel' }, ...wiki.filter(a => a.published && !a.fromNews).map(a => ({ value: a.id, label: a.title, hint: a.cat }))]} /></div>
         <div className="col-span-2"><span className="block text-xs text-mute mb-1.5">Für {office ? '(kein Studio = alle)' : ''}</span><Chips tone="stone" items={own.map(b => ({ value: b.id, label: b.name }))} value={studios} onChange={setStudios} /></div>
       </div>
       <div className="mt-3"><Err m={err} /></div>
@@ -152,7 +152,7 @@ function LessonModal({ step, onClose }: { step: Step | null; onClose: () => void
   )
 }
 
-/** Wie streng Benni prüft: Kontrollfragen je Lektion und Mindestzahl richtiger. Ändern kann das Büro. */
+/** Wie streng Marc prüft: Kontrollfragen je Lektion und Mindestzahl richtiger. Ändern kann das Büro. */
 function LearnSettings() {
   const { me } = useApp()
   const isBuero = me.app_role === 'buero'
@@ -169,8 +169,8 @@ function LearnSettings() {
     <button key={k} onClick={() => on(k)} className={`w-8 h-7 rounded-[7px] text-[13px] tabular-nums transition-colors ${cur === k ? 'bg-olive-700 text-white' : 'text-ink/70 hover:bg-white'}`}>{k}</button>)}</span>
   return (
     <div className="mb-8 pb-6 border-b border-line flex flex-wrap items-center justify-between gap-4 text-[14px]">
-      {isBuero ? <p className="leading-[2.2]">Benni stellt nach jeder Lektion{pick([1, 2, 3, 4, 5], n, k => save(k, m))}Kontrollfragen, bestanden ab{pick(Array.from({ length: n }, (_, i) => i + 1), m, k => save(n, k))}richtigen.</p>
-        : <p>Benni stellt nach jeder Lektion <span className="font-medium">{n} Kontrollfragen</span>, bestanden ab <span className="font-medium">{m} richtigen</span>.</p>}
+      {isBuero ? <p className="leading-[2.2]">Marc stellt nach jeder Lektion{pick([1, 2, 3, 4, 5], n, k => save(k, m))}Kontrollfragen, bestanden ab{pick(Array.from({ length: n }, (_, i) => i + 1), m, k => save(n, k))}richtigen.</p>
+        : <p>Marc stellt nach jeder Lektion <span className="font-medium">{n} Kontrollfragen</span>, bestanden ab <span className="font-medium">{m} richtigen</span>.</p>}
       {!isBuero && <ReadOnly>Stellt das Büro ein</ReadOnly>}
     </div>
   )
@@ -263,7 +263,7 @@ function QuizEditor({ q, onBack }: { q: QuizEdit; onBack: () => void }) {
     if (edit.target === 'article' && !edit.articleId) { setErr('Bitte einen Artikel wählen.'); return }
     if (!qs.length) { setErr('Mindestens eine Frage ist nötig.'); return }
     const bad = qs.findIndex(x => x.kind === 'text' ? !x.rubric.trim() : x.options.filter(Boolean).length < 2 || x.correct.length === 0 || x.correct.some(c => !x.options[c]))
-    if (bad >= 0) { setErr(qs[bad].kind === 'text' ? `Frage ${bad + 1}: bitte das Lernziel für Benni ausfüllen.` : `Frage ${bad + 1}: mindestens zwei Antworten und eine richtige markieren.`); return }
+    if (bad >= 0) { setErr(qs[bad].kind === 'text' ? `Frage ${bad + 1}: bitte das Lernziel für Marc ausfüllen.` : `Frage ${bad + 1}: mindestens zwei Antworten und eine richtige markieren.`); return }
     setBusy(true); setErr('')
     // Neuer Lernstoff: wird als Pflicht-News mit Lesebestätigung veröffentlicht, das Quiz hängt daran
     let newsId = edit.target === 'news' ? edit.newsId : null
@@ -332,7 +332,7 @@ function QuizEditor({ q, onBack }: { q: QuizEdit; onBack: () => void }) {
   )
 }
 
-/** Freitext: Lernziel für Benni, plus eine Probeantwort, die Benni sofort bewertet (nichts wird gespeichert). */
+/** Freitext: Lernziel für Marc, plus eine Probeantwort, die Marc sofort bewertet (nichts wird gespeichert). */
 function Rubric({ prompt, value, onChange }: { prompt: string; value: string; onChange: (v: string) => void }) {
   const [answer, setAnswer] = useState(''), [busy, setBusy] = useState(false)
   const [res, setRes] = useState<{ correct: boolean; feedback: string } | 'error' | null>(null)
@@ -345,15 +345,15 @@ function Rubric({ prompt, value, onChange }: { prompt: string; value: string; on
   return (
     <div className="mt-3 pl-8 space-y-4">
       <div>
-        <p className="text-[13.5px] font-medium">Lernziel für Benni</p>
-        <p className="text-[12.5px] text-mute mt-0.5">Was soll die Person verstanden haben, und worauf kommt es an? Benni wertet die Antwort als richtig, wenn sie das im Kern trifft, auch mit eigenen Worten. Fehlt ein Punkt, den du hier als wichtig nennst, ist sie falsch.</p>
+        <p className="text-[13.5px] font-medium">Lernziel für Marc</p>
+        <p className="text-[12.5px] text-mute mt-0.5">Was soll die Person verstanden haben, und worauf kommt es an? Marc wertet die Antwort als richtig, wenn sie das im Kern trifft, auch mit eigenen Worten. Fehlt ein Punkt, den du hier als wichtig nennst, ist sie falsch.</p>
         <textarea value={value} onChange={e => onChange(e.target.value)} rows={4} placeholder={'z. B. Die Person weiss, dass Instrumente nach jeder Kundin desinfiziert werden, damit keine Keime übertragen werden. Wichtig: Desinfektion nach jedem Einsatz und der Grund (Schutz der Kunden).'} className="mt-2 w-full rounded-[10px] bg-sage-50 px-3 py-2.5 text-[14px] outline-none resize-y" />
       </div>
       <div>
         <p className="text-[13.5px] font-medium">Ausprobieren</p>
         <div className="mt-1.5 flex gap-2"><input value={answer} onChange={e => setAnswer(e.target.value)} onKeyDown={e => e.key === 'Enter' && tryIt()} placeholder="So könnte jemand antworten …" className="flex-1 h-10 rounded-[10px] bg-sage-50 px-3 text-[14px] outline-none" />
-          <button disabled={busy || !value.trim() || !answer.trim()} onClick={tryIt} className="h-10 px-4 rounded-[10px] bg-sage-50 hover:bg-sage-100 text-[14px] disabled:opacity-50">{busy ? 'Benni prüft …' : 'Bewerten lassen'}</button></div>
-        {res === 'error' && <p className="mt-2 text-[13px] text-alert">Benni ist gerade nicht erreichbar.</p>}
+          <button disabled={busy || !value.trim() || !answer.trim()} onClick={tryIt} className="h-10 px-4 rounded-[10px] bg-sage-50 hover:bg-sage-100 text-[14px] disabled:opacity-50">{busy ? 'Marc prüft …' : 'Bewerten lassen'}</button></div>
+        {res === 'error' && <p className="mt-2 text-[13px] text-alert">Marc ist gerade nicht erreichbar.</p>}
         {res && res !== 'error' && <p className="mt-2 text-[13.5px] flex items-start gap-2"><Status kind={res.correct ? 'yes' : 'late'}>{res.correct ? 'Richtig' : 'Falsch'}</Status><span className="text-ink/80">{res.feedback}</span></p>}
       </div>
     </div>

@@ -3,7 +3,7 @@ import { Copy } from 'lucide-react'
 import { useApp } from './store'
 import { toast } from './Toast'
 
-// Personen-Bausteine, die App, Backoffice und Benni teilen
+// Personen-Bausteine, die App, Backoffice und Marc teilen
 export const ini = (s: { first: string; last: string }) => ((s.first[0] ?? '') + (s.last[0] ?? '')).toUpperCase()
 
 export const Avatar = ({ s, photo, size = 'w-10 h-10' }: { s: { first: string; last: string }; photo?: string | null; size?: string }) =>

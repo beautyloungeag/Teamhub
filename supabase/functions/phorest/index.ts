@@ -10,7 +10,7 @@
 //   client_history {client_id, months?, summary?} Besuche + Notizen der letzten Monate, auf Wunsch mit KI-Zusammenfassung, protokolliert
 //   services    {branch?, q?}    Behandlungskatalog (Dauer, Preis CHF, Kategorie), alle Rollen
 //   performance {from, to, employee_id? | branch?, totals_only?} Kennzahlen + Bewertungen, Vergleich zum Vorzeitraum
-//   read        {path}           freie GET-Abfrage für Benni (Filialleitung: eigene Filiale ohne Umsätze, Büro alles)
+//   read        {path}           freie GET-Abfrage für Marc (Filialleitung: eigene Filiale ohne Umsätze, Büro alles)
 //   sync_staff  {}               Zuordnung per Firmen-Mail neu aufbauen (nur Büro)
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 import { aiJson, hasAI } from '../_shared/openai.ts'
@@ -367,7 +367,7 @@ Deno.serve(async (req) => {
       return json({ ok: true, from, to, prev_from: pFrom, prev_to: pTo, metrics: total, prev: prevTotal, series, prev_series: prevSeries, people, reviews: rvCur.slice(0, 30).map(item) })
     }
 
-    // Freie Leseabfrage für Benni (nur Filialleitung und Büro). Nur GET, nur unterhalb des eigenen Business.
+    // Freie Leseabfrage für Marc (nur Filialleitung und Büro). Nur GET, nur unterhalb des eigenen Business.
     // Filialleitung: nur eigene Filiale, keine Umsätze. Kundendaten werden protokolliert.
     if (body.action === 'read') {
       if (me.app_role === 'mitarbeiterin') return json({ ok: false, error: 'forbidden' }, 403)

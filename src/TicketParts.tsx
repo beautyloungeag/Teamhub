@@ -22,7 +22,7 @@ export function Media({ tk }: { tk: Ticket }) {
   return tk.mediaKind === 'video' ? <video src={tk.photo} controls playsInline className="w-full rounded-[10px] bg-ink" /> : <a href={tk.photo} target="_blank" rel="noreferrer"><img src={tk.photo} alt="" className="w-full max-h-64 object-cover rounded-[10px]" /></a>
 }
 
-// Meldung oder Idee, die Benni vorschlägt: ein Tipp schickt sie ab (App und Backoffice)
+// Meldung oder Idee, die Marc vorschlägt: ein Tipp schickt sie ab (App und Backoffice)
 export function TicketDraft({ kind, title, onSend }: { kind: 'Meldung' | 'Idee'; title: string; onSend: () => Promise<boolean> }) {
   const { t } = useApp()
   const [state, setState] = useState<'draft' | 'busy' | 'sent' | 'error'>('draft')

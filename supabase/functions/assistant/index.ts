@@ -1,11 +1,11 @@
-// Benni, der Assistent im TeamHub (BLTH-25). Kennt die Person, die fragt (Rolle, Studio, Lage im
+// Marc, der Assistent im TeamHub (BLTH-25). Kennt die Person, die fragt (Rolle, Studio, Lage im
 // TeamHub), holt sich Termine, Kundinnen, Kolleginnen, Behandlungen und mehr selbst aus Phorest,
 // beantwortet Fachfragen nur aus dem freigegebenen Wissen und schlägt bei nicht lösbaren Anliegen
 // eine Meldung vor. Schreibt selbst nur den eigenen Onboarding-Fortschritt und die eigenen Chats.
 // Body: {chat_id?, message, files?, model?: schnell|standard|stark, web?, stream?}. Mit chat_id speichert die
 // Function Frage und Antwort selbst (benni_chats/benni_messages) und gibt dem Chat beim ersten Mal einen Titel.
 // Mit {stream: true} kommen Arbeitsschritte als NDJSON ({step, detail} | {title}), am Ende {done: true, …}.
-// Secrets: OPENAI_API_KEY (optional; ohne ihn antwortet Benni nur aus dem Wissen),
+// Secrets: OPENAI_API_KEY (optional; ohne ihn antwortet Marc nur aus dem Wissen),
 //          ASSISTANT_MODEL, ASSISTANT_REASONING, TITLE_MODEL (optional).
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 
@@ -53,18 +53,18 @@ const zDay = (n = 0) => { const [y, m, d] = new Intl.DateTimeFormat('en-CA', { t
 const isoDow = (day: string) => ((new Date(day + 'T12:00:00Z').getUTCDay() + 6) % 7) + 1
 const ROLE = { mitarbeiterin: 'Mitarbeiterin', filialleitung: 'Filialleitung', buero: 'Büro' } as Record<string, string>
 
-// Wo was in der App liegt, damit Benni Wege erklären kann
-const APP_GUIDE = `Handy-App (alle Rollen), unten fünf Reiter: Heute, Aufgaben, Benni, Wissen, Menü.
+// Wo was in der App liegt, damit Marc Wege erklären kann
+const APP_GUIDE = `Handy-App (alle Rollen), unten fünf Reiter: Heute, Aufgaben, Marc, Wissen, Menü.
 - Heute: Schicht und Anzahl Termine aus Phorest, Abschnitt „Bitte lesen“ für Pflicht-News, Tagesaufgaben mit Fortschritt, „Mein Tag“ (eigene Kundentermine), News. Filialleitung zusätzlich „Heute im Studio“.
 - Aufgaben, zwei Bereiche: „Für mich“ = einzelne Aufgaben mit Frist, die Filialleitung oder Büro einer Person oder dem ganzen Studio geben (mit Mitteilung), plus eigene To-dos („Eigenes To-do hinzufügen“). „Studio-Checklisten“ = feste Abläufe des Studios, jeden Tag neu (Vorlagen vom Büro, z. B. Öffnung, Mittag, Schliessung, Wochenputz), jede Liste mit „bis“-Zeit; wer etwas erledigt, hakt es für alle ab, bei manchen mit Foto. Name und Uhrzeit werden gespeichert. Filialleitung und Büro weisen einzelne Aufgaben im Backoffice unter Aufgaben zu.
-- Wissen: Suche, Onboarding für Neue („Mit Benni lernen“), alle Artikel des bisherigen Wikis. Unter manchen Artikeln und Pflicht-News ein Quiz (bestanden ab 80 %).
+- Wissen: Suche, Onboarding für Neue („Mit Marc lernen“), alle Artikel des bisherigen Wikis. Unter manchen Artikeln und Pflicht-News ein Quiz (bestanden ab 80 %).
 - Wissen ist nach Kategorien geordnet (Karten mit Bild), darin die Artikel als Liste.
-- Benni: mehrere Chats (oben „Chats“, neuer Chat, löschen), Dateien und Fotos anhängen (Büroklammer), diktieren (Mikrofon), Modell wählen (Schnell, Standard, Gründlich) und Websuche einschalten.
+- Marc: mehrere Chats (oben „Chats“, neuer Chat, löschen), Dateien und Fotos anhängen (Büroklammer), diktieren (Mikrofon), Modell wählen (Schnell, Standard, Gründlich) und Websuche einschalten.
 - Eigenes Profil: am Handy über das Bild oben rechts auf „Heute“ oder im Menü, am Desktop unten in der Seitenleiste. Dort Arbeitszeiten der Woche, Aushilfe-Tage, Sprache DE/EN/FR, Mitteilungen, Profilbild. Skills vergibt die Filialleitung oder das Büro.
 - Menü: Kundentermine (eigenes Studio live aus Phorest, Büro alle; Tipp auf einen Termin zeigt Notizen und Historie), Kundenhistorie (Besuche und Notizen einer Kundin), News, Kalender (eigene Termine aus Phorest sowie Schulungen und Events mit „Ich komme“ / „Ich komme nicht“, Filter oben), Team (Kolleginnen mit Telefon und E-Mail), Melden & Ideen (Meldung mit Foto oder Video für ein wählbares Studio, Meldungen und Ideen der anderen sehen und mit dem Pfeil nach oben unterstützen, kommentieren), Zeit & Ferien (Timebutler), Verbindungen.
 - Pflicht-News gelten erst als bestätigt, wenn man sie öffnet und unten „Gelesen und verstanden“ tippt. Hat sie ein Quiz, gilt sie mit dem bestandenen Quiz als bestätigt.
 - Ferien beantragen und Zeiterfassung laufen in Timebutler (Menü → Zeit & Ferien), nicht im TeamHub.
-Backoffice am Desktop (Filialleitung für das eigene Studio, Büro für alle): Übersicht, Kundentermine, News (nur Büro, mit Benni-Entwurf), Aufgaben (Vorlagen anlegen nur Büro), Meldungen & Ideen, Schulungen & Events, Aushilfe (wer kann an einem Tag einspringen), Lernen (Quiz und Nachweise), Team & Skills (Filialleitung: eigenes Studio, Personen anlegen, Skills vergeben, deaktivieren; löschen nur Büro), Studios und Wissen (beide nur Büro). Am Handy gibt es kein Backoffice.`
+Backoffice am Desktop (Filialleitung für das eigene Studio, Büro für alle): Übersicht, Kundentermine, News (nur Büro, mit Marc-Entwurf), Aufgaben (Vorlagen anlegen nur Büro), Meldungen & Ideen, Schulungen & Events, Aushilfe (wer kann an einem Tag einspringen), Lernen (Quiz und Nachweise), Team & Skills (Filialleitung: eigenes Studio, Personen anlegen, Skills vergeben, deaktivieren; löschen nur Büro), Studios und Wissen (beide nur Büro). Am Handy gibt es kein Backoffice.`
 
 function phorestGuide(ids: string) {
   return `Liest Phorest direkt (nur GET). Pfad relativ zum Business, ohne Domain. Filial-IDs: ${ids}.
@@ -120,7 +120,7 @@ Deno.serve(async (req) => {
     const list = (rows ?? []).reverse() as any[]
     history = list.map((r) => ({ me: r.role === 'user', t: r.text + (r.data?.files?.length ? ` [Anhang: ${r.data.files.map((f: any) => f.name).join(', ')}]` : '') }))
     const lastA = [...list].reverse().find((r) => r.role === 'assistant')
-    // OpenAI hält den Gesprächsstand 30 Tage; damit kennt Benni auch Dateien und Werkzeugergebnisse von vorher
+    // OpenAI hält den Gesprächsstand 30 Tage; damit kennt Marc auch Dateien und Werkzeugergebnisse von vorher
     if (lastA?.data?.response_id && Date.now() - new Date(lastA.created_at).getTime() < 25 * 864e5) prevResponse = { id: lastA.data.response_id, model: lastA.data.model }
     await db.from('benni_messages').insert({ chat_id: chatId, role: 'user', text: q, data: files.length ? { files: files.map((f) => ({ name: f.name, kind: f.mime.startsWith('image/') ? 'image' : 'file' })) } : {} })
   }
@@ -210,7 +210,7 @@ Deno.serve(async (req) => {
     const context = ranked.slice(0, 4).map((r) => `### ${r.a.title} (${r.a.category}, id ${r.a.id})\n${r.a.body.slice(0, 2500)}`).join('\n\n')
 
     const sys = [
-      'Du bist Benni, der Assistent im TeamHub der Beautylounge AG, einer Gruppe von Kosmetikstudios in der Region Basel. Du hilfst dem Team im Alltag: Termine, Kundinnen, Kolleginnen und Behandlungen aus Phorest (dem Kassen- und Buchungssystem), Wissen aus dem internen Wiki, Aufgaben, News, Schulungen und Meldungen.',
+      'Du bist Marc (voller Name Marc Beau; früher hiess der Assistent Benni, wer dich so nennt, meint dich), der Assistent im TeamHub der Beautylounge AG, einer Gruppe von Kosmetikstudios in der Region Basel. Du hilfst dem Team im Alltag: Termine, Kundinnen, Kolleginnen und Behandlungen aus Phorest (dem Kassen- und Buchungssystem), Wissen aus dem internen Wiki, Aufgaben, News, Schulungen und Meldungen.',
       `\n## Wer mit dir spricht\n${me.first_name} ${me.last_name}, ${me.job_title}, Rolle ${ROLE[me.app_role] ?? me.app_role}, Studio ${studio}.${(me.skills ?? []).length ? ` Skills: ${me.skills.join(', ')}.` : ''}`,
       `Heute ist ${dateLine} (${day0}), es ist ${timeLine} Uhr in der Schweiz.`,
       `\n## Lage im TeamHub (jetzt)\n${lage}`,
@@ -295,7 +295,7 @@ Deno.serve(async (req) => {
           const h = await phorestCall({ action: 'client_history', client_id: id, months: 12 })
           if (!h.ok) return { error: 'phorest_nicht_erreichbar' }
           const visits = (h.visits ?? []) as any[], done = visits.filter((v) => !v.cancelled)
-          // Kundenkarte für die App (zeigt Benni nur, wenn er client_card setzt)
+          // Kundenkarte für die App (zeigt Marc nur, wenn er client_card setzt)
           clientCards.set(id, {
             client_id: id, name: h.client?.name ?? '', since: h.client?.since ?? '', last_visit: h.client?.last_visit ?? '', preferred: h.client?.preferred ?? '',
             email: h.client?.email ?? '', phone: h.client?.phone ?? '', contact_hidden: !!h.client?.contact_hidden, visits: done.length, cancelled: visits.length - done.length,
@@ -429,7 +429,7 @@ Deno.serve(async (req) => {
       : f.mime.startsWith('image/') ? { type: 'input_image', image_url: `data:${f.mime};base64,${f.data}`, detail: 'auto' }
       : { type: 'input_file', filename: f.name, file_data: `data:${f.mime};base64,${f.data}` })]
 
-    // Responses-API: Werkzeuge mit Nachdenken (macht Benni deutlich klüger)
+    // Responses-API: Werkzeuge mit Nachdenken (macht Marc deutlich klüger)
     const viaResponses = async () => {
       let webTool = 'web_search'
       const tools = () => [...defs.map(([name, description, p, r]) => ({ type: 'function', name, description, parameters: params(p, r) })), ...(web ? [{ type: webTool }] : [])]

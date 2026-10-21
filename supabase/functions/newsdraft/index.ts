@@ -1,4 +1,4 @@
-// Benni entwirft News fürs Büro (Update-Meeting 25.09.): Text aus einer Stichwortangabe und auf Wunsch ein Bild.
+// Marc entwirft News fürs Büro (Update-Meeting 25.09.): Text aus einer Stichwortangabe und auf Wunsch ein Bild.
 // Nur Rolle Büro. Veröffentlicht wird nichts – das Büro prüft und schickt selbst ab.
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 import { aiJson } from '../_shared/openai.ts'

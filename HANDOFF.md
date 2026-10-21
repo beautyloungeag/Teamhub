@@ -2,6 +2,10 @@
 
 Interne Mitarbeiter-App (PWA + Desktop-Backoffice) der Beautylounge AG. Kundin: Renée Baumann. PM-Projekt: `projekt.aleksa.ai`, Key **BLTH** (`d4ee5d5c-4553-436c-bba7-137a03a2b704`). ⚠️ Das Repo `beautyloungeag/Teamhub` ist **öffentlich** — nie Personendaten committen.
 
+### Nachtrag 2026-10-21 abends — Assistent heisst Marc
+
+- Benni heisst jetzt **Marc** (voller Name Marc Beau), wie Beautylounge ihn intern nennt. Geändert in App, Backoffice, Übersetzungen und den Functions `assistant` (Anweisung: früher Benni, wer ihn so nennt, meint ihn), `newsdraft`, `phorest`, `transcribe`, alle neu deployt. Code-Namen (`BenniChat`, `benni_chats`, `public/benni.jpg`) bleiben bewusst.
+
 ### Nachtrag 2026-10-21 nachmittags — Mitarbeiter-App im Stil B (Aleksas Wahl)
 
 - **Farben nach Wichtigkeit:** Tokens `duty` (Pflicht), `note` (Wichtig/Aktion), `learn` (Learning), `studio`, `done`, `plum` in `src/index.css`, Zuordnung in `src/tones.ts` (`toneOf` nach Tag/Name, `tileTone` für Kacheln). Schrift in der App etwa 1,5 px grösser (Mobile, Todos, Quiz, Umfrage, Benni-Chat).

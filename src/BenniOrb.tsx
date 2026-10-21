@@ -43,7 +43,7 @@ void main(){
  gl_FragColor=vec4(clamp(col,0.,1.),alpha);
 }`
 
-/** `working`: Benni arbeitet gerade, die Kugel bewegt sich schneller. `still`: einmal zeichnen, keine Bewegung. */
+/** `working`: Marc arbeitet gerade, die Kugel bewegt sich schneller. `still`: einmal zeichnen, keine Bewegung. */
 export function BenniOrb({ className = 'w-7 h-7', still = false, working = false }: { className?: string; still?: boolean; working?: boolean }) {
   const canvas = useRef<HTMLCanvasElement>(null)
   const holder = useRef<HTMLSpanElement>(null)
@@ -126,7 +126,7 @@ export function BenniOrb({ className = 'w-7 h-7', still = false, working = false
   )
 }
 
-// Standbild der Kugel für Listen (z. B. jede Benni-Nachricht): einmal zeichnen, als Bild wiederverwenden.
+// Standbild der Kugel für Listen (z. B. jede Marc-Nachricht): einmal zeichnen, als Bild wiederverwenden.
 // Browser erlauben nur rund 16 WebGL-Kontexte, eine lebende Kugel pro Nachricht wäre zu viel.
 let still: Promise<string | null> | null = null
 export function orbImage(): Promise<string | null> {
@@ -152,7 +152,7 @@ export function orbImage(): Promise<string | null> {
   return still
 }
 
-/** Benni als kleines, ruhiges Profilbild (ohne eigenen WebGL-Kontext). */
+/** Marc als kleines, ruhiges Profilbild (ohne eigenen WebGL-Kontext). */
 export function BenniAvatar({ className = 'w-7 h-7' }: { className?: string }) {
   return <img src="/benni.jpg" alt="" aria-hidden="true" className={`rounded-full shrink-0 object-cover bg-sage-100 ${className}`} />
 }

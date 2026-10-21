@@ -36,7 +36,7 @@ export function SettingsAdmin() {
 /* ---------- Rollen ---------- */
 // Was jede Rolle darf (gleiche Regeln wie RLS und Functions) und wer sie hat. Rolle ändern: nur das Büro.
 const RIGHTS: [string, string, string, string][] = [
-  ['App: Mein Tag, Aufgaben, News, Melden, Events, Aushilfe, Lernen, Benni', 'ja', 'ja', 'ja'],
+  ['App: Mein Tag, Aufgaben, News, Melden, Events, Aushilfe, Lernen, Marc', 'ja', 'ja', 'ja'],
   ['Kundentermine ansehen', 'alle Studios', 'alle Studios', 'alle Studios'],
   ['Performance', 'eigene Zahlen', 'Team der eigenen Studios', 'alle Studios'],
   ['Backoffice öffnen', '–', 'ja', 'ja'],

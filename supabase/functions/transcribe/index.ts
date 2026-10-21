@@ -1,4 +1,4 @@
-// Diktat für Benni: Aufnahme → Text (OpenAI, Standard gpt-4o-transcribe). Die App zeigt beim Sprechen
+// Diktat für Marc: Aufnahme → Text (OpenAI, Standard gpt-4o-transcribe). Die App zeigt beim Sprechen
 // schon eine Live-Vorschau (Spracherkennung des Browsers); dieser Text ersetzt sie am Ende, weil er genauer ist.
 // Während der Aufnahme schickt die App alle paar Sekunden den Stand mit fast=1 (kleineres, schnelleres Modell)
 // für die Live-Anzeige, am Ende einmal alles für den endgültigen Text.
@@ -12,7 +12,7 @@ const cors = {
 }
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { ...cors, 'Content-Type': 'application/json' } })
 // Wörter aus dem Alltag der Studios, damit sie richtig geschrieben werden
-const HINT = 'Beautylounge, TeamHub, Benni, Phorest, Timebutler, Shellac, Shellack, Microblading, Lashlifting, Lashextensions, Brow-Styling, Waxing, Intimwaxing, Pediküre, Maniküre, Gel Nails, Microneedling, Basel, Riehen, Oberwil, Pratteln, Reinach, Filialleitung, Kundin, Aushilfe.'
+const HINT = 'Beautylounge, TeamHub, Marc, Phorest, Timebutler, Shellac, Shellack, Microblading, Lashlifting, Lashextensions, Brow-Styling, Waxing, Intimwaxing, Pediküre, Maniküre, Gel Nails, Microneedling, Basel, Riehen, Oberwil, Pratteln, Reinach, Filialleitung, Kundin, Aushilfe.'
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
