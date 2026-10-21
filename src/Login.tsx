@@ -49,15 +49,20 @@ export default function Login({ notice }: { notice?: string }) {
   }
 
   return (
-    <div className="flex-1 flex flex-col px-7 md:px-10 pt-14 md:pt-8 pb-10 md:pb-8">
-      <div className="flex justify-end gap-1 text-xs">
+    <div className="flex-1 flex flex-col min-h-0">
+      {/* Am Handy oben das Studio (Empfang, Foto von Beautylounge); am Desktop steht das Bild links im Rahmen */}
+      <div className="md:hidden relative h-[40dvh] shrink-0 overflow-hidden rounded-b-[28px]">
+        <img src="/hero-empfang.jpg" alt="" className="absolute inset-0 w-full h-full object-cover object-[50%_30%]" />
+        <div className="absolute inset-0 bg-gradient-to-b from-ink/25 via-transparent to-transparent" />
+      </div>
+      <div className="absolute top-4 right-4 md:top-6 md:right-8 z-10 flex gap-1 text-xs rounded-full bg-white/85 md:bg-transparent p-1 backdrop-blur-sm">
         {(['DE', 'EN', 'FR'] as Lang[]).map(l => <button key={l} onClick={() => setLang(l)} className={`px-2.5 py-1 rounded-full ${lang === l ? 'bg-olive-700 text-white' : 'text-mute'}`}>{l}</button>)}
       </div>
-      <div className="mt-14 md:mt-10">
-        <Logo className="w-44 text-olive-800 -ml-1" />
-        <p className="mt-8 rubric text-olive-700">TeamHub</p>
-      </div>
-      <div className="mt-auto space-y-4">
+      <div className="flex-1 flex flex-col items-center text-center px-7 md:px-10 pt-8 md:pt-24 pb-10 md:pb-8">
+        <Logo className="w-44 text-olive-800" />
+        <p className="mt-4 rubric text-olive-700">TeamHub</p>
+        <p className="mt-4 text-[15px] text-mute text-balance">{t('Melde dich mit deiner E-Mail-Adresse an.')}</p>
+        <div className="mt-auto md:mt-10 w-full max-w-[360px] space-y-4 text-left">
         {step === 'mail' ? <>
           <label className="block"><span className="block text-sm text-mute mb-2">{t('E-Mail')}</span>
             <input type="email" inputMode="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()}
@@ -74,6 +79,7 @@ export default function Login({ notice }: { notice?: string }) {
           <button onClick={() => { setStep('mail'); setCode(''); setErr('') }} className="w-full text-sm text-mute">{t('Andere E-Mail verwenden')}</button>
         </>}
         {err && <p role="alert" className="text-sm text-center text-alert">{t(err)}</p>}
+        </div>
       </div>
     </div>
   )

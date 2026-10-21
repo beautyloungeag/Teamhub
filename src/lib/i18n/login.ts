@@ -6,6 +6,7 @@ export default {
   'Anmeldecode senden': ['Send sign-in code', 'Envoyer le code'],
   'intern': ['internal', 'interne'],
   'E-Mail': ['Email', 'E-mail'],
+  'Melde dich mit deiner E-Mail-Adresse an.': ['Sign in with your email address.', 'Connecte-toi avec ton adresse e-mail.'],
   'vorname@beautylounge.ch': ['firstname@beautylounge.ch', 'prenom@beautylounge.ch'],
   'Kein Passwort. Du bekommst einen Code per E-Mail.': ['No password. You will get a code by email.', 'Pas de mot de passe. Tu reçois un code par e-mail.'],
   'Ich habe schon einen Code': ['I already have a code', "J'ai déjà un code"],
