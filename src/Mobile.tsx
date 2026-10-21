@@ -14,6 +14,7 @@ import { useApp, isoDay, addDays, type Lang, type News, type WikiArticle, type W
 import { Terminbuch, EventCalendar } from './Calendar'
 import { tr, locale } from './lib/i18n'
 import { emojiOf } from './lib/wiki'
+import { ContactLocked } from './ContactLock'
 import { BMark } from './Logo'
 import { Comments, Media } from './TicketParts'
 import { QuizRunner } from './QuizRunner'
@@ -657,16 +658,16 @@ function Team({ open }: { open: (s: Sub) => void }) {
 
 /* ---------- Kundenhistorie aus Phorest (Zusammenfassung durch Benni) ---------- */
 function ClientHistoryView({ cid }: { cid?: string }) {
-  const { t } = useApp()
+  const { t, me } = useApp()
   const [q, setQ] = useState(''), [hits, setHits] = useState<ClientHit[] | null>(null), [h, setH] = useState<(ClientHistory & { id: string }) | null>(null)
   const [busy, setBusy] = useState(false), [err, setErr] = useState('')
   const day = useMyDay()
   const search = async () => {
     if (q.trim().length < 3 || busy) return
     setBusy(true); setErr(''); setH(null)
-    const r = await phorest<{ ok: boolean; clients: ClientHit[] }>({ action: 'client_search', q })
+    const r = await phorest<{ ok: boolean; clients: ClientHit[]; error?: string }>({ action: 'client_search', q })
     setBusy(false)
-    if (!r.ok) { setErr(t('Phorest ist gerade nicht erreichbar. Bitte später noch einmal öffnen.')); return }
+    if (!r.ok) { setErr(t(r.error === 'contact_search_forbidden' ? 'Suche bitte über den Namen. Telefon und E-Mail sieht nur die Respo.' : 'Phorest ist gerade nicht erreichbar. Bitte später noch einmal öffnen.')); return }
     setHits(r.clients)
   }
   const pick = async (id: string) => {
@@ -695,7 +696,7 @@ function ClientHistoryView({ cid }: { cid?: string }) {
           <Label>{t('Deine Kunden heute')}</Label>
           <List>
             {!day && <Empty>{t('Lädt aus Phorest …')}</Empty>}
-            {day && todays.length === 0 && <Empty>{t('Heute keine Termine. Such Kunden über Name, E-Mail oder Telefon.')}</Empty>}
+            {day && todays.length === 0 && <Empty>{t(me.app_role === 'mitarbeiterin' ? 'Heute keine Termine. Such Kunden über den Namen.' : 'Heute keine Termine. Such Kunden über Name, E-Mail oder Telefon.')}</Empty>}
             {todays.map(a => <Row key={a.client_id} title={a.client} sub={`${a.start} · ${a.service}`} onClick={() => pick(a.client_id!)} />)}
           </List>
         </>}
@@ -740,6 +741,7 @@ function ClientDetail({ h, fmt, onBack }: { h: ClientHistory & { id: string }; f
         {c.membership && <span className="h-7 px-2.5 rounded-full bg-olive-700 text-white text-[12.5px] flex items-center">{t('Mitgliedschaft aktiv')}</span>}
         {c.categories?.map(k => <span key={k} className="h-7 px-2.5 rounded-full bg-white text-[12.5px] flex items-center">{k}</span>)}
       </div>}
+      {c.contact_hidden && <><Label>{t('Kontakt')}</Label><List><ContactLocked /></List></>}
       {(c.phone || c.email) && <><Label>{t('Kontakt')}</Label><List>
         {c.phone && <ContactRow label={t('Mobil')} value={showTel(c.phone)} href={`tel:${tel(c.phone)}`} icon={<Phone size={15} />} action={t('Anrufen')} />}
         {c.landline && <ContactRow label={t('Festnetz')} value={showTel(c.landline)} href={`tel:${tel(c.landline)}`} icon={<Phone size={15} />} action={t('Anrufen')} />}

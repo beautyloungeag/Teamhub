@@ -74,6 +74,8 @@ Deno.serve(async (req) => {
   const body = await req.json().catch(() => ({}))
   const date = /^\d{4}-\d{2}-\d{2}$/.test(body.date ?? '') ? body.date : today()
   const myBranches: string[] = [me.branch_id, ...(me.extra_branch_ids ?? [])]
+  // Kontaktdaten von Kundinnen (Telefon, E-Mail, Adresse, Geburtstag) nur für Respo, Stv. Respo und Büro (Renée 20.10.)
+  const seesContact = me.app_role !== 'mitarbeiterin'
   const { data: branches } = await admin.from('branches').select('id, name, phorest_branch_id')
   const pb = (id: string) => branches?.find((b) => b.id === id)?.phorest_branch_id
 
@@ -164,6 +166,7 @@ Deno.serve(async (req) => {
       const q = String(body.q ?? '').trim()
       if (q.length < 3) return json({ ok: false, error: 'too_short' }, 400)
       const digits = q.replace(/[^0-9]/g, '')
+      if (!seesContact && (q.includes('@') || digits.length >= 7)) return json({ ok: false, error: 'contact_search_forbidden' }, 403)
       const paths: string[] = []
       if (q.includes('@')) paths.push(`/client?email=${encodeURIComponent(q.toLowerCase())}&size=20`)
       else if (digits.length >= 7) { const d = digits.replace(/^00/, '').replace(/^0/, '41'); paths.push(`/client?phone=${d}&size=20`, `/client?phone=${digits}&size=20`) }
@@ -177,7 +180,7 @@ Deno.serve(async (req) => {
       await admin.from('client_lookups').insert({ employee_id: me.id, action: 'search', query: q.slice(0, 120), result_count: seen.size })
       return json({ ok: true, clients: [...seen.values()].slice(0, 15).map((c) => ({
         client_id: c.clientId, name: `${c.firstName ?? ''} ${c.lastName ?? ''}`.trim(),
-        phone_tail: String(c.mobile ?? c.landLine ?? '').replace(/\s/g, '').slice(-4), since: String(c.createdAt ?? c.firstVisit ?? '').slice(0, 10),
+        phone_tail: seesContact ? String(c.mobile ?? c.landLine ?? '').replace(/\s/g, '').slice(-4) : '', since: String(c.createdAt ?? c.firstVisit ?? '').slice(0, 10),
       })) })
     }
 
@@ -238,6 +241,7 @@ Deno.serve(async (req) => {
         membership: !!client.hasActiveMembership, banned: !!client.banned, categories,
         consent: { sms_marketing: !!client.smsMarketingConsent, email_marketing: !!client.emailMarketingConsent, sms_reminder: !!client.smsReminderConsent, email_reminder: !!client.emailReminderConsent },
       }
+      if (!seesContact) Object.assign(info, { email: '', phone: '', landline: '', address: '', birth_date: '', contact_hidden: true })
       // Zusammenfassung: nur Besuche und Notizen, keine Kontaktdaten an das Sprachmodell
       let summary: string | null = null
       if (body.summary && hasAI() && visits.length) {

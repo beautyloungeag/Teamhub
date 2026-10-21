@@ -159,6 +159,7 @@ function AppointmentSheet({ a, onClose }: { a: Appt & { who: string }; onClose: 
           {h && !h.ok && <p className="mt-6 text-[13px] text-mute">{t('Phorest ist gerade nicht erreichbar. Bitte später noch einmal versuchen.')}</p>}
           {c && <div className="mt-7">
             <p className="text-[15px] font-medium mb-1">{t('Kundendaten')}</p>
+            {c.contact_hidden && <><DataRow label={t('Telefon')} value={<span aria-hidden="true" className="blur-[5px] select-none">+41 79 123 45 67</span>} /><DataRow label={t('E-Mail')} value={<span aria-hidden="true" className="blur-[5px] select-none">vorname.name@mail.ch</span>} /><p className="mt-1 text-[12.5px] text-mute">{t('Nur für Respo, Stv. Respo und Büro sichtbar')}</p></>}
             {c.phone && <DataRow label={t('Telefon')} value={c.phone} copy={c.phone} href={`tel:${c.phone.replace(/\s/g, '')}`} />}
             {c.email && <DataRow label={t('E-Mail')} value={c.email} copy={c.email} href={`mailto:${c.email}`} />}
             {c.since && <DataRow label={t('Kunde seit')} value={d(c.since)} />}

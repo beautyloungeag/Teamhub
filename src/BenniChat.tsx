@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import { ArrowUp, ArrowUpRight, BookOpen, Check, ChevronDown, ExternalLink, FileSpreadsheet, FileText, Globe, Mail, MessagesSquare, Mic, Paperclip, Phone, Sparkles, Square, SquarePen, Trash2, X } from 'lucide-react'
 import { supabase, SUPABASE_URL, SUPABASE_ANON } from './lib/supabase'
 import { locale } from './lib/i18n'
+import { ContactLocked } from './ContactLock'
 import { useApp, isoDay, addDays } from './store'
 import { BMark } from './Logo'
 import { BenniAvatar } from './BenniOrb'
@@ -16,7 +17,7 @@ import { reloadTodos } from './Todos'
 
 export type Step = { step: string; detail?: string }
 type Visit = { date: string; time: string; service: string; staff: string; branch: string }
-export type ClientCard = { client_id: string; name: string; since: string; last_visit: string; preferred: string; email: string; phone: string; visits: number; cancelled: number; recent: Visit[]; upcoming: Visit[]; notes: { date: string; text: string }[] }
+export type ClientCard = { client_id: string; name: string; since: string; last_visit: string; preferred: string; email: string; phone: string; contact_hidden?: boolean; visits: number; cancelled: number; recent: Visit[]; upcoming: Visit[]; notes: { date: string; text: string }[] }
 export type MsgData = {
   sources?: { id: string; title: string }[]; ticket?: { kind: 'Meldung' | 'Idee'; title: string }; card?: ClientCard
   cards?: { title: string; body: string }[]; quiz?: { question: string; options: string[] }; choices?: string[]; reveal?: boolean
@@ -307,6 +308,7 @@ function ClientCardView({ c, onOpen }: { c: ClientCard; onOpen?: (id: string) =>
           <p className="text-[12.5px] text-mute">{[c.since && t('Kunde seit {d}', { d: shortDate(c.since) }), t('{n} Besuche', { n: c.visits }), c.preferred && t('bevorzugt {name}', { name: c.preferred })].filter(Boolean).join(' · ')}</p>
         </div>
       </div>
+      {c.contact_hidden && <ContactLocked className="border-t border-line" />}
       {(c.phone || c.email) && <div className="border-t border-line divide-y divide-line">
         {c.phone && <ContactRow label={t('Telefon')} value={showTel(c.phone)} href={`tel:${telOf(c.phone)}`} icon={<Phone size={15} />} action={t('Anrufen')} />}
         {c.email && <ContactRow label={t('E-Mail')} value={c.email} href={`mailto:${c.email}`} icon={<Mail size={15} />} action={t('E-Mail schreiben')} />}

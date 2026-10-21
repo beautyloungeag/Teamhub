@@ -195,10 +195,10 @@ export function MyPerformance() {
           : <><KpiGrid p={p} /><p className="mt-2 px-1 text-[11.5px] text-mute">{t('Vergleich mit den {n} Tagen davor. Umsatz laut Terminpreisen, ohne Verkauf und Rabatte.', { n: Math.round((Date.parse(r.to) - Date.parse(r.from)) / 864e5) + 1 })}</p></>}
       </div>
 
-      <div className="flex items-baseline justify-between mt-8 mb-2.5 px-1"><h2 className="rubric text-ink/70">{t('Ziele')}</h2>{!adding && <button onClick={() => setAdding(true)} className="text-[13px] text-olive-700 flex items-center gap-1"><Target size={14} />{t('Ziel erstellen')}</button>}</div>
+      <div className="flex items-baseline justify-between mt-8 mb-2.5 px-1"><h2 className="rubric text-ink/70">{t('Ziele')}</h2>{lead && !adding && <button onClick={() => setAdding(true)} className="text-[13px] text-olive-700 flex items-center gap-1"><Target size={14} />{t('Ziel erstellen')}</button>}</div>
       {adding && <div className="mb-3"><GoalForm scope="person" onCancel={() => setAdding(false)} onDone={() => { setAdding(false); reloadGoals() }} /></div>}
       <div className="rounded-[16px] bg-white px-4 py-2">
-        {goals ? <GoalList goals={goals} staff={staff} onChanged={reloadGoals} canDeleteOf={g => (g.scope === 'person' && g.employee_id === me.id) || (g.scope === 'team' && lead)} emptyText={t('Noch keine Ziele. Teamziele legt die Filialleitung an.')} /> : <p className="py-3 text-[13.5px] text-mute">…</p>}
+        {goals ? <GoalList goals={goals} staff={staff} onChanged={reloadGoals} canDeleteOf={() => lead} emptyText={t('Noch keine Ziele. Ziele legt die Filialleitung an.')} /> : <p className="py-3 text-[13.5px] text-mute">…</p>}
       </div>
 
       <h2 className="rubric text-ink/70 mt-8 mb-2.5 px-1">{t('Meine Bewertungen')}</h2>
