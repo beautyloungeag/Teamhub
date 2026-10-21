@@ -11,6 +11,9 @@ import { toast } from '../Toast'
 import { H, New, Th, Field, inpStone, btn, btn2, Err, retranslate, real, isTest, inBranch, Select, Seg, Modal, Chips, Back, Section, Status, Empty, DataRow } from './kit'
 import { Donut } from './charts'
 
+// Kategorien wie in der App (Inhaberin 21.10.)
+const NEWS_CATS = ['Wichtig', 'Schulung', 'Team', 'Salon']
+
 // News: Büro für alle Studios, Filialleitung für ihr Studio. Zielgruppe nach Studio, Gruppe, Skill oder Personen,
 // Pflicht mit Lesebestätigung, zeitgesteuert, Entwurf und Bild von Marc, Umfrage anhängen, nachträglich bearbeiten.
 
@@ -113,7 +116,7 @@ function Compose({ edit, onClose }: { edit: News | null; onClose: () => void }) 
   const office = me.app_role === 'buero'
   const mine = [me.branch_id, ...(me.extra ?? [])].filter(b => b !== 'buero')
   const studios = branches.filter(b => !b.is_office && (office || mine.includes(b.id)))
-  const [f, setF] = useState({ title: '', teaser: '', body: '', tag: 'Studio', must: false, branches: office ? [] as string[] : [me.branch_id], groups: [] as string[], skills: [] as string[], people: [] as string[], when: '', wiki: '', image: '' })
+  const [f, setF] = useState({ title: '', teaser: '', body: '', tag: 'Salon', must: false, branches: office ? [] as string[] : [me.branch_id], groups: [] as string[], skills: [] as string[], people: [] as string[], when: '', wiki: '', image: '' })
   const [poll, setPoll] = useState<PollDraft | null>(null)
   const [brief, setBrief] = useState(''), [imgPrompt, setImgPrompt] = useState(''), [ai, setAi] = useState<'' | 'text' | 'image'>(''), [preview, setPreview] = useState<string | null>(null)
   const [pq, setPq] = useState(''), [err, setErr] = useState(''), [busy, setBusy] = useState(false), [loaded, setLoaded] = useState(!edit)
@@ -122,7 +125,7 @@ function Compose({ edit, onClose }: { edit: News | null; onClose: () => void }) 
     if (!edit) return
     (async () => {
       const { data: n } = await supabase!.from('news').select('*').eq('id', edit.id).single()
-      if (n) setF({ title: n.title, teaser: n.teaser ?? '', body: n.body ?? '', tag: n.must_read ? 'Studio' : n.tag ?? 'Studio', must: n.must_read, branches: n.audience_branches ?? [], groups: n.audience_groups ?? [], skills: n.audience_skills ?? [], people: n.audience_people ?? [],
+      if (n) setF({ title: n.title, teaser: n.teaser ?? '', body: n.body ?? '', tag: NEWS_CATS.includes(n.tag) ? n.tag : n.tag === 'Pflicht' || n.tag === 'Hygiene' ? 'Wichtig' : 'Salon', must: n.must_read, branches: n.audience_branches ?? [], groups: n.audience_groups ?? [], skills: n.audience_skills ?? [], people: n.audience_people ?? [],
         when: new Date(n.publish_at) > new Date() ? localInput(n.publish_at) : '', wiki: n.wiki_category ?? '', image: n.image_path ?? '' })
       if (n?.image_path) { const { data: u } = await supabase!.storage.from('media').createSignedUrl(n.image_path, 3600); setPreview(u?.signedUrl ?? null) }
       const p = polls.find(x => x.newsId === edit.id)
@@ -180,7 +183,7 @@ function Compose({ edit, onClose }: { edit: News | null; onClose: () => void }) 
     // Filialleitung: Personen-News laufen über das eigene Studio als Rahmen
     const br = !office && f.people.length && !f.branches.length ? [me.branch_id] : f.branches
     const row = {
-      title: f.title.trim(), teaser: f.teaser.trim() || f.body.trim().slice(0, 140), body: f.body.trim(), tag: f.must ? 'Pflicht' : f.tag, must_read: f.must,
+      title: f.title.trim(), teaser: f.teaser.trim() || f.body.trim().slice(0, 140), body: f.body.trim(), tag: f.tag, must_read: f.must,
       audience_branches: br, audience_groups: f.groups, audience_skills: f.skills, audience_people: f.people, image_path: f.image || null, wiki_category: f.wiki || null,
     }
     let id = edit?.id ?? null, error: { message: string } | null = null
@@ -248,7 +251,7 @@ function Compose({ edit, onClose }: { edit: News | null; onClose: () => void }) 
           </> : <div><span className="block text-xs text-mute mb-1.5">Personen</span><div className="flex flex-wrap gap-1.5">{f.people.map(id => { const p = staff.find(x => x.id === id); return <button key={id} onClick={() => setF({ ...f, people: f.people.filter(x => x !== id) })} className="px-2.5 h-8 rounded-[8px] text-[13px] bg-olive-700 text-white flex items-center gap-1">{p ? `${p.first} ${p.last}${isTest(p) ? ' (Testkonto)' : ''}` : id}<X size={12} /></button> })}</div></div>}
           <div className="relative"><input value={pq} onChange={e => setPq(e.target.value)} placeholder="Oder einzelne Personen …" className={inpStone} />
             {pq.trim().length > 1 && <div className="absolute z-10 left-0 right-0 mt-1 rounded-[12px] bg-white border border-line shadow-[0_16px_40px_-16px_rgba(29,34,28,.35)] p-1 max-h-48 overflow-y-auto">{pool.slice(0, 8).map(s => <button key={s.id} onClick={() => { setF({ ...f, people: [...f.people, s.id] }); setPq('') }} className="w-full text-left px-3 py-2 rounded-[8px] text-[13px] hover:bg-sage-50">{s.first} {s.last}{isTest(s) ? ' (Testkonto)' : ''} <span className="text-mute">· {s.branch}</span></button>)}{pool.length === 0 && <p className="px-3 py-2 text-[13px] text-mute">Niemand gefunden.</p>}</div>}</div>
-          <Select label="Kategorie" tone="stone" value={f.tag} onChange={v => setF({ ...f, tag: v })} options={['Studio', 'Marketing', 'Team', 'Hygiene'].map(x => ({ value: x, label: x }))} />
+          <Select label="Kategorie" tone="stone" value={f.tag} onChange={v => setF({ ...f, tag: v })} options={NEWS_CATS.map(x => ({ value: x, label: x }))} />
           <button type="button" onClick={() => setF({ ...f, must: !f.must })} className={`w-full h-11 rounded-[10px] px-3 flex items-center gap-2.5 text-left transition ${f.must ? 'bg-brass/15 text-ink' : 'bg-sage-50 text-ink/80'}`}>
             <span className={`w-5 h-5 rounded-[6px] flex items-center justify-center ${f.must ? 'bg-brass text-white' : 'shadow-[inset_0_0_0_1.5px_#979E92]'}`}>{f.must && <Check size={12} strokeWidth={3} />}</span>Pflicht mit Lesebestätigung</button>
           <Field label={edit ? 'Veröffentlichung verschieben (leer = bleibt)' : 'Veröffentlichen (leer = sofort)'}><input type="datetime-local" value={f.when} onChange={e => setF({ ...f, when: e.target.value })} className={inpStone} /></Field>

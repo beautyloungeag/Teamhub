@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type ClipboardEvent, type DragEvent, type ReactNode } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
-import { ArrowUp, ArrowUpRight, BookOpen, Check, ChevronDown, ExternalLink, FileSpreadsheet, FileText, Globe, Mail, MessagesSquare, Mic, Paperclip, Phone, Sparkles, Square, SquarePen, Trash2, X } from 'lucide-react'
+import { ArrowUp, ArrowUpRight, BookOpen, Check, ChevronDown, ChevronLeft, ExternalLink, FileSpreadsheet, FileText, Globe, Mail, MessagesSquare, Mic, Paperclip, Phone, Sparkles, Square, SquarePen, Trash2, X } from 'lucide-react'
 import { supabase, SUPABASE_URL, SUPABASE_ANON } from './lib/supabase'
 import { locale } from './lib/i18n'
 import { ContactLocked } from './ContactLock'
@@ -544,7 +544,7 @@ function ChatList({ onPicked }: { onPicked?: () => void }) {
 /* ---------- Ganze Ansicht ---------- */
 const IDEAS = ['Was steht heute bei mir an?', 'Lass uns mit dem Onboarding weiterlernen.', 'Wer arbeitet morgen im Studio?', 'Das Wachsgerät in Kabine 3 ist kaputt']
 
-export function BenniChat({ variant = 'app', onOpenArticle, onOpenClient, onClose }: { variant?: 'app' | 'panel'; onOpenArticle?: (id: string) => void; onOpenClient?: (id: string) => void; onClose?: () => void }) {
+export function BenniChat({ variant = 'app', onOpenArticle, onOpenClient, onClose, onBack }: { variant?: 'app' | 'panel'; onOpenArticle?: (id: string) => void; onOpenClient?: (id: string) => void; onClose?: () => void; onBack?: () => void }) {
   const { employee, me, t, reload } = useApp()
   const st = useBenni()
   const [drawer, setDrawer] = useState(false)
@@ -616,7 +616,9 @@ export function BenniChat({ variant = 'app', onOpenArticle, onOpenClient, onClos
       </aside>
       <div className="flex-1 min-w-0 flex flex-col">
         <div className="shrink-0 pt-11 md:pt-0 h-auto md:h-[60px] px-3 md:px-8 flex items-center gap-1 md:border-b md:border-line/70">
-          <button onClick={() => setDrawer(true)} className="md:hidden h-9 px-2.5 rounded-full hover:bg-sage-100 flex items-center gap-1.5 text-[15.5px] text-ink/80"><MessagesSquare size={17} />{t('Chats')}</button>
+          {/* Aus der Chat-Liste geöffnet: zurück zu den Team-Chats, Marcs eigene Gespräche heissen dann „Verlauf“ */}
+          {onBack && <button onClick={onBack} className="h-10 pl-0.5 pr-1 flex items-center gap-0.5 text-sage-800 text-[17px]"><ChevronLeft size={22} />{t('Chats')}</button>}
+          <button onClick={() => setDrawer(true)} className="md:hidden h-9 px-2.5 rounded-full hover:bg-sage-100 flex items-center gap-1.5 text-[15.5px] text-ink/80"><MessagesSquare size={17} />{onBack ? t('Verlauf') : t('Chats')}</button>
           <p className="flex-1 min-w-0 truncate text-center md:text-left text-[15.5px] text-mute md:text-[17px] md:text-ink md:font-medium">{chat ? title : <span className="hidden md:inline text-mute font-normal">{t('Neuer Chat')}</span>}</p>
           <span className="md:hidden">{newBtn}</span>
         </div>

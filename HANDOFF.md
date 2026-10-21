@@ -2,6 +2,31 @@
 
 Interne Mitarbeiter-App (PWA + Desktop-Backoffice) der Beautylounge AG. Kundin: Renée Baumann. PM-Projekt: `projekt.aleksa.ai`, Key **BLTH** (`d4ee5d5c-4553-436c-bba7-137a03a2b704`). ⚠️ Das Repo `beautyloungeag/Teamhub` ist **öffentlich** — nie Personendaten committen.
 
+### Was wurde in dieser Session gemacht (2026-10-21 spät) — zweite Feedback-Runde der Inhaberin („Re: App Optik“)
+
+Ihre Antwort: Fokus auf sauberes Wissen, News, Tages-/Wochen-/Monatslisten, Chat und Lernen untereinander; Termine und Performance „sind ja nichts Neues“, das haben die Mitarbeiterinnen in der Phorest-App. Ihre Vorlagen-Screenshots (BeautyHub/GlowTools-Mockups) liegen nicht im Repo.
+
+- **Migration `0029_fokus_wissen_news_chats.sql`** (eingespielt):
+  - News-Kategorien Wichtig/Schulung/Team/Salon (alte Studio/Marketing → Salon, Pflicht/Hygiene → Wichtig)
+  - RPC `news_progress()`: „8 von 12 bestätigt“ je Pflicht-News, Zielgruppe wie `news_for_me`, ohne Büro
+  - `wiki_runs` (gelesen einmal je Person, Durchgänge beliebig oft) + Leserecht auf eigene `wiki_views`
+  - `employees.about` + RPC `update_my_about`
+  - Team-Chats `chat_rooms`/`chat_members`/`chat_messages`: Studio-Räume je Filiale, Raum „Ganzes Team“, Direkt- und Gruppenchats per RPC `start_chat`, Zugriff über `chat_can`, Realtime auf `chat_messages`
+  - Ticket-Art `Learning`: für alle Studios lesbar, Trigger `learning_quiet` verhindert Facility-Mail und Leitungs-Push, Storage-Policy `learning_media_read` für deren Fotos/Videos
+- **App:**
+  - News als grosse Bildkarten mit Zeit-Badge und Bestätigungsbalken; ohne eigenes Bild ein Studiofoto
+  - Wissen in fünf Hauptbereichen (`AREAS`/`areaOf` in `src/lib/wiki.ts`, Treatment-/Hygiene-Titel per Regex, sonst Thema → Bereich) mit persönlichem Prozentbalken, Bereichsseite mit Themen-Chips und Häkchen
+  - Artikel im Schritt-Modus: `ol`, Absätze mit fettem Anfang (Import-Protokolle „**1. Nagelhaut entfernen**-…“) und Zwischentitel werden Schritte zum Abhaken, kurze Zeilenläufe/`ul` werden Checklisten, Hinweise zur roten Regel; voller Durchgang = Eintrag in `wiki_runs` („2× durchgemacht“); unten fest „Gelesen & bestätigen“ + „Frage an Marc“
+  - Profil mit grossem Foto, „Persönliches“ (selbst gepflegt), „Nachricht schreiben“
+  - Reiter **Chats** statt Marc (Marc oben angeheftet, öffnet seinen Chat mit Zurück-Knopf, `BenniChat` hat dafür `onBack`); `src/Chats.tsx` mit Hub, Raum (Realtime), Personenauswahl, Punkt für ungelesene in der Navigation
+  - Melden & Ideen mit drittem Knopf **Learning** (Feed mit Video/Foto, „Hilfreich“, Kommentare), „Wissen teilen“ im Wissen
+  - Startseite ohne „Gleich dran“, Marc-Kundenkarte und „Heute im Studio“, dafür Pflicht-News gross, Lernstand-Kachel, Chats, Weiterlernen, Geteiltes; Kundentermine/Kundenhistorie/Performance im Menü unter „Aus Phorest“
+  - Backoffice News: Kategorien wie in der App
+- **Begründung gegenüber der Inhaberin:** Termine/Schichten („Mein Tag“) stehen im Projektplan als Kernmodul, Kundenhistorie + Marc zur Kundin waren ihr Wunsch vom 20.10., Performance ihr Wunsch vom 25.09. Deshalb bleiben sie erreichbar, nur nicht mehr vorne.
+- **Offen:** Push bei neuer Chat-Nachricht fehlt noch (`notify` kennt Chats nicht). Fotos/Videos im Chat fehlen. Bereichszuordnung ist fest im Code, nicht im Backoffice einstellbar. Artikel mit reinem Fliesstext bleiben Fliesstext, bis jemand sie in Schritte gliedert.
+- PDF für die Inhaberin neu: `~/Downloads/TeamHub-Mitarbeiter-App-neuer-Stand.pdf`. Die Beispiel-Einträge für die Aufnahmen (Direktchat, Learning, Lesefortschritt, Profiltext) sind per ID wieder gelöscht.
+- Weiter nur lokal, weil Netlify pausiert ist.
+
 ### Was wurde in dieser Session gemacht (2026-10-21, Abschluss)
 
 - **Anmeldung am Handy neu** (Commit `6aeb883`): oben das Empfangsfoto (`public/hero-empfang.jpg`, unten abgerundet), Sprachwahl als weisse Pille auf dem Foto, darunter Logo, „TeamHub“, Zeile „Melde dich mit deiner E-Mail-Adresse an.“ und das Formular, alles zentriert. Am Desktop bleibt das Bild links (`login-studio.webp`), rechts jetzt ebenfalls zentriert. Anlass: Aleksa fand die Seite ohne Bild und linksbündig verloren.

@@ -10,9 +10,9 @@ export const TONE: Record<Tone, { fg: string; bg: string; solid: string }> = {
 }
 /** Ton einer News oder eines Wissens-Themas aus Tag/Name ableiten. */
 export const toneOf = (label: string, mustRead = false): Tone =>
-  mustRead || /pflicht|hygiene|sicherheit/i.test(label) ? 'duty'
+  mustRead || /pflicht|hygiene|sicherheit|wichtig/i.test(label) ? 'duty'
     : /schul|learn|quiz|video|ausbild|lehre|onboard|praktik/i.test(label) ? 'learn'
-    : /marketing|aktion|wichtig|gutschein|verkauf|kasse/i.test(label) ? 'note'
+    : /marketing|aktion|gutschein|verkauf|kasse/i.test(label) ? 'note'
     : /team|hr|mitarbeit|lohn|frei|arbeitszeit/i.test(label) ? 'plum'
     : 'studio'
 /** Kacheln abwechselnd einfärben; Pflicht-Themen (Hygiene, Sicherheit) bleiben rot. */

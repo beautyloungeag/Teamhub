@@ -4,17 +4,18 @@ import {
   Home, ListChecks, BookOpen, LayoutGrid, Sparkles, ChevronLeft, ChevronRight, Check, Camera, MapPin, Users,
   Search, Lightbulb, AlertTriangle, CalendarDays, Send, Newspaper, Plane, Play, Video,
   ArrowUp, ArrowUpRight, LogOut, Phone, ArrowBigUp, GraduationCap, Link2, Lock, FileText, Smartphone, Share, PlusSquare, MoreVertical, ExternalLink, Monitor,
-  TrendingUp,
+  TrendingUp, MessageCircle, Clock, Share2, Circle, ShieldAlert,
 } from 'lucide-react'
 import { useAuth } from './lib/auth'
 import { supabase } from './lib/supabase'
-import { phorest, type MyDay, type TeamToday, type StaffWeek, type ClientHit, type ClientHistory } from './lib/phorest'
+import { phorest, type MyDay, type StaffWeek, type ClientHit, type ClientHistory } from './lib/phorest'
 import { pushState, enablePush, disablePush, testPush, reportDevice, isStandalone, isIOS, isAndroid, canPromptInstall, promptInstall, type PushState } from './lib/push'
 import { useApp, isoDay, addDays, zurichHour, type Lang, type News, type WikiArticle, type WikiBlock, type Staff } from './store'
-import { Terminbuch, EventCalendar, colorFor } from './Calendar'
-import { TONE, toneOf, tileTone, type Tone } from './tones'
+import { Terminbuch, EventCalendar } from './Calendar'
+import { TONE, toneOf, type Tone } from './tones'
 import { tr, locale } from './lib/i18n'
-import { emojiOf } from './lib/wiki'
+import { emojiOf, AREAS, areaOf } from './lib/wiki'
+import { ChatHub, ChatRoom, useChatUnread, loadChatSummaries } from './Chats'
 import { ContactLocked } from './ContactLock'
 import { BMark } from './Logo'
 import { Comments, Media } from './TicketParts'
@@ -34,7 +35,8 @@ export const ASSISTANT = 'Marc'
 
 type Tab = 'home' | 'tasks' | 'ai' | 'wiki' | 'menu'
 type Sub = null | { k: 'news-list' } | { k: 'news'; item: News } | { k: 'wiki'; item: WikiArticle } | { k: 'wiki-cat'; key: string; name: string } | { k: 'onboarding' } | { k: 'team' } | { k: 'profile'; item: Staff }
-  | { k: 'me' } | { k: 'conn' } | { k: 'book' } | { k: 'tickets' } | { k: 'ticket'; id: string } | { k: 'clients'; cid?: string } | { k: 'events' } | { k: 'inbox' } | { k: 'time' } | { k: 'install' } | { k: 'perf' }
+  | { k: 'me' } | { k: 'conn' } | { k: 'book' } | { k: 'tickets'; learning?: boolean } | { k: 'ticket'; id: string } | { k: 'clients'; cid?: string } | { k: 'events' } | { k: 'inbox' } | { k: 'time' } | { k: 'install' } | { k: 'perf' }
+  | { k: 'marc' } | { k: 'chat'; id: string } | { k: 'area'; key: string }
 
 
 export default function Mobile({ onSwitch }: { onSwitch?: () => void }) {
@@ -84,6 +86,8 @@ function Shell({ onLogout, onSwitch }: { onLogout: () => void; onSwitch?: () => 
   const [tab, setTab] = useState<Tab>('home')
   const [stack, setStack] = useState<Sub[]>([])
   const sub = stack[stack.length - 1] ?? null
+  const stackRef = useRef(stack); stackRef.current = stack
+  const chatUnread = useChatUnread()
   const scroller = useRef<HTMLDivElement>(null)
   const top = () => requestAnimationFrame(() => scroller.current?.scrollTo({ top: 0 }))
   // Jeder Unterbildschirm ist ein Eintrag im Browser-Verlauf: so führt die Zurück-Geste (Android) eine Ebene zurück
@@ -106,13 +110,13 @@ function Shell({ onLogout, onSwitch }: { onLogout: () => void; onSwitch?: () => 
     else if (o === 'tasks') { tasksView = 'studio'; go('tasks') }
     else if (o === 'perf') open({ k: 'perf' })
     // Direktlinks aus Unterlagen und Schulungen
-    else if (o === 'home' || o === 'ai' || o === 'wiki' || o === 'menu') go(o)
-    else if (o === 'benni') go('ai')
+    else if (o === 'home' || o === 'ai' || o === 'wiki' || o === 'menu' || o === 'chats') go(o === 'chats' ? 'ai' : o)
+    else if (o === 'benni' || o === 'marc') { go('ai'); open({ k: 'marc' }) }
     else if (o === 'onboarding' || o === 'book' || o === 'me' || o === 'team' || o === 'install' || o === 'news-list' || o === 'conn' || o === 'time') open({ k: o })
     else if (o === 'clients') open({ k: 'clients' })
   }
   // „Mit Marc lernen“ aus dem Onboarding: in den Marc-Reiter wechseln, die Frage stellt der Reiter selbst
-  useEffect(() => { const f = () => go('ai'); window.addEventListener('th-benni', f); return () => window.removeEventListener('th-benni', f) }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { const f = () => { if (stackRef.current[stackRef.current.length - 1]?.k !== 'marc') { go('ai'); open({ k: 'marc' }) } }; window.addEventListener('th-benni', f); return () => window.removeEventListener('th-benni', f) }, []) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     reportDevice()
     if (location.search.includes('open=') && !loading) { openUrl(location.href); history.replaceState(null, '', '/') }
@@ -129,9 +133,12 @@ function Shell({ onLogout, onSwitch }: { onLogout: () => void; onSwitch?: () => 
     case 'wiki-cat': screen = <WikiCategory k={sub.key} name={sub.name} open={open} />; break
     case 'onboarding': screen = <Onboarding open={open} />; break
     case 'team': screen = <Team open={open} />; break
-    case 'profile': screen = <Profile s={sub.item} />; break
+    case 'profile': screen = <Profile s={sub.item} open={open} />; break
     case 'me': screen = <MyProfile />; break
-    case 'tickets': screen = <Tickets open={open} />; break
+    case 'tickets': screen = <Tickets open={open} learning={sub.learning} />; break
+    case 'marc': screen = <AI open={open} onBack={back} />; break
+    case 'chat': screen = <ChatRoom id={sub.id} onBack={back} />; break
+    case 'area': screen = <WikiArea k={sub.key} open={open} />; break
     case 'ticket': screen = <TicketDetail id={sub.id} />; break
     case 'clients': screen = <ClientHistoryView cid={sub.cid} />; break
     case 'events': screen = <Events />; break
@@ -142,25 +149,27 @@ function Shell({ onLogout, onSwitch }: { onLogout: () => void; onSwitch?: () => 
     case 'install': screen = <Install />; break
     case 'perf': screen = <MyPerformance />; break
     default:
-      screen = tab === 'home' ? <Today open={open} go={go} /> : tab === 'tasks' ? <Tasks open={open} /> : tab === 'ai' ? <AI open={open} />
+      screen = tab === 'home' ? <Today open={open} go={go} /> : tab === 'tasks' ? <Tasks open={open} /> : tab === 'ai' ? <ChatHub onOpenMarc={() => open({ k: 'marc' })} onOpenRoom={id => open({ k: 'chat', id })} />
         : tab === 'wiki' ? <Wiki open={open} /> : <MenuView open={open} onLogout={onLogout} />
   }
   const key = (sub ? sub.k + ('item' in sub ? String((sub.item as { id?: string }).id) : '') : tab) + stack.length
-  const nav: [Tab, string, typeof Home][] = [['home', 'Heute', Home], ['tasks', 'Aufgaben', ListChecks], ['ai', 'Marc', Sparkles], ['wiki', 'Wissen', BookOpen], ['menu', 'Menü', LayoutGrid]]
+  // Chats (Team + Marc angeheftet) statt eines eigenen Marc-Reiters, Fokus auf Austausch im Team (Inhaberin 21.10.)
+  const nav: [Tab, string, typeof Home][] = [['home', 'Heute', Home], ['tasks', 'Aufgaben', ListChecks], ['ai', 'Chats', MessageCircle], ['wiki', 'Wissen', BookOpen], ['menu', 'Menü', LayoutGrid]]
+  const full = !loading && (sub?.k === 'marc' || sub?.k === 'chat')
   return (
     <div className="flex-1 min-h-0 flex">
       {/* Desktop: Navigation als Seitenleiste wie im Backoffice, zuklappbar */}
       <div className="hidden md:flex">
         <SideNav
-          items={nav.map(([x, label, Icon]) => ({ key: x, label: x === 'ai' ? label : t(label), active: tab === x && !sub, dot: x === 'home' && mustOpen > 0, onClick: () => go(x),
-            icon: x === 'ai' ? <BMark className="w-[18px] h-[18px]" /> : <Icon size={18} strokeWidth={1.6} /> }))}
+          items={nav.map(([x, label, Icon]) => ({ key: x, label: t(label), active: tab === x && (!sub || x === 'ai' && (sub.k === 'marc' || sub.k === 'chat')), dot: (x === 'home' && mustOpen > 0) || (x === 'ai' && chatUnread > 0), onClick: () => go(x),
+            icon: <Icon size={18} strokeWidth={1.6} /> }))}
           extra={onSwitch ? [{ key: 'switch', label: t('Büro-Backoffice'), icon: <Monitor size={18} strokeWidth={1.6} />, onClick: onSwitch }] : []}
           onProfile={() => open({ k: 'me' })} profileActive={sub?.k === 'me'} onLogout={onLogout} />
       </div>
       <div className="relative flex-1 min-w-0 flex flex-col">
-        {/* Marc füllt die ganze Fläche und scrollt selbst (Chatliste links, Eingabe unten) */}
-        <div ref={scroller} className={`flex-1 no-scrollbar bg-sage-50 ${tab === 'ai' && !sub && !loading ? 'overflow-hidden' : 'overflow-y-auto'}`}>
-          {tab === 'ai' && !sub && !loading ? screen : (
+        {/* Marc und Team-Chats füllen die ganze Fläche und scrollen selbst (Eingabe unten) */}
+        <div ref={scroller} className={`flex-1 no-scrollbar bg-sage-50 ${full ? 'overflow-hidden' : 'overflow-y-auto'}`}>
+          {full ? screen : (
           <div className="w-full md:mx-auto md:max-w-[760px]">
             <div className="h-11 md:h-8" />
             {sub && <div className="px-3 pb-1 flex items-center justify-between">
@@ -176,16 +185,11 @@ function Shell({ onLogout, onSwitch }: { onLogout: () => void; onSwitch?: () => 
         </div>
         <nav className="md:hidden shrink-0 bg-white border-t border-line px-3 pb-7 pt-2 grid grid-cols-5 items-end">
           {nav.map(([x, label, Icon]) => {
-            const on = tab === x && !sub
-            if (x === 'ai') return (
-              <button key={x} onClick={() => go(x)} className={`flex flex-col items-center gap-1 py-0.5 text-[12px] ${on ? 'text-olive-800' : 'text-mute'}`}>
-                <BMark className="w-8 h-8" />{label}
-              </button>
-            )
+            const on = tab === x && (!sub || x === 'ai' && (sub.k === 'marc' || sub.k === 'chat'))
             return (
               <button key={x} onClick={() => go(x)} className={`relative flex flex-col items-center gap-1 py-1 text-[12px] ${on ? 'text-olive-800' : 'text-mute'}`}>
                 <Icon size={22} strokeWidth={on ? 2.2 : 1.7} />{t(label)}
-                {x === 'home' && mustOpen > 0 && <span className="absolute top-0.5 right-[28%] w-2 h-2 rounded-full bg-brass" />}
+                {((x === 'home' && mustOpen > 0) || (x === 'ai' && chatUnread > 0)) && <span className={`absolute top-0.5 right-[28%] w-2 h-2 rounded-full ${x === 'ai' ? 'bg-duty' : 'bg-brass'}`} />}
               </button>
             )
           })}
@@ -230,14 +234,13 @@ function useMyDay() {
   return day
 }
 function Today({ open, go }: { open: (s: Sub) => void; go: (t: Tab) => void }) {
-  const { me, t, done, read, tasks, news: allNews, quizzes, branches, photo } = useApp()
+  const { me, t, done, read, tasks, news: allNews, quizzes, branches, photo, wiki, tickets } = useApp()
   const news = live(allNews)
   const day = useMyDay()
-  const [team, setTeam] = useState<TeamToday | null>(null)
-  const isLead = me.app_role === 'filialleitung'
   const due = useDue()
+  const runs = useWikiRuns()
+  const pop = usePopular()
   const myTodos = useTodos().filter(x => isForMe(x, me) && !x.done_at)
-  useEffect(() => { if (isLead) phorest<TeamToday>({ action: 'team_today', branch: me.branch_id }).then(setTeam) }, [isLead, me.branch_id])
   const doneN = tasks.filter(x => done.has(x.id)).length
   const next = tasks.find(x => !done.has(x.id))
   const must = news.filter(n => n.mustRead && !read.has(n.id))
@@ -247,13 +250,11 @@ function Today({ open, go }: { open: (s: Sub) => void; go: (t: Tab) => void }) {
   const dateLabel = new Intl.DateTimeFormat(locale(), { timeZone: 'Europe/Zurich', weekday: 'long', day: 'numeric', month: 'long' }).format(new Date())
   const hour = zurichHour()
   const hello = hour < 11 ? t('Guten Morgen') : hour < 17 ? t('Hallo') : t('Guten Abend')
-  // Nächster Termin: der erste, der noch nicht vorbei ist
-  const nowMin = Math.round(hour * 60)
-  const mins = (x: string) => Number(x.slice(0, 2)) * 60 + Number(x.slice(3, 5))
-  const appts = day?.appointments ?? []
-  const upNext = appts.find(a => mins(a.end || a.start) > nowMin)
-  const later = appts.filter(a => a !== upNext && mins(a.start) >= (upNext ? mins(upNext.start) : 0))
-  const inMin = upNext ? mins(upNext.start) - nowMin : 0
+  // Fokus der Startseite (Inhaberin 21.10.): News, Listen, Wissen, Chats und Lernen voneinander; Termine bleiben in Phorest
+  const articles = wiki.filter(a => a.published && !a.fromNews)
+  const readN = articles.filter(a => runs.read.has(a.id)).length
+  const nextRead = [...articles].filter(a => !runs.read.has(a.id)).sort((x, y) => (pop.get(y.id) ?? 0) - (pop.get(x.id) ?? 0) || Number(areaOf(y.catKey, y.title) === 'behandlung') - Number(areaOf(x.catKey, x.title) === 'behandlung'))[0]
+  const learning = tickets.find(x => x.kind === 'Learning')
   const tile = (tone: Tone, big: string, label: string, onClick: () => void) =>
     <button onClick={onClick} className={`rounded-[18px] p-3 text-left flex flex-col gap-1 min-h-[84px] ${TONE[tone].bg} ${TONE[tone].fg}`}><span className="font-display text-[26px] leading-none">{big}</span><span className="text-[14.5px] font-semibold leading-tight">{label}</span></button>
   return (
@@ -265,50 +266,24 @@ function Today({ open, go }: { open: (s: Sub) => void; go: (t: Tab) => void }) {
         <div className="absolute left-4 right-4 bottom-4 text-white">
           <p className="text-[15px] text-white/85">{dateLabel} · {shiftStudio}</p>
           <h1 className="text-[30px] leading-tight mt-0.5">{hello}, {me.first}</h1>
-          <p className="text-[16px] mt-0.5">{!day ? '…' : shift ? shiftText : day.mapped ? t('Heute frei') : ''}{day?.appointments?.length ? ` · ${day.appointments.length} ${t('Termine')}` : ''}</p>
+          {day?.mapped && <p className="text-[16px] mt-0.5">{shift ? t('Schicht {time}', { time: shiftText }) : t('Heute frei')}</p>}
         </div>
       </div>
 
       <div className="mt-3 grid grid-cols-3 gap-2.5">
         {tile('done', `${doneN}/${tasks.length}`, t('Checkliste'), () => { tasksView = 'studio'; go('tasks') })}
-        {tile(must.length ? 'duty' : 'done', String(must.length), must.length === 1 ? t('Pflicht offen') : t('Pflicht offen'), () => must[0] ? open({ k: 'news', item: must[0] }) : open({ k: 'news-list' }))}
-        {tile('note', String(myTodos.length), t('Für dich'), () => { tasksView = 'me'; go('tasks') })}
+        {tile(must.length ? 'duty' : 'done', String(must.length), t('Pflicht offen'), () => must[0] ? open({ k: 'news', item: must[0] }) : open({ k: 'news-list' }))}
+        {tile('learn', `${pct(readN, articles.length)} %`, t('Wissen gelesen'), () => go('wiki'))}
       </div>
 
       <ReadyCard open={open} />
       <StandbyAsk />
 
-      {day?.ok && day.mapped && upNext && <div className="mt-3 rounded-[22px] bg-white p-4">
-        <div className="flex items-center justify-between"><h2 className="rubric text-ink/70">{t('Gleich dran')}</h2>
-          {inMin > 0 && inMin < 240 && <span className={`px-2.5 py-1 rounded-full text-[14px] font-semibold ${TONE.note.bg} ${TONE.note.fg}`}>{t('in {n} Min.', { n: inMin })}</span>}</div>
-        <div className="mt-2.5 flex gap-3.5 items-stretch">
-          <span className="w-1.5 rounded-full" style={{ background: colorFor(upNext.service) }} />
-          <div className="flex-1 min-w-0"><p className="font-display text-[24px] leading-tight">{upNext.start} · {upNext.client}</p><p className="text-[16px] text-ink/70 mt-0.5">{upNext.service}</p></div>
-        </div>
-        {later.length > 0 && <div className="mt-3 pt-2 border-t border-line divide-y divide-line">{later.slice(0, 4).map((a, i) => (
-          <div key={i} className="flex gap-3 py-2 items-center"><span className="w-1 self-stretch rounded-full" style={{ background: colorFor(a.service) }} /><span className="w-12 font-display text-[16px]">{a.start}</span><span className="flex-1 min-w-0 truncate text-[16px]">{a.client} <span className="text-mute">· {a.service}</span></span></div>))}</div>}
-        <button onClick={() => open({ k: 'book' })} className="mt-2 text-[15px] font-semibold text-olive-800">{t('Alle Kundentermine')}</button>
-      </div>}
-      {day?.ok && day.mapped && appts.length > 0 && !upNext && <Card className="mt-3 p-4"><p className="text-[16px]">{t('Alle Termine für heute sind vorbei.')}</p></Card>}
-      {day && !day.ok && <Card className="mt-3"><Empty>{t('Phorest ist gerade nicht erreichbar. Bitte später noch einmal öffnen.')}</Empty></Card>}
-      {day?.ok && !day.mapped && <Card className="mt-3"><Empty>{t('Du bist noch keiner Phorest-Spalte zugeordnet. Das Büro prüft deine Firmen-Mail in Phorest.')}</Empty></Card>}
-
-      <div className="mt-3 rounded-[22px] bg-white p-4 flex gap-3 items-start">
-        <BMark className="w-12 h-12" />
-        <div className="flex-1 min-w-0">
-          <p className="text-[15px] font-semibold">{ASSISTANT}</p>
-          <p className="text-[16px] leading-snug mt-0.5">{upNext ? t('Soll ich dir sagen, was {name} meistens bucht und was du zusätzlich anbieten kannst?', { name: upNext.client }) : t('Frag mich zu Kundinnen, Abläufen oder Phorest.')}</p>
-          <button onClick={() => openNewBenniChat(upNext ? t('Was bucht {name} meistens, und was kann ich ihr heute zusätzlich anbieten?', { name: upNext.client }) : undefined)} className="mt-2 text-[15px] font-semibold text-olive-800">{upNext ? t('Ja, zeig mir das') : t('Marc fragen')}</button>
-        </div>
-      </div>
-
       {must.length > 0 && <>
         <Label action={<span className="text-[13px] text-mute tabular-nums">{t('{n} offen', { n: must.length })}</span>}>{t('Bitte lesen')}</Label>
-        <div className="space-y-2.5">{must.map(n => (
-          <button key={n.id} onClick={() => open({ k: 'news', item: n })} className="w-full text-left rounded-[18px] bg-white p-3.5 flex items-center gap-3">
-            {n.image ? <img src={n.image} alt="" className="w-14 h-14 rounded-[14px] object-cover shrink-0" /> : <span className={`w-14 h-14 rounded-[14px] shrink-0 flex items-center justify-center ${TONE.duty.bg} ${TONE.duty.fg}`}><BookOpen size={22} /></span>}
-            <span className="flex-1 min-w-0"><span className={`inline-block px-2 py-0.5 rounded-full text-[13px] font-semibold ${TONE.duty.bg} ${TONE.duty.fg}`}>{t('Pflicht')}</span><span className="block text-[17px] font-semibold leading-snug mt-1">{n.title}</span><span className="block text-[14.5px] text-mute">{quizzes.some(q => q.newsId === n.id) ? t('Lesen, bestätigen und kurzes Quiz') : t('Lesen und bestätigen')}</span></span>
-          </button>))}</div>
+        <div className="space-y-3">{must.slice(0, 2).map(n => <NewsCard key={n.id} n={n} onClick={() => open({ k: 'news', item: n })} />)}</div>
+        {must.length > 2 && <button onClick={() => open({ k: 'news-list' })} className="mt-2 w-full h-11 rounded-[14px] bg-white text-[15.5px] font-medium">{t('Alle {n} anzeigen', { n: must.length })}</button>}
+        {must.some(n => quizzes.some(q => q.newsId === n.id)) && <p className="mt-2 px-1 text-[14px] text-mute">{t('Bei manchen News folgt ein kurzes Quiz.')}</p>}
       </>}
 
       {myTodos.length > 0 && <>
@@ -324,47 +299,103 @@ function Today({ open, go }: { open: (s: Sub) => void; go: (t: Tab) => void }) {
       {next && <>
         <Label action={<button onClick={() => { tasksView = 'studio'; go('tasks') }} className="text-[14.5px] text-sage-800">{t('Alle')}</button>}>{t('Studio-Checkliste')}</Label>
         <Card onClick={() => { tasksView = 'studio'; go('tasks') }} className="p-4">
-          <div className="h-2 rounded-full bg-sage-100 overflow-hidden"><div className="h-full bg-done rounded-full transition-all" style={{ width: (tasks.length ? doneN / tasks.length * 100 : 0) + '%' }} /></div>
+          <Bar value={doneN} total={tasks.length} />
           <p className="mt-3 text-[16px]">{t('Als Nächstes:')} <span className="font-semibold">{next.title}</span>{next.time && <span className="text-mute"> · {next.time}</span>}</p>
         </Card>
       </>}
 
-      {isLead && <>
-        <Label>{t('Heute im Studio')} · {me.branch}</Label>
-        <List>
-          {!team && <Empty>{t('Lädt …')}</Empty>}
-          {team && !team.ok && <Empty>{t('Phorest ist gerade nicht erreichbar.')}</Empty>}
-          {team?.team?.map(p => <Row key={p.name + p.start} title={p.name} sub={t('{start}–{end} · {n} Termine', { start: p.start, end: p.end, n: p.appointments })} right={<span />} />)}
-        </List>
+      <TodayChats go={go} open={open} />
+
+      {nextRead && <>
+        <Label action={<button onClick={() => go('wiki')} className="text-[14.5px] text-sage-800">{t('Wissen')}</button>}>{t('Weiterlernen')}</Label>
+        <button onClick={() => open({ k: 'wiki', item: nextRead })} className="w-full rounded-[20px] bg-white p-4 flex items-center gap-3.5 text-left">
+          <span className={`w-12 h-12 rounded-[14px] flex items-center justify-center shrink-0 ${TONE.learn.bg} ${TONE.learn.fg}`}><BookOpen size={22} /></span>
+          <span className="flex-1 min-w-0"><span className="block text-[17px] font-semibold leading-snug">{nextRead.title}</span><span className="block text-[14.5px] text-mute mt-0.5">{catName(nextRead.cat)} · {t('{n} Min.', { n: nextRead.minutes })}</span></span>
+          <ChevronRight size={18} className="text-sage-400 shrink-0" />
+        </button>
+      </>}
+
+      {learning && <>
+        <Label action={<button onClick={() => open({ k: 'tickets', learning: true })} className="text-[14.5px] text-sage-800">{t('Alle')}</button>}>{t('Von Kolleginnen geteilt')}</Label>
+        <button onClick={() => open({ k: 'tickets', learning: true })} className="w-full rounded-[20px] bg-white overflow-hidden text-left">
+          {learning.photo && learning.mediaKind !== 'video' && <img src={learning.photo} alt="" className="w-full h-[150px] object-cover" />}
+          <span className="block p-4"><span className="block text-[14px] text-mute">{learning.who} · {learning.branch}{learning.mediaKind === 'video' && learning.photo ? ` · ${t('Video')}` : ''}</span><span className="block text-[17px] mt-1 leading-snug">{learning.title}</span></span>
+        </button>
       </>}
 
       {news.filter(n => !n.mustRead).length > 0 && <>
         <Label action={<button onClick={() => open({ k: 'news-list' })} className="text-[14.5px] text-sage-800">{t('Alle')}</button>}>{t('News')}</Label>
-        <div className="space-y-2.5">{news.filter(n => !n.mustRead).slice(0, 2).map(n => <NewsCard key={n.id} n={n} onClick={() => open({ k: 'news', item: n })} small />)}</div>
+        <div className="space-y-3">{news.filter(n => !n.mustRead).slice(0, 2).map(n => <NewsCard key={n.id} n={n} onClick={() => open({ k: 'news', item: n })} />)}</div>
       </>}
     </div>
   )
 }
+/** Die letzten Team-Chats auf der Startseite */
+function TodayChats({ go, open }: { go: (t: Tab) => void; open: (s: Sub) => void }) {
+  const { me, staff, t } = useApp()
+  const [list, setList] = useState<Awaited<ReturnType<typeof loadChatSummaries>> | null>(null)
+  useEffect(() => { loadChatSummaries(me.id).then(setList) }, [me.id])
+  const recent = (list ?? []).filter(x => x.last).sort((a, b) => b.last!.created_at.localeCompare(a.last!.created_at)).slice(0, 3)
+  return <>
+    <Label action={<button onClick={() => go('ai')} className="text-[14.5px] text-sage-800">{t('Alle Chats')}</button>}>{t('Chats')}</Label>
+    <List>
+      {recent.length === 0 && <button onClick={() => go('ai')} className="w-full px-4 py-3.5 flex items-center gap-3 text-left"><span className="w-10 h-10 rounded-full bg-studio-50 text-studio flex items-center justify-center shrink-0"><MessageCircle size={18} /></span><span className="flex-1 text-[16px] text-ink/80">{t('Schreib deinem Studio oder einer Kollegin.')}</span><ChevronRight size={18} className="text-sage-400" /></button>}
+      {recent.map(x => { const who = staff.find(s => s.id === x.last!.sender_id), other = staff.find(s => s.id === x.members.find(m => m !== me.id))
+        return <button key={x.room.id} onClick={() => { go('ai'); open({ k: 'chat', id: x.room.id }) }} className="w-full px-4 py-3 flex items-center gap-3 text-left">
+          {who ? <Avatar s={who} photo={who.photo} size="w-10 h-10" /> : <span className="w-10 h-10 rounded-full bg-studio-50" />}
+          <span className="flex-1 min-w-0"><span className={`block text-[16px] truncate ${x.unread ? 'font-semibold' : ''}`}>{x.room.kind === 'team' ? t('Ganzes Team') : x.room.kind === 'studio' ? t('Studio {name}', { name: x.room.title ?? '' }) : x.room.title || (other ? `${other.first} ${other.last}` : t('Chat'))}</span>
+            <span className="block text-[14.5px] text-mute truncate">{who && x.last!.sender_id !== me.id ? who.first + ': ' : ''}{x.last!.body}</span></span>
+          {x.unread && <span className="w-2.5 h-2.5 rounded-full bg-duty shrink-0" />}
+        </button> })}
+    </List>
+  </>
+}
 
 /* ---------- News ---------- */
-/** News als Karte: Foto oben mit Farb-Etikett, sonst Farbfläche (Richtung B). */
-function NewsCard({ n, onClick, small }: { n: News; onClick: () => void; small?: boolean }) {
+// Kategorien wie von der Inhaberin gewünscht; „Wichtig“ umfasst auch jede Pflicht-News
+export const NEWS_CATS = ['Wichtig', 'Schulung', 'Team', 'Salon']
+const newsCat = (n: News) => n.mustRead ? 'Wichtig' : NEWS_CATS.includes(n.tag) ? n.tag : n.tag === 'Studio' || n.tag === 'Marketing' ? 'Salon' : n.tag
+// Ohne eigenes Bild: Foto aus den Studios, damit jede Karte gleich gross bleibt
+const newsPhoto = (n: News) => n.image ?? (newsCat(n) === 'Team' ? '/login-studio.webp' : newsCat(n) === 'Salon' ? '/hero-empfang.jpg' : '/hero-studio.jpg')
+const newsWhen = (iso: string, t: (s: string) => string) => {
+  const d = new Date(iso), today = isoDay(), day = isoDay(d)
+  const time = new Intl.DateTimeFormat(locale(), { timeZone: 'Europe/Zurich', hour: '2-digit', minute: '2-digit' }).format(d)
+  return day === today ? `${t('Heute')}, ${time}` : day === addDays(-1, today) ? `${t('Gestern')}, ${time}` : new Intl.DateTimeFormat(locale(), { timeZone: 'Europe/Zurich', day: 'numeric', month: 'short' }).format(d)
+}
+/** Bestätigungsstand der Pflicht-News („8 von 12“), für alle sichtbar ohne Namen */
+let progressCache: Map<string, { confirmed: number; total: number }> | null = null
+function useNewsProgress() {
+  const [p, setP] = useState(progressCache ?? new Map<string, { confirmed: number; total: number }>())
+  const { read } = useApp()
+  useEffect(() => { supabase?.rpc('news_progress').then(({ data }) => { progressCache = new Map(((data ?? []) as { news_id: string; confirmed: number; total: number }[]).map(r => [r.news_id, { confirmed: r.confirmed, total: r.total }])); setP(progressCache) }) }, [read.size])
+  return p
+}
+/** News als grosse Bildkarte (Vorlage der Inhaberin 20.10.): Etikett, Zeit, Titel, Kurztext, bei Pflicht der Bestätigungsstand */
+function NewsCard({ n, onClick }: { n: News; onClick: () => void }) {
   const { read, t } = useApp()
-  const tone = TONE[toneOf(n.tag, n.mustRead)]
-  const tag = n.mustRead ? t('Pflicht') : t(n.tag)
+  const prog = useNewsProgress().get(n.id)
+  const cat = newsCat(n), tone = TONE[toneOf(cat, n.mustRead)]
+  const mine = read.has(n.id)
   return (
-    <button onClick={onClick} className="w-full text-left rounded-[22px] bg-white overflow-hidden">
-      {n.image && !small ? <div className="relative h-[150px]"><img src={n.image} alt="" className="w-full h-full object-cover" />
-        <span className={`absolute left-3 top-3 px-2.5 py-1 rounded-full text-[13px] font-semibold text-white ${tone.solid}`}>{tag}</span></div> : null}
-      <div className={`p-4 ${small ? 'flex gap-3.5 items-center' : ''}`}>
-        {small && (n.image ? <img src={n.image} alt="" className="w-16 h-16 rounded-[14px] object-cover shrink-0" /> : <span className={`w-16 h-16 rounded-[14px] shrink-0 flex items-center justify-center ${tone.bg} ${tone.fg}`}><Newspaper size={24} /></span>)}
-        <div className="flex-1 min-w-0">
-          {(!n.image || small) && <span className={`inline-block px-2.5 py-0.5 rounded-full text-[13px] font-semibold ${tone.bg} ${tone.fg}`}>{tag}</span>}
-          <p className={`${small ? 'text-[17px] font-semibold mt-1' : 'font-display text-[21px] mt-1.5'} leading-snug`}>{n.title}</p>
-          {!small && n.teaser && <p className="mt-1 text-[15.5px] text-ink/70 leading-snug">{n.teaser}</p>}
-          <p className="mt-1.5 text-[14px] text-mute flex items-center gap-1.5">{n.audience} · {n.date}
-            {n.mustRead && (read.has(n.id) ? <span className="ml-auto flex items-center gap-1 text-done font-semibold"><Check size={14} />{t('bestätigt')}</span> : <span className="ml-auto text-duty font-semibold">{t('Noch offen')}</span>)}</p>
-        </div>
+    <button onClick={onClick} className="w-full text-left rounded-[22px] bg-white overflow-hidden shadow-[0_1px_2px_rgba(29,34,28,.05)]">
+      <div className="relative h-[176px] bg-sage-100">
+        <img src={newsPhoto(n)} alt="" className={`w-full h-full object-cover ${n.image ? '' : 'saturate-[.85]'}`} />
+        <span className={`absolute left-3 top-3 px-3 py-1 rounded-full text-[14px] font-semibold text-white ${tone.solid}`}>{t(cat)}</span>
+        <span className="absolute right-3 bottom-3 px-2.5 py-1 rounded-full bg-ink/70 text-white text-[13.5px] flex items-center gap-1.5"><Clock size={13} />{newsWhen(n.publishAt, t)}</span>
+      </div>
+      <div className="p-4">
+        <p className="font-display text-[22px] leading-snug">{n.title}</p>
+        {n.teaser && <p className="mt-1 text-[16px] text-ink/70 leading-snug line-clamp-2">{n.teaser}</p>}
+        {n.mustRead && <div className="mt-3.5 pt-3 border-t border-line">
+          <div className="flex items-center gap-3">
+            <div className="flex-1 min-w-0">
+              <div className="flex justify-between text-[14.5px]"><span className="text-ink/70">{t('Bestätigt')}</span>{prog && <span className="text-mute tabular-nums">{t('{a} von {b}', { a: prog.confirmed, b: prog.total })}</span>}</div>
+              <div className="mt-1.5 h-2 rounded-full bg-sage-100 overflow-hidden"><div className="h-full rounded-full bg-done transition-all" style={{ width: (prog && prog.total ? Math.min(100, prog.confirmed / prog.total * 100) : 0) + '%' }} /></div>
+            </div>
+            {mine ? <span className={`shrink-0 h-8 px-3 rounded-full text-[14px] font-semibold flex items-center gap-1 ${TONE.done.bg} ${TONE.done.fg}`}><Check size={14} />{t('Bestätigt')}</span>
+              : <span className={`shrink-0 h-8 px-3 rounded-full text-[14px] font-semibold flex items-center gap-1 ${TONE.duty.bg} ${TONE.duty.fg}`}>{t('Offen')}</span>}
+          </div>
+        </div>}
       </div>
     </button>
   )
@@ -373,16 +404,16 @@ function NewsList({ open }: { open: (s: Sub) => void }) {
   const { t, news: allNews } = useApp()
   const news = live(allNews)
   const [f, setF] = useState('Alle')
-  const tags = ['Alle', ...new Set(news.map(n => n.tag))]
-  const shown = news.filter(n => f === 'Alle' || n.tag === f)
+  const shown = news.filter(n => f === 'Alle' || newsCat(n) === f)
   return (
     <div className="pb-10"><Title>{t('News')}</Title>
       <div className="px-4">
         <div className="flex gap-2 overflow-x-auto no-scrollbar -mx-4 px-4">
-          {tags.map(x => { const tone = TONE[toneOf(x)]
-            return <button key={x} onClick={() => setF(x)} className={`shrink-0 px-4 h-10 rounded-full text-[15px] font-medium transition ${f === x ? 'bg-olive-800 text-white' : x === 'Alle' ? 'bg-white text-ink' : `${tone.bg} ${tone.fg}`}`}>{x === 'Alle' ? t('Alle') : t(x)}</button> })}
+          {['Alle', ...NEWS_CATS].map(x => { const tone = TONE[toneOf(x)]
+            return <button key={x} onClick={() => setF(x)} className={`shrink-0 px-4 h-10 rounded-full text-[15.5px] font-medium transition ${f === x ? 'bg-olive-800 text-white' : x === 'Alle' ? 'bg-white text-ink' : `${tone.bg} ${tone.fg}`}`}>{t(x)}</button> })}
         </div>
-        <div className="mt-4 space-y-3">{shown.map(n => <NewsCard key={n.id} n={n} onClick={() => open({ k: 'news', item: n })} />)}</div>
+        <div className="mt-4 space-y-4">{shown.map(n => <NewsCard key={n.id} n={n} onClick={() => open({ k: 'news', item: n })} />)}</div>
+        {shown.length === 0 && <p className="mt-6 text-[15.5px] text-mute">{t('Gerade keine News in dieser Kategorie.')}</p>}
       </div>
     </div>
   )
@@ -397,7 +428,7 @@ function NewsDetail({ n }: { n: News }) {
   useEffect(() => { openNews(n.id) }, [n.id]) // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <article className="px-5 pb-10">
-      <div className="mt-2 flex flex-wrap items-center gap-2"><span className={`px-2.5 py-1 rounded-full text-[13px] font-semibold ${TONE[toneOf(n.tag, n.mustRead)].bg} ${TONE[toneOf(n.tag, n.mustRead)].fg}`}>{n.mustRead ? t('Pflicht') : t(n.tag)}</span><span className="text-[14px] text-mute">{n.audience} · {n.date}</span></div>
+      <div className="mt-2 flex flex-wrap items-center gap-2"><span className={`px-2.5 py-1 rounded-full text-[13px] font-semibold ${TONE[toneOf(newsCat(n), n.mustRead)].bg} ${TONE[toneOf(newsCat(n), n.mustRead)].fg}`}>{t(newsCat(n))}</span>{n.mustRead && <span className={`px-2.5 py-1 rounded-full text-[13px] font-semibold ${TONE.duty.bg} ${TONE.duty.fg}`}>{t('Pflicht')}</span>}<span className="text-[14px] text-mute">{n.audience} · {n.date}</span></div>
       <h1 className="mt-3 text-[28px] font-medium tracking-tight leading-tight">{v.title}</h1>
       <p className="mt-2 text-[14.5px] text-mute">{t('von {name}', { name: n.author })}{n.orig && <> · <button onClick={() => setOrig(!orig)} className="text-olive-700">{orig ? t('Übersetzung anzeigen') : t('Automatisch übersetzt · Original')}</button></>}</p>
       {n.image && <img src={n.image} alt="" className="mt-5 w-full aspect-[3/2] object-cover rounded-[16px] bg-sage-100" />}
@@ -508,9 +539,9 @@ function Sheet({ children, onClose }: { children: ReactNode; onClose: () => void
 }
 
 /* ---------- KI ---------- */
-function AI({ open }: { open: (s: Sub) => void }) {
+function AI({ open, onBack }: { open: (s: Sub) => void; onBack?: () => void }) {
   const { wiki } = useApp()
-  return <BenniChat variant="app" onOpenArticle={id => { const a = wiki.find(x => x.id === id); if (a) open({ k: 'wiki', item: a }) }} onOpenClient={cid => open({ k: 'clients', cid })} />
+  return <BenniChat variant="app" onBack={onBack} onOpenArticle={id => { const a = wiki.find(x => x.id === id); if (a) open({ k: 'wiki', item: a }) }} onOpenClient={cid => open({ k: 'clients', cid })} />
 }
 /* ---------- Wissen ---------- */
 // Jede Kategorie bekommt ein Emoji statt eines Fotos: einheitlich, ruhig, auch ohne Bilder im Artikel (Standard in lib/wiki, Büro kann es ändern)
@@ -523,52 +554,112 @@ function usePopular() {
   useEffect(() => { supabase?.rpc('popular_articles', { p_days: 30 }).then(({ data }) => setPop(new Map(((data ?? []) as { article_id: string; views: number }[]).map(r => [r.article_id, Number(r.views)])))) }, [])
   return pop
 }
+// Eigener Fortschritt im Wissen: „gelesen & bestätigt“ oder ein Durchgang gemacht (Tabelle wiki_runs)
+type Runs = { read: Set<string>; runs: Map<string, number> }
+let runsCache: Runs | null = null
+const reloadRuns = () => window.dispatchEvent(new Event('th-wiki-runs'))
+function useWikiRuns() {
+  const { me } = useApp()
+  const [v, setV] = useState<Runs>(runsCache ?? { read: new Set(), runs: new Map() })
+  useEffect(() => {
+    const load = () => { supabase?.from('wiki_runs').select('article_id, kind').eq('employee_id', me.id).then(({ data }) => {
+      const read = new Set<string>(), runs = new Map<string, number>()
+      for (const r of (data ?? []) as { article_id: string; kind: string }[]) { read.add(r.article_id); if (r.kind === 'durchgang') runs.set(r.article_id, (runs.get(r.article_id) ?? 0) + 1) }
+      runsCache = { read, runs }; setV(runsCache)
+    }) }
+    load(); window.addEventListener('th-wiki-runs', load); return () => window.removeEventListener('th-wiki-runs', load)
+  }, [me.id])
+  return v
+}
+const AREA_LOOK: Record<string, { tone: Tone; icon: typeof Home }> = {
+  behandlung: { tone: 'learn', icon: Sparkles }, hygiene: { tone: 'duty', icon: ShieldAlert }, studio: { tone: 'note', icon: LayoutGrid },
+  team: { tone: 'plum', icon: Users }, lernen: { tone: 'done', icon: GraduationCap },
+}
+const Bar = ({ value, total, tone = 'done' }: { value: number; total: number; tone?: Tone }) => (
+  <div className="h-2 rounded-full bg-sage-100 overflow-hidden"><div className={`h-full rounded-full transition-all ${TONE[tone].solid}`} style={{ width: (total ? Math.min(100, value / total * 100) : 0) + '%' }} /></div>
+)
+const pct = (a: number, b: number) => b ? Math.round(a / b * 100) : 0
+
 function Wiki({ open }: { open: (s: Sub) => void }) {
-  const { t, wiki: allWiki, steps, obDone, catEmojis } = useApp()
-  const wiki = allWiki.filter(a => a.published)
+  const { t, wiki: allWiki, steps, obDone, tickets } = useApp()
+  const wiki = allWiki.filter(a => a.published && !a.fromNews)
   const pop = usePopular()
-  const [q, setQ] = useState(''), [all, setAll] = useState(false)
-  const cats = [...wiki.reduce((m, a) => { const c = m.get(a.catKey) ?? { key: a.catKey, name: a.cat, n: 0, views: 0 }; c.n++; c.views += pop.get(a.id) ?? 0; return m.set(a.catKey, c) }, new Map<string, { key: string; name: string; n: number; views: number }>()).values()]
-    .sort((x, y) => y.views - x.views || y.n - x.n || x.name.localeCompare(y.name))
-  const ranked = [...wiki].filter(a => !a.fromNews).sort((x, y) => (pop.get(y.id) ?? 0) - (pop.get(x.id) ?? 0))
-  const top = ranked.find(a => (pop.get(a.id) ?? 0) > 0) ?? ranked.find(a => a.mediaKind === 'video' || a.mediaKind === 'youtube') ?? ranked[0]
-  const popular = ranked.filter(a => a !== top && (pop.get(a.id) ?? 0) > 0).slice(0, 4)
-  const hits = wiki.filter(a => [a.title, a.cat, a.intro, ...a.tags, ...a.body].join(' ').toLowerCase().includes(q.toLowerCase()))
-  const shownCats = all ? cats : cats.slice(0, 6)
+  const { read } = useWikiRuns()
+  const [q, setQ] = useState('')
+  const areas = AREAS.map(ar => {
+    const items = wiki.filter(a => areaOf(a.catKey, a.title) === ar.key)
+    const cats = [...items.reduce((m, a) => m.set(a.cat, (m.get(a.cat) ?? 0) + 1), new Map<string, number>()).entries()].sort((x, y) => y[1] - x[1]).map(([c]) => c)
+    return { ...ar, items, cats, done: items.filter(a => read.has(a.id)).length }
+  }).filter(ar => ar.items.length)
+  const doneAll = wiki.filter(a => read.has(a.id)).length
+  const popular = [...wiki].filter(a => (pop.get(a.id) ?? 0) > 0).sort((x, y) => (pop.get(y.id) ?? 0) - (pop.get(x.id) ?? 0)).slice(0, 5)
+  const learnings = tickets.filter(x => x.kind === 'Learning')
+  const hits = allWiki.filter(a => a.published && [a.title, a.cat, a.intro, ...a.tags, ...a.body].join(' ').toLowerCase().includes(q.toLowerCase()))
   return (
-    <div className="pb-10"><Title>{t('Wissen')}</Title>
+    <div className="pb-10"><Title right={<button onClick={() => open({ k: 'tickets', learning: true })} className={`mb-1 h-10 px-3.5 rounded-full text-[15px] font-semibold flex items-center gap-1.5 ${TONE.note.bg} ${TONE.note.fg}`}><Share2 size={16} />{t('Wissen teilen')}</button>}>{t('Wissen')}</Title>
       <div className="px-4">
-        <SearchBox value={q} onChange={setQ} placeholder={t('Suchen, z. B. Wachs')} />
-        {!q && top && <button onClick={() => open({ k: 'wiki', item: top })} className="mt-4 relative block w-full h-[180px] rounded-[24px] overflow-hidden text-left">
-          <img src="/hero-studio.jpg" alt="" className="absolute inset-0 w-full h-full object-cover" />
-          <span className="absolute inset-0 bg-gradient-to-b from-ink/0 via-ink/25 to-ink/85" />
-          <span className="absolute left-4 right-4 bottom-4 text-white">
-            <span className="block rubric text-[#E9CF9F]">{(pop.get(top.id) ?? 0) > 0 ? t('Meistgelesen') : t('Tipp')}</span>
-            <span className="block font-display text-[23px] leading-tight mt-1">{top.title}</span>
-            <span className="block text-[15px] text-white/85 mt-0.5">{catName(top.cat)} · {t('{n} Min.', { n: top.minutes })}</span>
-          </span>
-        </button>}
-        {!q && steps.length > 0 && <button onClick={() => open({ k: 'onboarding' })} className={`mt-3 w-full rounded-[20px] p-4 flex items-center gap-3 text-left ${TONE.learn.bg}`}>
-          <span className="w-12 h-12 rounded-[14px] bg-learn text-white flex items-center justify-center shrink-0"><GraduationCap size={22} /></span>
-          <span className="flex-1"><span className={`block text-[17px] font-semibold ${TONE.learn.fg}`}>{t('Onboarding für Neue')}</span><span className="block text-[14.5px] text-ink/70 mt-0.5">{t('{n} Schritte · {d} von {n} erledigt', { n: steps.length, d: steps.filter(s => obDone.has(s.id)).length })}</span></span>
-          <ChevronRight size={18} className="text-learn shrink-0" />
-        </button>}
+        <SearchBox value={q} onChange={setQ} placeholder={t('In allen Anleitungen suchen …')} />
         {!q && <>
-          <Label>{t('Themen')}</Label>
-          <div className="grid grid-cols-3 gap-2.5">{shownCats.map((c, i) => { const tone = TONE[tileTone(c.name, i)]
-            return <button key={c.key} onClick={() => open({ k: 'wiki-cat', key: c.key, name: c.name })} className={`text-left rounded-[20px] p-3 min-h-[104px] flex flex-col justify-between active:scale-[.98] transition ${tone.bg}`}>
-              <span className="text-[28px] leading-none" aria-hidden="true">{emojiOf(c.key, catEmojis)}</span>
-              <span className="min-w-0"><span className={`block text-[15.5px] font-semibold leading-tight truncate ${tone.fg}`}>{catName(c.name)}</span><span className="block text-[13px] text-ink/60 mt-0.5">{c.n}</span></span>
+          <div className="mt-4 rounded-[20px] bg-white p-4">
+            <div className="flex items-baseline justify-between"><p className="text-[17px] font-semibold">{t('Dein Fortschritt')}</p><p className="font-display text-[22px] tabular-nums">{pct(doneAll, wiki.length)} %</p></div>
+            <div className="mt-2"><Bar value={doneAll} total={wiki.length} /></div>
+            <p className="mt-2 text-[14.5px] text-mute">{t('{a} von {b} Artikeln gelesen und bestätigt', { a: doneAll, b: wiki.length })}</p>
+          </div>
+          <button onClick={() => open({ k: 'tickets', learning: true })} className={`mt-3 w-full rounded-[20px] p-4 flex items-center gap-3 text-left ${TONE.note.bg}`}>
+            <span className="w-12 h-12 rounded-[14px] bg-white/70 text-note flex items-center justify-center shrink-0"><Lightbulb size={22} /></span>
+            <span className="flex-1 min-w-0"><span className={`block text-[17px] font-semibold ${TONE.note.fg}`}>{t('Von Kolleginnen geteilt')}</span><span className="block text-[14.5px] text-ink/70 mt-0.5">{learnings.length === 1 ? t('1 Tipp aus den Studios') : learnings.length ? t('{n} Tipps und Videos aus den Studios', { n: learnings.length }) : t('Teile ein Video oder einen Tipp aus deinem Alltag')}</span></span>
+            <ChevronRight size={18} className="text-note shrink-0" />
+          </button>
+          {steps.length > 0 && <button onClick={() => open({ k: 'onboarding' })} className="mt-3 w-full rounded-[20px] bg-white p-4 text-left">
+            <span className="flex items-center gap-3"><span className={`w-12 h-12 rounded-[14px] flex items-center justify-center shrink-0 ${TONE.learn.bg} ${TONE.learn.fg}`}><GraduationCap size={22} /></span>
+              <span className="flex-1 min-w-0"><span className="block text-[17px] font-semibold">{t('Onboarding für Neue')}</span><span className="block text-[14.5px] text-mute mt-0.5">{t('{d} von {n} Schritten erledigt', { n: steps.length, d: steps.filter(x => obDone.has(x.id)).length })}</span></span>
+              <ChevronRight size={18} className="text-sage-400 shrink-0" /></span>
+            <span className="block mt-3"><Bar value={steps.filter(x => obDone.has(x.id)).length} total={steps.length} tone="learn" /></span>
+          </button>}
+          <Label action={<span className="text-[13px] text-mute">{t('{n} Bereiche', { n: areas.length })}</span>}>{t('Hauptbereiche')}</Label>
+          <div className="space-y-3">{areas.map(ar => { const look = AREA_LOOK[ar.key], Icon = look.icon
+            return <button key={ar.key} onClick={() => open({ k: 'area', key: ar.key })} className="w-full rounded-[20px] bg-white p-4 text-left">
+              <span className="flex items-start gap-3.5">
+                <span className={`w-12 h-12 rounded-[14px] flex items-center justify-center shrink-0 ${TONE[look.tone].bg} ${TONE[look.tone].fg}`}><Icon size={22} /></span>
+                <span className="flex-1 min-w-0"><span className="block text-[18px] font-semibold leading-tight">{t(ar.name)}</span><span className="block text-[15px] text-mute mt-0.5 leading-snug">{t(ar.desc)}</span></span>
+                <ChevronRight size={18} className="text-sage-400 shrink-0 mt-1" />
+              </span>
+              <span className="mt-3 flex flex-wrap gap-1.5">{ar.cats.slice(0, 4).map(c => <span key={c} className="px-2.5 py-1 rounded-full bg-sage-50 text-[13.5px] text-ink/75">{catName(c)}</span>)}</span>
+              <span className="mt-3 flex items-center gap-3"><span className="flex-1"><Bar value={ar.done} total={ar.items.length} /></span><span className="text-[14px] font-semibold tabular-nums">{pct(ar.done, ar.items.length)} %</span><span className="text-[13.5px] text-mute tabular-nums">{t('{a} von {b} gelesen', { a: ar.done, b: ar.items.length })}</span></span>
             </button> })}</div>
-          {cats.length > 6 && <button onClick={() => setAll(!all)} className="mt-3 w-full h-11 rounded-[14px] bg-white text-[15.5px] font-medium">{all ? t('Weniger Themen') : t('Alle {n} Themen', { n: cats.length })}</button>}
-          {popular.length > 0 && <><Label>{t('Beliebt')}</Label>
-            <List>{popular.map(a => <Row key={a.id} icon={articleIcon(a)} title={a.title} sub={`${catName(a.cat)} · ${t('{n} Min.', { n: a.minutes })}`} onClick={() => open({ k: 'wiki', item: a })} />)}</List></>}
+          {popular.length > 0 && <><Label>{t('Meistgelesen')}</Label>
+            <List>{popular.map(a => <Row key={a.id} icon={articleIcon(a)} title={a.title} sub={`${catName(a.cat)} · ${t('{n} Min.', { n: a.minutes })}`} onClick={() => open({ k: 'wiki', item: a })} right={read.has(a.id) ? <Check size={18} className="text-done shrink-0" /> : undefined} />)}</List></>}
         </>}
         {q && <><Label>{t('{n} Treffer', { n: hits.length })}</Label>
-          {hits.length > 0 && <List>{hits.slice(0, 60).map(a => <Row key={a.id} icon={articleIcon(a)} title={a.title} sub={`${a.cat} · ${t('{n} Min.', { n: a.minutes })}`} onClick={() => open({ k: 'wiki', item: a })} />)}</List>}
+          {hits.length > 0 && <List>{hits.slice(0, 60).map(a => <Row key={a.id} icon={articleIcon(a)} title={a.title} sub={`${catName(a.cat)} · ${t('{n} Min.', { n: a.minutes })}`} onClick={() => open({ k: 'wiki', item: a })} />)}</List>}
           {hits.length === 0 && <p className="text-[15.5px] text-mute">{t('Nichts gefunden. Frag {name} oder schick eine Idee ans Büro.', { name: ASSISTANT })}</p>}
         </>}
       </div>
+    </div>
+  )
+}
+
+function WikiArea({ k, open }: { k: string; open: (s: Sub) => void }) {
+  const { t, wiki } = useApp()
+  const pop = usePopular()
+  const { read, runs } = useWikiRuns()
+  const ar = AREAS.find(x => x.key === k)!, look = AREA_LOOK[k], Icon = look.icon
+  const items = wiki.filter(a => a.published && !a.fromNews && areaOf(a.catKey, a.title) === k)
+  const cats = [...new Set(items.map(a => a.cat))].sort((x, y) => items.filter(a => a.cat === y).length - items.filter(a => a.cat === x).length)
+  const [c, setC] = useState('Alle')
+  const shown = items.filter(a => c === 'Alle' || a.cat === c).sort((x, y) => (pop.get(y.id) ?? 0) - (pop.get(x.id) ?? 0) || x.title.localeCompare(y.title))
+  const done = items.filter(a => read.has(a.id)).length
+  return (
+    <div className="pb-10 px-4">
+      <div className={`mt-2 rounded-[22px] p-4 ${TONE[look.tone].bg}`}>
+        <div className="flex items-center gap-3.5"><span className={`w-14 h-14 rounded-[16px] bg-white/70 flex items-center justify-center shrink-0 ${TONE[look.tone].fg}`}><Icon size={26} /></span>
+          <div className="min-w-0"><h1 className={`font-display text-[25px] leading-tight ${TONE[look.tone].fg}`}>{t(ar.name)}</h1><p className="text-[15px] text-ink/70">{t(ar.desc)}</p></div></div>
+        <div className="mt-4 flex items-center gap-3"><span className="flex-1"><Bar value={done} total={items.length} /></span><span className="text-[14.5px] font-semibold tabular-nums">{t('{a} von {b} gelesen', { a: done, b: items.length })}</span></div>
+      </div>
+      {cats.length > 1 && <div className="mt-4"><Chips items={['Alle', ...cats]} value={c} onChange={setC} label={x => x === 'Alle' ? t('Alle') : catName(x)} /></div>}
+      <div className="mt-3"><List>{shown.map(a => { const n = runs.get(a.id) ?? 0
+        return <Row key={a.id} icon={articleIcon(a)} title={a.title} sub={[catName(a.cat), t('{n} Min.', { n: a.minutes }), n ? t('{n}× durchgemacht', { n }) : ''].filter(Boolean).join(' · ')} onClick={() => open({ k: 'wiki', item: a })}
+          right={read.has(a.id) ? <span className="w-6 h-6 rounded-full bg-done text-white flex items-center justify-center shrink-0"><Check size={14} strokeWidth={3} /></span> : <Circle size={22} className="text-sage-200 shrink-0" />} /> })}</List></div>
     </div>
   )
 }
@@ -632,39 +723,150 @@ function WikiDetail({ a }: { a: WikiArticle }) {
   const title = orig && full?.title ? full.title : a.title, intro = orig && full?.title ? full.intro : a.intro
   const yt = a.mediaKind === 'youtube' && a.mediaUrl ? ytId(a.mediaUrl) : null
   const own = a.mediaUrl ? (urls[a.mediaUrl] ?? (/^https?:/.test(a.mediaUrl) ? a.mediaUrl : null)) : null
-  return (
-    <article className="px-5 pb-10">
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        <span className={`px-2.5 py-1 rounded-full text-[13px] font-semibold ${TONE[toneOf(a.cat)].bg} ${TONE[toneOf(a.cat)].fg}`}>{catName(a.cat)}</span>
-        {(a.mediaKind === 'video' || a.mediaKind === 'youtube' || full?.blocks?.some(x => x.t === 'video')) && <span className={`px-2.5 py-1 rounded-full text-[13px] font-semibold ${TONE.learn.bg} ${TONE.learn.fg}`}>{t('mit Video')}</span>}
-        {a.accessLevel !== 'alle' && <span className="px-2.5 py-1 rounded-full text-[13px] bg-white text-ink/70 inline-flex items-center gap-1"><Lock size={12} />{a.accessLevel === 'buero' ? t('Büro') : t('Filialleitung')}</span>}
-        <span className="text-[14px] text-mute">{t('{n} Min. · aktualisiert {date}', { n: a.minutes, date: a.updated })}</span>
+  const { read, runs } = useWikiRuns()
+  const [ticked, setTickedState] = useState<Set<string>>(new Set())
+  // Stand sofort mitführen, damit schnelle Klicks hintereinander nicht auf einem alten Stand aufsetzen
+  const tickedRef = useRef(ticked)
+  const setTicked = (v: Set<string> | ((x: Set<string>) => Set<string>)) => { const n = typeof v === 'function' ? v(tickedRef.current) : v; tickedRef.current = n; setTickedState(n) }
+  const [busy, setBusy] = useState(false)
+  const blocks = shown?.blocks ?? null
+  // Schritt-Modus (Wunsch der Inhaberin 21.10.): nummerierte Listen werden zu Schritten, sonst ab zwei Zwischentiteln
+  // jeder Abschnitt ein Schritt. Aufzählungen werden dann zur Checkliste, Hinweise zur roten Regel.
+  type Step = { key: string; title: string | null; body: WikiBlock[] | null; text: string | null; parts?: string[] }
+  type Flow = WikiBlock | { t: 'steps'; from: number; to: number } | { t: 'check'; key: number; title?: string; items: string[] }
+  // Teilschritte im Import: „-Kundin Farbkarte geben-Fräser desinfizieren“
+  const splitParts = (x: string) => x.split(/\s*-\s*(?=[A-ZÄÖÜ])/).map(y => y.trim()).filter(Boolean).map(y => (y.match(/\*\*/g) ?? []).length % 2 ? y.replace(/\*\*/g, '') : y)
+  const boldLead = (x?: string) => !!x && /^\*\*[^*]+\*\*/.test(x) && !/^\*\*[^*]+\*\*\s*·/.test(x)
+  const shortLine = (b: WikiBlock) => b.t === 'p' && !!b.text && b.text.length <= 45 && !/[.:!?]$/.test(b.text) && !b.text.includes('**')
+  const plan: { mode: 'steps' | 'sections' | 'plain'; pre: WikiBlock[]; steps: Step[]; flow: Flow[] } = (() => {
+    const steps: Step[] = [], flow: Flow[] = []
+    if (!blocks) return { mode: 'plain', pre: [], steps, flow }
+    // 1) Schritte aus nummerierten Listen und aus Absätzen mit fettem Anfang, 2) Materiallisten aus kurzen Zeilen
+    for (let i = 0; i < blocks.length; i++) {
+      const x = blocks[i]
+      if (x.t === 'ol') { const from = steps.length
+        x.items?.forEach((it, j) => { const m = it.match(/^\*\*([^*]+)\*\*[:\s–-]*([\s\S]*)$/); steps.push({ key: `o${i}-${j}`, title: m ? m[1] : null, body: null, text: m ? m[2] : it }) })
+        flow.push({ t: 'steps', from, to: steps.length }); continue }
+      if (x.t === 'p' && boldLead(x.text) && boldLead(blocks[i + 1]?.text)) { const from = steps.length
+        while (i < blocks.length && blocks[i].t === 'p' && boldLead(blocks[i].text)) {
+          const m = blocks[i].text!.match(/^\*\*([^*]+)\*\*([\s\S]*)$/)!
+          const head = splitParts(m[1].replace(/^\d+\.\s*/, '')), rest = [...head.slice(1), ...splitParts(m[2].replace(/^[\s:–-]+/, ''))]
+          steps.push({ key: `b${i}`, title: head[0] ?? m[1], body: null, text: rest.length === 1 ? rest[0] : null, parts: rest.length > 1 ? rest : undefined }); i++ }
+        i--; flow.push({ t: 'steps', from, to: steps.length }); continue }
+      if (shortLine(x) && blocks.slice(i, i + 4).every(shortLine)) { const items: string[] = [], key = i
+        const prev = flow[flow.length - 1], title = prev && 't' in prev && prev.t === 'h' ? (flow.pop() as WikiBlock).text : undefined
+        while (i < blocks.length && shortLine(blocks[i])) items.push(blocks[i++].text!)
+        i--; flow.push({ t: 'check', key, title, items }); continue }
+      flow.push(x)
+    }
+    if (steps.length) return { mode: 'steps', pre: [], steps, flow }
+    // Sonst ab zwei Zwischentiteln: jeder Abschnitt ein Schritt
+    if (blocks.filter(x => x.t === 'h').length >= 2) {
+      const pre: WikiBlock[] = []; let cur: Step | null = null
+      blocks.forEach((x, i) => { if (x.t === 'h') { cur = { key: 'h' + i, title: x.text ?? '', body: [], text: null }; steps.push(cur) } else if (cur) cur.body!.push(x); else pre.push(x) })
+      return { mode: 'sections', pre, steps, flow: [{ t: 'steps', from: 0, to: steps.length }] }
+    }
+    return { mode: 'plain', pre: [], steps, flow }
+  })()
+  const mode = plan.mode
+  const total = plan.steps.length, doneN = plan.steps.filter(x => ticked.has(x.key)).length
+  const timesDone = runs.get(a.id) ?? 0
+  const tick = async (k: string) => {
+    const next = new Set(tickedRef.current); if (next.has(k)) next.delete(k); else next.add(k)
+    setTicked(next)
+    if (total && plan.steps.every(x => next.has(x.key)) && supabase && me.id && !a.fromNews) {
+      const { error } = await supabase.from('wiki_runs').insert({ article_id: a.id, employee_id: me.id, kind: 'durchgang' })
+      if (!error) { toast(t('Durchgang gespeichert. Gut gemacht!')); reloadRuns(); setTimeout(() => setTicked(new Set()), 1200) }
+    }
+  }
+  const confirmRead = async () => {
+    if (!supabase || !me.id || a.fromNews) return
+    setBusy(true)
+    const { error } = await supabase.from('wiki_runs').insert({ article_id: a.id, employee_id: me.id, kind: 'gelesen' })
+    setBusy(false)
+    if (error && !/duplicate/i.test(error.message)) toast(t('Das hat nicht geklappt'), 'error'); else { toast(t('Gelesen und bestätigt')); reloadRuns() }
+  }
+  const checklist = (items: string[], i: number, title?: string) => {
+    const keys = items.map((_, j) => `u${i}-${j}`), have = keys.filter(k => ticked.has(k)).length
+    return <div key={i} className="rounded-[20px] bg-white p-4">
+      <div className="flex items-baseline justify-between"><p className="rubric text-ink/80">{title ?? t('Checkliste')}</p><p className="text-[13.5px] text-mute tabular-nums">{t('{a} / {b} bereit', { a: have, b: keys.length })}</p></div>
+      <div className="mt-3 space-y-2">{items.map((x, j) => { const on = ticked.has(keys[j])
+        return <button key={j} onClick={() => setTicked(s0 => { const n = new Set(s0); if (n.has(keys[j])) n.delete(keys[j]); else n.add(keys[j]); return n })} className={`w-full min-h-[48px] rounded-[14px] px-3.5 py-2.5 flex items-center gap-3 text-left text-[16.5px] ${on ? 'bg-done-50' : 'bg-sage-50'}`}>
+          <span className={`flex-1 ${on ? 'line-through text-mute' : ''}`}><Rich text={x} /></span>
+          <span className={`w-6 h-6 rounded-[7px] flex items-center justify-center shrink-0 ${on ? 'bg-done text-white' : 'bg-white shadow-[inset_0_0_0_1.5px_#B9C4AF]'}`}>{on && <Check size={14} strokeWidth={3} />}</span>
+        </button> })}</div>
+    </div>
+  }
+  const block = (b: WikiBlock, i: number, inStep = false): ReactNode => {
+    switch (b.t) {
+      case 'h': return <h2 key={i} className={`${b.level && b.level >= 3 ? 'text-[17px]' : 'text-[20px]'} font-medium tracking-tight pt-3`}>{b.text}</h2>
+      case 'p': return <p key={i}><Rich text={b.text ?? ''} /></p>
+      case 'quote': return inStep ? <div key={i} className="rounded-[14px] bg-note-50 px-3.5 py-2.5 text-[15.5px] text-[#6B4A16] flex gap-2"><AlertTriangle size={16} className="text-note shrink-0 mt-0.5" /><span><Rich text={b.text ?? ''} /></span></div>
+        : <div key={i} className="rounded-[18px] bg-duty-50 px-4 py-3.5 flex gap-3 text-[#6E2A1F] shadow-[inset_0_0_0_1px_rgba(147,57,43,.18)]"><AlertTriangle size={20} className="text-duty shrink-0 mt-0.5" /><div><p className="rubric text-duty">{t('Wichtige Regel')}</p><p className="mt-1 text-[16.5px] leading-snug"><Rich text={b.text ?? ''} /></p></div></div>
+      case 'ol': return <ol key={i} className="list-decimal pl-5 space-y-1.5">{b.items?.map((x, j) => <li key={j}><Rich text={x} /></li>)}</ol>
+      case 'ul': return mode !== 'plain' && !inStep ? checklist(b.items ?? [], i, (() => { const prev = blocks?.[i - 1]; return prev?.t === 'h' ? prev.text : undefined })()) : <ul key={i} className="list-disc pl-5 space-y-1.5">{b.items?.map((x, j) => <li key={j}><Rich text={x} /></li>)}</ul>
+      case 'img': return urls[b.src!] ? <img key={i} src={urls[b.src!]} alt="" loading="lazy" className="w-full rounded-[16px] bg-sage-100" /> : <div key={i} className="w-full aspect-[4/3] rounded-[16px] bg-sage-100" />
+      case 'video': { if (b.src) return urls[b.src] ? <video key={i} src={urls[b.src]} controls playsInline className="w-full rounded-[16px] bg-olive-700" /> : <div key={i} className="w-full aspect-video rounded-[16px] bg-sage-100" />
+        const id = b.url ? ytId(b.url) : null
+        return id ? <iframe key={i} className="w-full aspect-video rounded-[16px]" src={`https://www.youtube-nocookie.com/embed/${id}`} title={t('Video')} allow="encrypted-media; picture-in-picture" allowFullScreen loading="lazy" />
+          : <a key={i} href={b.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-sage-800 underline"><Play size={16} />{t('Video öffnen')}</a> }
+      case 'file': return <a key={i} href={urls[b.src!] ?? '#'} target="_blank" rel="noreferrer" className="flex items-center gap-3 rounded-2xl bg-white px-4 py-3 text-[17px]"><span className="w-9 h-9 rounded-xl bg-sage-50 flex items-center justify-center text-sage-800 shrink-0"><FileText size={17} /></span><span className="flex-1 min-w-0 truncate">{b.name ?? t('Datei')}</span><ArrowUpRight size={16} className="text-sage-400" /></a>
+      default: return null
+    }
+  }
+  const stepCard = (x: Step, n: number) => { const on = ticked.has(x.key)
+    return <div key={x.key} className={`rounded-[20px] p-4 transition ${on ? 'bg-done-50' : 'bg-white'}`}>
+      <div className="flex items-start gap-3">
+        <span className={`w-8 h-8 rounded-[10px] font-display text-[16px] flex items-center justify-center shrink-0 ${on ? 'bg-done text-white' : 'bg-olive-800 text-white'}`}>{on ? <Check size={16} strokeWidth={3} /> : n}</span>
+        <div className={`flex-1 min-w-0 text-[16.5px] leading-relaxed ${on ? 'text-mute' : ''}`}>
+          {x.title && <p className={`text-[17.5px] font-semibold leading-snug ${on ? 'line-through' : ''}`}>{x.title}</p>}
+          {x.text && <p className={x.title ? 'mt-1' : ''}><Rich text={x.text} /></p>}
+          {x.parts && <ul className="mt-1.5 space-y-1">{x.parts.map((y, j) => <li key={j} className="flex gap-2"><span className="mt-[11px] w-1.5 h-1.5 rounded-full bg-sage-400 shrink-0" /><span><Rich text={y} /></span></li>)}</ul>}
+          {x.body && <div className="mt-1.5 space-y-2.5">{x.body.map((bb, j) => block(bb, j, true))}</div>}
+        </div>
       </div>
-      <h1 className="mt-3 text-[28px] font-medium tracking-tight leading-tight">{title}</h1>
-      {intro && <p className="mt-2 text-[17px] text-mute leading-snug">{intro}</p>}
-      {lang !== 'DE' && !a.fromNews && <p className="mt-2 text-[14.5px] text-mute">{tr8 === 'loading' ? t('Wird übersetzt …') : tr8 === 'failed' ? t('Übersetzung gerade nicht möglich, Original wird angezeigt.') : <button onClick={() => setOrig(!orig)} className="text-olive-700">{orig ? t('Übersetzung anzeigen') : t('Automatisch übersetzt · Original')}</button>}</p>}
-      {yt ? <iframe className="mt-5 w-full aspect-video rounded-[16px]" src={`https://www.youtube-nocookie.com/embed/${yt}`} title={a.title} allow="encrypted-media; picture-in-picture" allowFullScreen />
-        : a.mediaKind === 'video' && own ? <video className="mt-5 w-full rounded-[16px] bg-olive-700" src={own} controls playsInline />
-        : a.mediaKind === 'photo' && own ? <img className="mt-5 w-full rounded-[16px]" src={own} alt="" /> : null}
-      {!full && <p className="mt-6 text-mute">{t('Lädt …')}</p>}
-      {shown?.blocks ? <div className="mt-5 space-y-3 text-[17.5px] leading-relaxed">{shown.blocks.map((b, i) => {
-        switch (b.t) {
-          case 'h': return <h2 key={i} className={`${b.level && b.level >= 3 ? 'text-[17px]' : 'text-[20px]'} font-medium tracking-tight pt-3`}>{b.text}</h2>
-          case 'p': return <p key={i}><Rich text={b.text ?? ''} /></p>
-          case 'quote': return <div key={i} className="rounded-[16px] bg-duty-50 px-4 py-3 flex gap-3 text-[#6E2A1F]"><AlertTriangle size={19} className="text-duty shrink-0 mt-1" /><p><Rich text={b.text ?? ''} /></p></div>
-          case 'ol': return <div key={i} className="space-y-2.5">{b.items?.map((x, j) => <div key={j} className="rounded-[18px] bg-white p-3.5 flex gap-3"><span className="w-8 h-8 rounded-full bg-olive-800 text-white font-display text-[16px] flex items-center justify-center shrink-0">{j + 1}</span><span className="pt-0.5"><Rich text={x} /></span></div>)}</div>
-          case 'ul': { const L = 'ul'
-            return <L key={i} className={`${b.t === 'ul' ? 'list-disc' : 'list-decimal'} pl-5 space-y-1.5`}>{b.items?.map((x, j) => <li key={j}><Rich text={x} /></li>)}</L> }
-          case 'img': return urls[b.src!] ? <img key={i} src={urls[b.src!]} alt="" loading="lazy" className="w-full rounded-[16px] bg-sage-100" /> : <div key={i} className="w-full aspect-[4/3] rounded-[16px] bg-sage-100" />
-          case 'video': { if (b.src) return urls[b.src] ? <video key={i} src={urls[b.src]} controls playsInline className="w-full rounded-[16px] bg-olive-700" /> : <div key={i} className="w-full aspect-video rounded-[16px] bg-sage-100" />
-            const id = b.url ? ytId(b.url) : null
-            return id ? <iframe key={i} className="w-full aspect-video rounded-[16px]" src={`https://www.youtube-nocookie.com/embed/${id}`} title={t('Video')} allow="encrypted-media; picture-in-picture" allowFullScreen loading="lazy" />
-              : <a key={i} href={b.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-sage-800 underline"><Play size={16} />{t('Video öffnen')}</a> }
-          case 'file': return <a key={i} href={urls[b.src!] ?? '#'} target="_blank" rel="noreferrer" className="flex items-center gap-3 rounded-2xl bg-white px-4 py-3 text-[17px]"><span className="w-9 h-9 rounded-xl bg-sage-50 flex items-center justify-center text-sage-800 shrink-0"><FileText size={17} /></span><span className="flex-1 min-w-0 truncate">{b.name ?? t('Datei')}</span><ArrowUpRight size={16} className="text-sage-400" /></a>
-          default: return null
-        }
-      })}</div> : shown && <div className="mt-5 space-y-3 text-[17.5px] leading-relaxed">{shown.body.split(/\n\n+/).filter(Boolean).map((p, i) => <p key={i}>{p}</p>)}</div>}
-      {quiz && full && <QuizRunner quiz={quiz} />}
+      <div className="mt-3 flex justify-end"><button onClick={() => tick(x.key)} className={`h-10 px-3.5 rounded-full text-[15px] font-medium flex items-center gap-1.5 ${on ? `${TONE.done.bg} ${TONE.done.fg}` : 'bg-sage-50 text-ink/80'}`}>{on ? <><Check size={15} />{t('Erledigt')}</> : <><Circle size={15} />{t('Als erledigt markieren')}</>}</button></div>
+    </div>
+  }
+  const isRead = read.has(a.id)
+  return (
+    <article className="pb-4">
+      <div className="px-5">
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <span className={`px-2.5 py-1 rounded-full text-[13px] font-semibold ${TONE[toneOf(a.cat)].bg} ${TONE[toneOf(a.cat)].fg}`}>{catName(a.cat)}</span>
+          <span className="px-2.5 py-1 rounded-full text-[13px] bg-white text-ink/75 inline-flex items-center gap-1"><Clock size={12} />{t('{n} Min.', { n: a.minutes })}</span>
+          {(a.mediaKind === 'video' || a.mediaKind === 'youtube' || blocks?.some(x => x.t === 'video')) && <span className={`px-2.5 py-1 rounded-full text-[13px] font-semibold ${TONE.learn.bg} ${TONE.learn.fg}`}>{t('mit Video')}</span>}
+          {a.accessLevel !== 'alle' && <span className="px-2.5 py-1 rounded-full text-[13px] bg-white text-ink/70 inline-flex items-center gap-1"><Lock size={12} />{a.accessLevel === 'buero' ? t('Büro') : t('Filialleitung')}</span>}
+          {timesDone > 0 && <span className={`px-2.5 py-1 rounded-full text-[13px] font-semibold ${TONE.done.bg} ${TONE.done.fg}`}>{t('{n}× durchgemacht', { n: timesDone })}</span>}
+        </div>
+        <h1 className="mt-3 text-[28px] font-medium tracking-tight leading-tight">{title}</h1>
+        {intro && <p className="mt-2 text-[17px] text-mute leading-snug">{intro}</p>}
+        <p className="mt-2 text-[14px] text-mute">{t('aktualisiert {date}', { date: a.updated })}</p>
+        {lang !== 'DE' && !a.fromNews && <p className="mt-2 text-[14.5px] text-mute">{tr8 === 'loading' ? t('Wird übersetzt …') : tr8 === 'failed' ? t('Übersetzung gerade nicht möglich, Original wird angezeigt.') : <button onClick={() => setOrig(!orig)} className="text-olive-700">{orig ? t('Übersetzung anzeigen') : t('Automatisch übersetzt · Original')}</button>}</p>}
+        {yt ? <iframe className="mt-5 w-full aspect-video rounded-[18px]" src={`https://www.youtube-nocookie.com/embed/${yt}`} title={a.title} allow="encrypted-media; picture-in-picture" allowFullScreen />
+          : a.mediaKind === 'video' && own ? <video className="mt-5 w-full rounded-[18px] bg-olive-700" src={own} controls playsInline />
+          : a.mediaKind === 'photo' && own ? <img className="mt-5 w-full rounded-[18px]" src={own} alt="" /> : null}
+        {!full && <p className="mt-6 text-mute">{t('Lädt …')}</p>}
+        {shown && mode === 'plain' && (blocks ? <div className="mt-5 space-y-3 text-[17.5px] leading-relaxed">{blocks.map((x, i) => block(x, i))}</div>
+          : <div className="mt-5 space-y-3 text-[17.5px] leading-relaxed">{shown.body.split(/\n\n+/).filter(Boolean).map((x, i) => <p key={i}>{x}</p>)}</div>)}
+        {shown && mode !== 'plain' && <div className="mt-5 space-y-3 text-[17.5px] leading-relaxed">
+          {plan.pre.map((x, i) => block(x, 1000 + i))}
+          {plan.flow.map((f, i) => 'from' in f ? <div key={'s' + i} className="space-y-3">
+            {f.from === 0 && <div className="pt-2 flex items-baseline justify-between"><p className="rubric text-ink/80">{t('Schritt für Schritt')}</p><p className="text-[13.5px] text-mute tabular-nums">{t('{a} von {b} erledigt', { a: doneN, b: total })}</p></div>}
+            {f.from === 0 && <Bar value={doneN} total={total} />}
+            {plan.steps.slice(f.from, f.to).map((x, j) => stepCard(x, f.from + j + 1))}
+          </div> : f.t === 'check' ? checklist(f.items, 5000 + f.key, f.title) : block(f, blocks!.indexOf(f)))}
+        </div>}
+        {quiz && full && <QuizRunner quiz={quiz} />}
+      </div>
+      {/* Unten fest: bestätigen und Marc fragen (Vorlage der Inhaberin) */}
+      {!a.fromNews && full && <div className="sticky bottom-0 mt-6 px-4 pt-3 pb-3 bg-gradient-to-t from-sage-50 via-sage-50 to-sage-50/0">
+        <div className="grid grid-cols-2 gap-2">
+          {isRead ? <div className={`h-12 rounded-[16px] flex items-center justify-center gap-2 font-semibold whitespace-nowrap ${TONE.done.bg} ${TONE.done.fg}`}><Check size={18} />{t('Bestätigt')}</div>
+            : <button disabled={busy} onClick={confirmRead} className="h-12 rounded-[16px] bg-olive-800 text-white font-semibold flex items-center justify-center gap-2 whitespace-nowrap disabled:opacity-60"><Check size={18} />{t('Gelesen & bestätigen')}</button>}
+          <button onClick={() => openNewBenniChat(t('Ich lese gerade „{title}“. Fass mir die wichtigsten Punkte kurz zusammen, danach habe ich eine Frage.', { title: a.title }))} className={`h-12 px-3 rounded-[16px] font-semibold flex items-center justify-center gap-2 whitespace-nowrap ${TONE.note.bg} ${TONE.note.fg}`}><MessageCircle size={18} />{t('Frage an Marc')}</button>
+        </div>
+      </div>}
     </article>
   )
 }
@@ -693,7 +895,8 @@ function MenuView({ open, onLogout }: { open: (s: Sub) => void; onLogout: () => 
   const unread = live(news).filter(n => n.mustRead && !read.has(n.id)).length
   const tiles: [string, string, typeof Users, Sub][] = [
     ['News', unread ? t('{n} ungelesen', { n: unread }) : t('alles gelesen'), Newspaper, { k: 'news-list' }], ['Kalender', t('Termine, Schulungen und Events'), CalendarDays, { k: 'events' }],
-    ['Team', t('{n} Personen', { n: staff.filter(s => s.active).length }), Users, { k: 'team' }], ['Melden & Ideen', t('{n} offen', { n: tickets.filter(x => x.status !== 'Erledigt').length }), Lightbulb, { k: 'tickets' }],
+    ['Team', t('{n} Personen', { n: staff.filter(s => s.active).length }), Users, { k: 'team' }], ['Melden & Ideen', t('{n} offen', { n: tickets.filter(x => x.kind !== 'Learning' && x.status !== 'Erledigt').length }), Lightbulb, { k: 'tickets' }],
+    ['Learning', t('Videos und Tipps aus den Studios'), GraduationCap, { k: 'tickets', learning: true }],
     ['Zeit & Ferien', 'Timebutler', Plane, { k: 'time' }],
   ]
   return (
@@ -703,11 +906,15 @@ function MenuView({ open, onLogout }: { open: (s: Sub) => void; onLogout: () => 
           <Row title={`${me.first} ${me.last}`} sub={`${me.role} · ${me.branch}`} onClick={() => open({ k: 'me' })} />
         </List>
         <div className="mt-3"><List>
+          {tiles.map(([title, sub, Icon, target]) => <Row key={title} icon={<Icon size={19} strokeWidth={1.6} />} title={t(title)} sub={sub} onClick={() => open(target)} />)}
+        </List></div>
+        {/* Aus Phorest: bleibt erreichbar, steht aber nicht mehr im Vordergrund (Inhaberin 21.10.) */}
+        <Label>{t('Aus Phorest')}</Label>
+        <List>
           <Row icon={<CalendarDays size={19} strokeWidth={1.6} />} title={t('Kundentermine')} sub={`${t('Alle Studios')} · ${t('live aus Phorest')}`} onClick={() => open({ k: 'book' })} />
           <Row icon={<Search size={19} strokeWidth={1.6} />} title={t('Kundenhistorie')} sub={t('Besuche und Notizen von Kunden')} onClick={() => open({ k: 'clients' })} />
           {me.app_role !== 'buero' && <Row icon={<TrendingUp size={19} strokeWidth={1.6} />} title={t('Meine Performance')} sub={t('Kennzahlen, Ziele und Bewertungen')} onClick={() => open({ k: 'perf' })} />}
-          {tiles.map(([title, sub, Icon, target]) => <Row key={title} icon={<Icon size={19} strokeWidth={1.6} />} title={t(title)} sub={sub} onClick={() => open(target)} />)}
-        </List></div>
+        </List>
         <div className="mt-3"><List>
           <Row icon={<Link2 size={19} strokeWidth={1.6} />} title={t('Verbindungen')} sub={t('Phorest, Timebutler, Postfach')} onClick={() => open({ k: 'conn' })} />
         </List></div>
@@ -919,13 +1126,16 @@ function StandbyPicker() {
   </div>)
 }
 
-function Profile({ s }: { s: Staff }) {
-  const { t } = useApp()
+function Profile({ s, open }: { s: Staff; open: (x: Sub) => void }) {
+  const { t, me } = useApp()
+  const [busy, setBusy] = useState(false)
+  const write = async () => { setBusy(true); const { data, error } = await supabase!.rpc('start_chat', { p_people: [s.id], p_title: null }); setBusy(false); if (error || !data) toast(t('Das hat nicht geklappt'), 'error'); else open({ k: 'chat', id: data as string }) }
   return (
-    <div className="px-5 pb-10 text-center">
-      <div className="mt-4 flex justify-center"><Avatar s={s} photo={s.photo} size="w-24 h-24 text-2xl" /></div>
-      <h1 className="mt-4 text-[24px] font-medium tracking-tight">{s.first} {s.last}</h1><p className="text-mute">{s.role} · {t('Studio {name}', { name: s.branch })}</p>
-      <div className="mt-6 text-left"><Label>{t('Skills')}</Label>{s.skills.length ? <div className="flex flex-wrap gap-2">{s.skills.map(k => <span key={k} className="px-3 h-8 rounded-full bg-white text-[14.5px] flex items-center">{k}</span>)}</div> : <p className="text-[15.5px] text-mute">{t('Noch keine Skills eingetragen.')}</p>}
+    <div className="px-4 pb-10">
+      <ProfileHead s={s} photo={s.photo} />
+      {s.id !== me.id && <button disabled={busy} onClick={write} className="mt-3 w-full h-12 rounded-[16px] bg-olive-800 text-white font-semibold flex items-center justify-center gap-2 disabled:opacity-60"><MessageCircle size={18} />{t('Nachricht schreiben')}</button>}
+      <div className="px-1"><Label>{t('Persönliches')}</Label>{s.about ? <Card className="p-4"><p className="text-[17px] leading-relaxed whitespace-pre-wrap">{s.about}</p></Card> : <p className="text-[15.5px] text-mute">{t('Noch nichts eingetragen.')}</p>}
+        <Label>{t('Skills')}</Label>{s.skills.length ? <div className="flex flex-wrap gap-2">{s.skills.map(k => <span key={k} className="px-3 h-8 rounded-full bg-white text-[14.5px] flex items-center">{k}</span>)}</div> : <p className="text-[15.5px] text-mute">{t('Noch keine Skills eingetragen.')}</p>}
         <Label>{t('Arbeitszeiten diese Woche')}</Label><WeekShifts id={s.id} />
         <Label>{t('Kontakt')}</Label>
         <List>
@@ -936,18 +1146,25 @@ function Profile({ s }: { s: Staff }) {
   )
 }
 function MyProfile() {
-  const { me, skills, photo, setPhotoFile, lang, setLang, t } = useApp()
+  const { me, staff, skills, photo, setPhotoFile, lang, setLang, t, reload } = useApp()
   const { signOut } = useAuth()
   const file = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
+  const saved = staff.find(x => x.id === me.id)?.about ?? ''
+  const [about, setAbout] = useState(saved), [savingAbout, setSavingAbout] = useState(false)
+  useEffect(() => { setAbout(saved) }, [saved])
+  const saveAbout = async () => { setSavingAbout(true); const { error } = await supabase!.rpc('update_my_about', { p_about: about }); setSavingAbout(false); if (error) toast(t('Das hat nicht geklappt'), 'error'); else { toast(t('Gespeichert')); reload() } }
   return (
-    <div className="px-5 pb-10">
-      <div className="mt-3 flex flex-col items-center">
-        <button onClick={() => file.current?.click()} className={`relative ${busy ? 'opacity-50' : ''}`}><Avatar s={me} photo={photo} size="w-24 h-24 text-2xl" />
-          <span className="absolute bottom-0 right-0 w-8 h-8 rounded-full bg-olive-700 text-white flex items-center justify-center border-2 border-paper"><Camera size={14} /></span></button>
-        <input ref={file} type="file" accept="image/*" className="hidden" onChange={async e => { const f = e.target.files?.[0]; if (f) { setBusy(true); await setPhotoFile(f); setBusy(false) } }} />
-        <h1 className="mt-4 text-[24px] font-medium tracking-tight">{me.first} {me.last}</h1><p className="text-mute">{me.role} · {t('Studio {name}', { name: me.branch })}</p>
-      </div>
+    <div className="px-4 pb-10">
+      <ProfileHead s={me} photo={photo} onPhoto={() => file.current?.click()} busy={busy} />
+      <input ref={file} type="file" accept="image/*" className="hidden" onChange={async e => { const f = e.target.files?.[0]; if (f) { setBusy(true); await setPhotoFile(f); setBusy(false) } }} />
+      <div className="px-1">
+      <Label>{t('Persönliches')}</Label>
+      <Card className="p-4">
+        <textarea value={about} onChange={e => setAbout(e.target.value)} rows={4} maxLength={600} placeholder={t('Was dürfen Kolleginnen über dich wissen? Zum Beispiel Hobbys, Lieblingsbehandlung, Sprachen.')} className="w-full resize-none outline-none bg-transparent text-[17px] leading-relaxed placeholder:text-mute" />
+        {about.trim() !== (saved ?? '').trim() && <div className="mt-2 flex justify-end"><button disabled={savingAbout} onClick={saveAbout} className="h-10 px-4 rounded-[12px] bg-olive-700 text-white text-[15.5px] font-medium disabled:opacity-60">{t('Speichern')}</button></div>}
+      </Card>
+      <p className="mt-2 text-[13px] text-mute">{t('Sichtbar für alle im Team auf deinem Profil.')}</p>
       <Label>{t('Meine Skills')}</Label>
       {skills.length ? <div className="flex flex-wrap gap-2">{skills.map(k => <span key={k} className="px-3 h-8 rounded-full bg-white text-[14.5px] flex items-center">{k}</span>)}</div>
         : <p className="text-[15.5px] text-mute">{t('Noch keine Skills hinterlegt.')}</p>}
@@ -961,13 +1178,28 @@ function MyProfile() {
       <Label>{t('Sprache')}</Label>
       <div className="grid grid-cols-3 gap-2 p-1 rounded-2xl bg-white">{([['DE', 'Deutsch'], ['EN', 'English'], ['FR', 'Français']] as [Lang, string][]).map(([k, l]) => <button key={k} onClick={() => setLang(k)} className={`h-10 rounded-xl text-[15.5px] ${lang === k ? 'bg-olive-700 text-white' : ''}`}>{l}</button>)}</div>
       <button onClick={signOut} className="mt-8 w-full h-12 rounded-[14px] bg-white text-[17px] text-ink/80 hover:text-alert flex items-center justify-center gap-2"><LogOut size={17} />{t('Abmelden')}</button>
+      </div>
+    </div>
+  )
+}
+/** Grosses Profilfoto mit Name und Rolle darüber (Inhaberin 21.10., Punkt 23) */
+function ProfileHead({ s, photo, onPhoto, busy }: { s: Staff; photo: string | null; onPhoto?: () => void; busy?: boolean }) {
+  const { t } = useApp()
+  const initials = (s.first[0] ?? '') + (s.last[0] ?? '')
+  return (
+    <div className={`mt-2 relative ${photo ? 'h-[320px]' : 'h-[210px]'} rounded-[26px] overflow-hidden bg-studio-50 ${busy ? 'opacity-60' : ''}`}>
+      {photo ? <img src={photo} alt="" className="absolute inset-0 w-full h-full object-cover" /> : <span className="absolute inset-x-0 top-0 bottom-16 flex items-center justify-center font-display text-[64px] text-studio/50">{initials}</span>}
+      <span className="absolute inset-0 bg-gradient-to-b from-ink/0 via-ink/5 to-ink/70" />
+      <div className="absolute left-5 right-5 bottom-4 text-white"><h1 className="text-[28px] leading-tight">{s.first} {s.last}</h1><p className="text-[16px] text-white/85">{s.role} · {t('Studio {name}', { name: s.branch })}</p></div>
+      {onPhoto && <button onClick={onPhoto} aria-label={t('Foto ändern')} className="absolute top-3 right-3 h-10 px-3.5 rounded-full bg-white/90 text-ink text-[15px] font-medium flex items-center gap-1.5"><Camera size={16} />{photo ? t('Foto ändern') : t('Foto hinzufügen')}</button>}
     </div>
   )
 }
 
-function Tickets({ open }: { open: (s: Sub) => void }) {
+function Tickets({ open, learning }: { open: (s: Sub) => void; learning?: boolean }) {
   const { tickets, addTicket, toggleVote, me, t, branches } = useApp()
-  const [kind, setKind] = useState<'Meldung' | 'Idee'>('Meldung'), [text, setText] = useState(''), [ok, setOk] = useState(''), [photo, setPhoto] = useState<File | null>(null), [busy, setBusy] = useState(false)
+  // Dritter Knopf „Learning“: Kolleginnen teilen Videos und Tipps, sichtbar für alle Studios (Inhaberin 20.10., Punkt 18)
+  const [kind, setKind] = useState<'Meldung' | 'Idee' | 'Learning'>(learning ? 'Learning' : 'Meldung'), [text, setText] = useState(''), [ok, setOk] = useState(''), [photo, setPhoto] = useState<File | null>(null), [busy, setBusy] = useState(false)
   // Wer woanders aushilft, meldet für das Studio, in dem sie gerade ist
   const studios = branches.filter(b => !b.is_office)
   const [branchId, setBranchId] = useState(studios.some(b => b.id === me.branch_id) ? me.branch_id : studios[0]?.id ?? me.branch_id)
@@ -976,31 +1208,48 @@ function Tickets({ open }: { open: (s: Sub) => void }) {
   const file = useRef<HTMLInputElement>(null)
   const submit = async () => {
     if (!text.trim() || busy) return
-    setBusy(true); const good = await addTicket({ kind, title: text.trim(), photo: photo ?? undefined, ...(branchId === '*' ? { allStudios: true } : { branchId }) }); setBusy(false)
-    if (good) { setText(''); setPhoto(null); setOk(t('Gesendet. Du siehst hier, was daraus wird.')) } else setOk(t('Das hat nicht geklappt. Bitte versuche es noch einmal.'))
+    setBusy(true); const good = await addTicket({ kind, title: text.trim(), photo: photo ?? undefined, ...(kind === 'Learning' ? { branchId: me.branch_id } : branchId === '*' ? { allStudios: true } : { branchId }) }); setBusy(false)
+    if (good) { setText(''); setPhoto(null); setOk(kind === 'Learning' ? t('Geteilt. Alle Studios sehen es jetzt unter Learning.') : t('Gesendet. Du siehst hier, was daraus wird.')) } else setOk(t('Das hat nicht geklappt. Bitte versuche es noch einmal.'))
     setTimeout(() => setOk(''), 3000)
   }
   // Die Datenbank liefert nur, was diese Person sehen darf: eigene Meldungen, Ideen des Teams, als Leitung das Studio
-  const list = tickets.filter(x => view === 'offen' ? x.status !== 'Erledigt' : x.status === 'Erledigt')
+  const list = tickets.filter(x => x.kind !== 'Learning' && (view === 'offen' ? x.status !== 'Erledigt' : x.status === 'Erledigt'))
     .sort((a, b) => b.votes - a.votes)
+  const learnings = tickets.filter(x => x.kind === 'Learning')
   const isVideo = photo?.type.startsWith('video')
   return (
-    <div className="pb-10"><Title>{t('Melden & Ideen')}</Title>
+    <div className="pb-10"><Title>{kind === 'Learning' ? t('Learning') : t('Melden & Ideen')}</Title>
       <div className="px-5">
-        <div className="grid grid-cols-2 gap-1 p-1 rounded-[12px] bg-white">
-          {(['Meldung', 'Idee'] as const).map(k => <button key={k} onClick={() => setKind(k)} className={`h-10 rounded-[10px] text-[15.5px] flex items-center justify-center gap-1.5 transition ${kind === k ? 'bg-olive-700 text-white' : ''}`}>{k === 'Meldung' ? <AlertTriangle size={15} /> : <Lightbulb size={15} />}{t(k)}</button>)}
+        <div className="grid grid-cols-3 gap-1 p-1 rounded-[12px] bg-white">
+          {(['Meldung', 'Idee', 'Learning'] as const).map(k => <button key={k} onClick={() => setKind(k)} className={`h-10 rounded-[10px] text-[15.5px] flex items-center justify-center gap-1.5 transition ${kind === k ? 'bg-olive-700 text-white' : ''}`}>{k === 'Meldung' ? <AlertTriangle size={15} /> : k === 'Idee' ? <Lightbulb size={15} /> : <GraduationCap size={15} />}{t(k)}</button>)}
         </div>
         <Card className="mt-3 p-4">
-          <textarea value={text} onChange={e => setText(e.target.value)} rows={3} placeholder={kind === 'Meldung' ? t('Was ist kaputt oder fehlt?') : t('Was könnten wir besser machen?')} className="w-full resize-none outline-none text-[17px] placeholder:text-mute bg-transparent" />
-          <div className="mt-2 flex items-center justify-between text-[14.5px] text-mute">
-            <span className="flex items-center gap-3"><button onClick={() => file.current?.click()} className={`flex items-center gap-1 ${photo ? 'text-olive-700' : ''}`}>{isVideo ? <Video size={15} /> : <Camera size={15} />}{photo ? (isVideo ? t('Video dabei') : t('Foto dabei')) : t('Foto oder Video')}</button><span className="relative"><button onClick={() => setPickB(!pickB)} className="flex items-center gap-1 hover:text-ink"><MapPin size={15} />{branchId === '*' ? t('Alle Studios') : branches.find(b => b.id === branchId)?.name ?? me.branch}<ChevronRight size={13} className={`transition ${pickB ? 'rotate-90' : ''}`} /></button>
+          <textarea value={text} onChange={e => setText(e.target.value)} rows={3} placeholder={kind === 'Meldung' ? t('Was ist kaputt oder fehlt?') : kind === 'Learning' ? t('Was möchtest du dem Team zeigen? Zum Beispiel, wie du Brauen formst.') : t('Was könnten wir besser machen?')} className="w-full resize-none outline-none text-[17px] placeholder:text-mute bg-transparent" />
+          <div className="mt-2 flex items-center justify-between gap-2 text-[14.5px] text-mute">
+            <span className="flex items-center gap-3 min-w-0 whitespace-nowrap"><button onClick={() => file.current?.click()} className={`flex items-center gap-1 ${photo ? 'text-olive-700' : ''}`}>{isVideo ? <Video size={15} /> : <Camera size={15} />}{photo ? (isVideo ? t('Video dabei') : t('Foto dabei')) : t('Foto oder Video')}</button>{kind !== 'Learning' && <span className="relative"><button onClick={() => setPickB(!pickB)} className="flex items-center gap-1 hover:text-ink"><MapPin size={15} />{branchId === '*' ? t('Alle Studios') : branches.find(b => b.id === branchId)?.name ?? me.branch}<ChevronRight size={13} className={`transition ${pickB ? 'rotate-90' : ''}`} /></button>
               {pickB && <span className="absolute z-20 left-0 bottom-7 w-48 rounded-[12px] bg-white shadow-[0_12px_32px_-12px_rgba(29,34,28,.45)] p-1 flex flex-col">{[{ id: '*', name: t('Alle Studios') }, ...studios].map(b => <button key={b.id} onClick={() => { setBranchId(b.id); setPickB(false) }} className={`h-9 px-3 rounded-[8px] text-left text-[15.5px] flex items-center justify-between ${b.id === branchId ? 'bg-sage-50 text-ink' : 'text-ink/80 hover:bg-sage-50'}`}>{b.name}{b.id === branchId && <Check size={14} />}</button>)}</span>}
-            </span></span>
-            <button disabled={busy} onClick={submit} className="h-9 px-4 rounded-[10px] bg-olive-700 text-white flex items-center gap-1.5 disabled:opacity-60"><Send size={13} />{t('Senden')}</button>
+            </span>}</span>
+            <button disabled={busy} onClick={submit} className="h-9 px-4 rounded-[10px] bg-olive-700 text-white flex items-center gap-1.5 shrink-0 disabled:opacity-60"><Send size={13} />{kind === 'Learning' ? t('Teilen') : t('Senden')}</button>
           </div>
           <input ref={file} type="file" accept="image/*,video/*" className="hidden" onChange={e => setPhoto(e.target.files?.[0] ?? null)} />
         </Card>
         {ok && <p className="mt-2 text-[13px] text-mute">{ok}</p>}
+        {kind === 'Learning' ? <>
+          <Label action={<span className="text-[13px] text-mute">{t('{n} geteilt', { n: learnings.length })}</span>}>{t('Aus den Studios')}</Label>
+          {learnings.length === 0 && <Card><Empty>{t('Noch nichts geteilt. Zeig dem Team, wie du etwas machst, mit Video oder Foto.')}</Empty></Card>}
+          <div className="space-y-3">{learnings.map(x => (
+            <div key={x.id} className="rounded-[20px] bg-white overflow-hidden">
+              {x.photo && (x.mediaKind === 'video' ? <video src={x.photo} controls playsInline preload="metadata" className="w-full max-h-[320px] bg-olive-800 object-cover" /> : <img src={x.photo} alt="" className="w-full max-h-[320px] object-cover" />)}
+              <div className="p-4">
+                <p className="text-[14px] text-mute">{x.who} · {x.branch} · {x.when}</p>
+                <p className="mt-1 text-[17px] leading-snug">{x.title}</p>
+                <div className="mt-3 flex items-center gap-2">
+                  <button onClick={() => toggleVote(x.id)} aria-pressed={x.voted} className={`h-9 px-3 rounded-full text-[14.5px] flex items-center gap-1.5 ${x.voted ? 'bg-olive-700 text-white' : 'bg-sage-50 text-ink/80'}`}><ArrowBigUp size={15} />{t('Hilfreich')} · {x.votes}</button>
+                  <button onClick={() => open({ k: 'ticket', id: x.id })} className="h-9 px-3 rounded-full bg-sage-50 text-[14.5px] text-ink/80">{x.comments.length ? t('{n} Kommentare', { n: x.comments.length }) : t('Kommentieren')}</button>
+                </div>
+              </div>
+            </div>))}</div>
+        </> : <>
         <div className="mt-8 mb-2.5 px-1 flex items-center justify-between"><div><h2 className="rubric text-ink/70">{t('Verlauf')}</h2><p className="text-[13px] text-mute mt-1">{t('Schon gemeldet? Dann einfach upvoten.')}</p></div>
           <div className="flex gap-1 p-0.5 rounded-[8px] bg-white">{(['offen', 'erledigt'] as const).map(k => <button key={k} onClick={() => setView(k)} className={`h-7 px-2.5 rounded-[6px] text-[13px] transition ${view === k ? 'bg-olive-700 text-white' : 'text-ink/60'}`}>{t(k === 'offen' ? 'Offen' : 'Erledigt')}</button>)}</div></div>
         <List>{list.length === 0 && <Empty>{view === 'offen' ? t('Nichts offen.') : t('Noch nichts erledigt.')}</Empty>}{list.map(x => (
@@ -1013,6 +1262,7 @@ function Tickets({ open }: { open: (s: Sub) => void }) {
             <button onClick={() => toggleVote(x.id)} aria-pressed={x.voted} title={t('Upvote')} className={`shrink-0 w-11 py-1.5 rounded-[10px] flex flex-col items-center text-[13px] transition ${x.voted ? 'bg-olive-700 text-white' : 'bg-sage-50 text-ink/70 hover:bg-sage-100'}`}><ArrowBigUp size={16} strokeWidth={1.8} />{x.votes}</button>
           </div>
         ))}</List>
+        </>}
       </div>
     </div>
   )
