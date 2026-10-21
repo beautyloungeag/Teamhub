@@ -6,13 +6,19 @@ Interne Mitarbeiter-App (PWA + Desktop-Backoffice) der Beautylounge AG. Kundin: 
 
 Die Inhaberin ergänzt: Zeit-/Ferienerfassung und Mail fehlen noch, sie sollen sinnvoll und ansprechend in der App stehen. Bisher waren beides nur Links.
 
-- **Function `timebutler`** (neu, deployt, `--no-verify-jwt`):
-  - API v1 `POST https://timebutler.de/api/v1/<endpoint>` mit `auth=<Firmen-Schlüssel>`, Antworten als CSV mit `;` und englischen Spalten
-  - Endpunkte: `users` (Zuordnung über „E-mail address“, 10 Min. gepuffert), `holidayentitlement`, `absences` (dieses und nächstes Jahr), `worktime` (Monat), `timeclock` (`status|start|pause|resume|stop` mit `userid`)
-  - Aktionen `overview` und `clock`
-  - ⚠️ **Secret `TIMEBUTLER_TOKEN` fehlt noch.** Den Firmen-Schlüssel muss Beautylounge liefern (Admin-Konto, Fusszeile „Schnittstelle (API)“). Bis dahin meldet die Function `configured:false` und die App zeigt „wird gerade angebunden“ mit Link. Optional `TIMEBUTLER_BASE`.
-  - API v1 kann **keine Abwesenheiten anlegen** → „Ferien beantragen“ öffnet Timebutler.
-  - Quelle der Spaltennamen: Community-Client `levma/timebutler-api-client`. Mit echtem Schlüssel einmal gegenprüfen.
+- **Function `timebutler`: seit 21.10. spät auf API v2** (`https://app.timebutler.com/api/v2`). v1 mit Firmen-Schlüssel ist verworfen.
+  - Der hinterlegte Schlüssel `TIMEBUTLER_API_KEY` ist ein persönlicher v2-Token (`tb_…`). v1 antwortet darauf 401.
+  - v2 arbeitet **immer für die angemeldete Person** (eigene Stempeluhr, eigene Anträge). Deshalb verbindet jede Mitarbeiterin ihr eigenes Konto einmal: `POST /oauth2/token` mit `grant_type=password` und `client_id=public`, bei 2FA zweiter Schritt `mfa_totp`.
+  - Gespeichert wird nur der rotierende Refresh-Token plus Zugriffstoken, verschlüsselt mit `MAILBOX_KEY`, in `timebutler_accounts` (Migration `0031`). Ist der Refresh-Token einmal verbraucht, wird der Datensatz neu geladen, falls eine parallele Anfrage schon erneuert hat. Sonst gilt `reconnect`.
+  - Aktionen:
+    - `status`: Büro sieht dazu die Abdeckung, am 21.10.: 47 von 50 Personen haben unter ihrer Firmen-Mail ein Timebutler-Konto, Timebutler kennt 49 aktive
+    - `connect`, `disconnect`, `overview`
+    - `clock`: `/time-clock/start|pause|resume|stop`, beachtet `*OnlyOnTerminal`
+    - `request`: `POST /absence-requests`, also **Ferien direkt in der App beantragen**
+    - `withdraw`: `DELETE /absence-requests/{id}`
+  - Der Admin-Token dient nur dem Abgleich `GET /employees` (Firmen-Mail vorhanden?).
+  - ⚠️ **Noch nicht mit einem echten Mitarbeiterinnen-Konto getestet.** Getestet: Endpunkte und Antwortaufbau mit dem Admin-Token, Fehlanmeldung `invalid_grant`. Erster echter Test: eine Person verbindet sich in der App. **Nie mit fremden Tokens stempeln.**
+  - Spezifikation: `https://app.timebutler.com/api/v2/openapi.json`
 - **Function `mailbox`** (neu, deployt):
   - eigenes Firmenpostfach bei Cyon, IMAP `s065.cyon.net:993`, das ist der Server hinter `mail.beautylounge.ch` (Dovecot); SMTP `:465`, weil Supabase 587 sperrt
   - schlanker IMAP-Client in der Function, MIME über `npm:postal-mime`
@@ -21,7 +27,7 @@ Die Inhaberin ergänzt: Zeit-/Ferienerfassung und Mail fehlen noch, sie sollen s
   - Getestet: Verbindung und Fehlanmeldung ab Supabase, Literal-/Umlaut-Parsing lokal
   - ⚠️ **Noch nicht mit einem echten Postfach getestet** (keines hier hinterlegt). Erster Test: eine Person verbindet ihr eigenes Postfach in der App.
 - **App:**
-  - `src/Time.tsx`: Stempeluhr dunkel, Ferienring mit Resttagen, Wochenbalken, Abwesenheiten mit Status-Etiketten
+  - `src/Time.tsx`: Verbinden (mit 2FA-Schritt), Stempeluhr mit Tagessoll, Ferienring + genehmigt/beantragt/krank, Wochenbalken, eigene Anträge mit Zurückziehen/Stornieren, Ferienantrag als Formular. `DateField` zeigt das Datum selbst formatiert, darüber liegt unsichtbar der Datumswähler des Geräts.
   - `src/Mail.tsx`: Verbinden-Karte, Posteingang mit Ungelesen, Mail lesen (HTML im abgeschotteten iframe), Antworten, Weiterleiten, Neu
   - Menü-Einträge und zwei Knöpfe auf „Heute“
   - `ExternalTool` entfernt
