@@ -2,6 +2,31 @@
 
 Interne Mitarbeiter-App (PWA + Desktop-Backoffice) der Beautylounge AG. Kundin: Renée Baumann. PM-Projekt: `projekt.aleksa.ai`, Key **BLTH** (`d4ee5d5c-4553-436c-bba7-137a03a2b704`). ⚠️ Das Repo `beautyloungeag/Teamhub` ist **öffentlich** — nie Personendaten committen.
 
+### Nachtrag 2026-10-21 nachts — Zeit & Ferien und Posteingang in der App
+
+Die Inhaberin ergänzt: Zeit-/Ferienerfassung und Mail fehlen noch, sie sollen sinnvoll und ansprechend in der App stehen. Bisher waren beides nur Links.
+
+- **Function `timebutler`** (neu, deployt, `--no-verify-jwt`):
+  - API v1 `POST https://timebutler.de/api/v1/<endpoint>` mit `auth=<Firmen-Schlüssel>`, Antworten als CSV mit `;` und englischen Spalten
+  - Endpunkte: `users` (Zuordnung über „E-mail address“, 10 Min. gepuffert), `holidayentitlement`, `absences` (dieses und nächstes Jahr), `worktime` (Monat), `timeclock` (`status|start|pause|resume|stop` mit `userid`)
+  - Aktionen `overview` und `clock`
+  - ⚠️ **Secret `TIMEBUTLER_TOKEN` fehlt noch.** Den Firmen-Schlüssel muss Beautylounge liefern (Admin-Konto, Fusszeile „Schnittstelle (API)“). Bis dahin meldet die Function `configured:false` und die App zeigt „wird gerade angebunden“ mit Link. Optional `TIMEBUTLER_BASE`.
+  - API v1 kann **keine Abwesenheiten anlegen** → „Ferien beantragen“ öffnet Timebutler.
+  - Quelle der Spaltennamen: Community-Client `levma/timebutler-api-client`. Mit echtem Schlüssel einmal gegenprüfen.
+- **Function `mailbox`** (neu, deployt):
+  - eigenes Firmenpostfach bei Cyon, IMAP `s065.cyon.net:993`, das ist der Server hinter `mail.beautylounge.ch` (Dovecot); SMTP `:465`, weil Supabase 587 sperrt
+  - schlanker IMAP-Client in der Function, MIME über `npm:postal-mime`
+  - Aktionen `status|connect|disconnect|list|message|send` (Senden legt eine Kopie in „Gesendet“ ab und markiert die Ausgangsmail als beantwortet)
+  - Passwort je Person in `mail_accounts` (Migration `0030`, RLS ohne Policies), AES-GCM mit Secret `MAILBOX_KEY` (gesetzt 21.10.)
+  - Getestet: Verbindung und Fehlanmeldung ab Supabase, Literal-/Umlaut-Parsing lokal
+  - ⚠️ **Noch nicht mit einem echten Postfach getestet** (keines hier hinterlegt). Erster Test: eine Person verbindet ihr eigenes Postfach in der App.
+- **App:**
+  - `src/Time.tsx`: Stempeluhr dunkel, Ferienring mit Resttagen, Wochenbalken, Abwesenheiten mit Status-Etiketten
+  - `src/Mail.tsx`: Verbinden-Karte, Posteingang mit Ungelesen, Mail lesen (HTML im abgeschotteten iframe), Antworten, Weiterleiten, Neu
+  - Menü-Einträge und zwei Knöpfe auf „Heute“
+  - `ExternalTool` entfernt
+  - Lokale Beispieldaten nur im Dev-Server mit `localStorage th-demo=1` (für die Ansichts-PDF)
+
 ### Was wurde in dieser Session gemacht (2026-10-21 spät) — zweite Feedback-Runde der Inhaberin („Re: App Optik“)
 
 Ihre Antwort: Fokus auf sauberes Wissen, News, Tages-/Wochen-/Monatslisten, Chat und Lernen untereinander; Termine und Performance „sind ja nichts Neues“, das haben die Mitarbeiterinnen in der Phorest-App. Ihre Vorlagen-Screenshots (BeautyHub/GlowTools-Mockups) liegen nicht im Repo.

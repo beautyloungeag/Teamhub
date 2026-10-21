@@ -4,7 +4,7 @@ import {
   Home, ListChecks, BookOpen, LayoutGrid, Sparkles, ChevronLeft, ChevronRight, Check, Camera, MapPin, Users,
   Search, Lightbulb, AlertTriangle, CalendarDays, Send, Newspaper, Plane, Play, Video,
   ArrowUp, ArrowUpRight, LogOut, Phone, ArrowBigUp, GraduationCap, Link2, Lock, FileText, Smartphone, Share, PlusSquare, MoreVertical, ExternalLink, Monitor,
-  TrendingUp, MessageCircle, Clock, Share2, Circle, ShieldAlert,
+  TrendingUp, MessageCircle, Clock, Share2, Circle, ShieldAlert, Mail,
 } from 'lucide-react'
 import { useAuth } from './lib/auth'
 import { supabase } from './lib/supabase'
@@ -16,6 +16,8 @@ import { TONE, toneOf, type Tone } from './tones'
 import { tr, locale } from './lib/i18n'
 import { emojiOf, AREAS, areaOf } from './lib/wiki'
 import { ChatHub, ChatRoom, useChatUnread, loadChatSummaries } from './Chats'
+import { TimeView } from './Time'
+import { Inbox, MailRead, useMailUnread, type MailItem } from './Mail'
 import { ContactLocked } from './ContactLock'
 import { BMark } from './Logo'
 import { Comments, Media } from './TicketParts'
@@ -36,7 +38,7 @@ export const ASSISTANT = 'Marc'
 type Tab = 'home' | 'tasks' | 'ai' | 'wiki' | 'menu'
 type Sub = null | { k: 'news-list' } | { k: 'news'; item: News } | { k: 'wiki'; item: WikiArticle } | { k: 'wiki-cat'; key: string; name: string } | { k: 'onboarding' } | { k: 'team' } | { k: 'profile'; item: Staff }
   | { k: 'me' } | { k: 'conn' } | { k: 'book' } | { k: 'tickets'; learning?: boolean } | { k: 'ticket'; id: string } | { k: 'clients'; cid?: string } | { k: 'events' } | { k: 'inbox' } | { k: 'time' } | { k: 'install' } | { k: 'perf' }
-  | { k: 'marc' } | { k: 'chat'; id: string } | { k: 'area'; key: string }
+  | { k: 'marc' } | { k: 'chat'; id: string } | { k: 'area'; key: string } | { k: 'mail'; uid: number; item?: MailItem }
 
 
 export default function Mobile({ onSwitch }: { onSwitch?: () => void }) {
@@ -112,7 +114,7 @@ function Shell({ onLogout, onSwitch }: { onLogout: () => void; onSwitch?: () => 
     // Direktlinks aus Unterlagen und Schulungen
     else if (o === 'home' || o === 'ai' || o === 'wiki' || o === 'menu' || o === 'chats') go(o === 'chats' ? 'ai' : o)
     else if (o === 'benni' || o === 'marc') { go('ai'); open({ k: 'marc' }) }
-    else if (o === 'onboarding' || o === 'book' || o === 'me' || o === 'team' || o === 'install' || o === 'news-list' || o === 'conn' || o === 'time') open({ k: o })
+    else if (o === 'onboarding' || o === 'book' || o === 'me' || o === 'team' || o === 'install' || o === 'news-list' || o === 'conn' || o === 'time' || o === 'inbox') open({ k: o })
     else if (o === 'clients') open({ k: 'clients' })
   }
   // „Mit Marc lernen“ aus dem Onboarding: in den Marc-Reiter wechseln, die Frage stellt der Reiter selbst
@@ -144,8 +146,9 @@ function Shell({ onLogout, onSwitch }: { onLogout: () => void; onSwitch?: () => 
     case 'events': screen = <Events />; break
     case 'conn': screen = <Connections />; break
     case 'book': screen = <div className="px-5 pb-4 h-[calc(100dvh-150px)] md:h-[calc(100dvh-110px)]"><h1 className="text-[26px] font-medium tracking-tight mb-3">{t('Kundentermine')}</h1><Terminbuch compact /></div>; break
-    case 'inbox': screen = <ExternalTool kind="mail" />; break
-    case 'time': screen = <ExternalTool kind="timebutler" />; break
+    case 'inbox': screen = <Inbox onOpen={(uid, item) => open({ k: 'mail', uid, item })} />; break
+    case 'mail': screen = <MailRead uid={sub.uid} item={sub.item} />; break
+    case 'time': screen = <TimeView />; break
     case 'install': screen = <Install />; break
     case 'perf': screen = <MyPerformance />; break
     default:
@@ -255,6 +258,7 @@ function Today({ open, go }: { open: (s: Sub) => void; go: (t: Tab) => void }) {
   const readN = articles.filter(a => runs.read.has(a.id)).length
   const nextRead = [...articles].filter(a => !runs.read.has(a.id)).sort((x, y) => (pop.get(y.id) ?? 0) - (pop.get(x.id) ?? 0) || Number(areaOf(y.catKey, y.title) === 'behandlung') - Number(areaOf(x.catKey, x.title) === 'behandlung'))[0]
   const learning = tickets.find(x => x.kind === 'Learning')
+  const mailUnread = useMailUnread()
   const tile = (tone: Tone, big: string, label: string, onClick: () => void) =>
     <button onClick={onClick} className={`rounded-[18px] p-3 text-left flex flex-col gap-1 min-h-[84px] ${TONE[tone].bg} ${TONE[tone].fg}`}><span className="font-display text-[26px] leading-none">{big}</span><span className="text-[14.5px] font-semibold leading-tight">{label}</span></button>
   return (
@@ -274,6 +278,17 @@ function Today({ open, go }: { open: (s: Sub) => void; go: (t: Tab) => void }) {
         {tile('done', `${doneN}/${tasks.length}`, t('Checkliste'), () => { tasksView = 'studio'; go('tasks') })}
         {tile(must.length ? 'duty' : 'done', String(must.length), t('Pflicht offen'), () => must[0] ? open({ k: 'news', item: must[0] }) : open({ k: 'news-list' }))}
         {tile('learn', `${pct(readN, articles.length)} %`, t('Wissen gelesen'), () => go('wiki'))}
+      </div>
+      {/* Postfach und Zeiterfassung direkt erreichbar (Inhaberin 21.10.) */}
+      <div className="mt-2.5 grid grid-cols-2 gap-2.5">
+        <button onClick={() => open({ k: 'inbox' })} className="rounded-[18px] bg-white p-3 flex items-center gap-2.5 text-left min-w-0">
+          <span className={`w-9 h-9 rounded-[11px] flex items-center justify-center shrink-0 ${TONE.studio.bg} ${TONE.studio.fg}`}><Mail size={18} /></span>
+          <span className="min-w-0"><span className="block text-[15.5px] font-semibold whitespace-nowrap">{t('Posteingang')}</span><span className={`block text-[13.5px] ${mailUnread ? 'text-duty font-semibold' : 'text-mute'}`}>{mailUnread ? t('{n} ungelesen', { n: mailUnread }) : t('Firmen-Mails')}</span></span>
+        </button>
+        <button onClick={() => open({ k: 'time' })} className="rounded-[18px] bg-white p-3 flex items-center gap-2.5 text-left min-w-0">
+          <span className={`w-9 h-9 rounded-[11px] flex items-center justify-center shrink-0 ${TONE.learn.bg} ${TONE.learn.fg}`}><Clock size={18} /></span>
+          <span className="min-w-0"><span className="block text-[15.5px] font-semibold whitespace-nowrap">{t('Zeit & Ferien')}</span><span className="block text-[13.5px] text-mute">{t('Stempeln, Ferien')}</span></span>
+        </button>
       </div>
 
       <ReadyCard open={open} />
@@ -892,12 +907,14 @@ function Onboarding({ open }: { open: (s: Sub) => void }) {
 /* ---------- Menü ---------- */
 function MenuView({ open, onLogout }: { open: (s: Sub) => void; onLogout: () => void }) {
   const { me, t, tickets, news, read, staff } = useApp()
+  const mailUnread = useMailUnread()
   const unread = live(news).filter(n => n.mustRead && !read.has(n.id)).length
   const tiles: [string, string, typeof Users, Sub][] = [
     ['News', unread ? t('{n} ungelesen', { n: unread }) : t('alles gelesen'), Newspaper, { k: 'news-list' }], ['Kalender', t('Termine, Schulungen und Events'), CalendarDays, { k: 'events' }],
     ['Team', t('{n} Personen', { n: staff.filter(s => s.active).length }), Users, { k: 'team' }], ['Melden & Ideen', t('{n} offen', { n: tickets.filter(x => x.kind !== 'Learning' && x.status !== 'Erledigt').length }), Lightbulb, { k: 'tickets' }],
     ['Learning', t('Videos und Tipps aus den Studios'), GraduationCap, { k: 'tickets', learning: true }],
-    ['Zeit & Ferien', 'Timebutler', Plane, { k: 'time' }],
+    ['Posteingang', mailUnread ? t('{n} ungelesen', { n: mailUnread }) : t('Deine Firmen-Mails'), Mail, { k: 'inbox' }],
+    ['Zeit & Ferien', t('Stempeluhr, Ferien, Arbeitszeit'), Plane, { k: 'time' }],
   ]
   return (
     <div className="pb-10"><Title>{t('Menü')}</Title>
@@ -1304,28 +1321,6 @@ const TOOL_LINKS = {
   timebutlerAndroid: 'https://play.google.com/store/apps/details?id=com.timebutler.mobile',
   webmail: 'https://webmail.cyon.ch',
 }
-function ExternalTool({ kind }: { kind: 'timebutler' | 'mail' }) {
-  const { me, t } = useApp()
-  const tb = kind === 'timebutler'
-  const app = isIOS() ? TOOL_LINKS.timebutlerIOS : isAndroid() ? TOOL_LINKS.timebutlerAndroid : null
-  return (
-    <div className="pb-10"><Title>{tb ? t('Zeit & Ferien') : t('Posteingang')}</Title>
-      <div className="px-5 space-y-3">
-        <Card className="p-5">
-          <span className="w-11 h-11 rounded-xl text-white flex items-center justify-center font-medium" style={{ background: '#495940' }}>{tb ? 'T' : '@'}</span>
-          <p className="mt-3 text-[17px] font-medium">{tb ? t('Ferien, Anträge und Stempeluhr laufen in Timebutler') : t('Deine Firmen-Mails liest du im Webmail')}</p>
-          <p className="mt-1 text-[15.5px] text-mute">{tb ? t('Melde dich dort mit deinem Timebutler-Zugang an. TeamHub speichert dafür kein Passwort.') : t('Melde dich mit {email} und deinem Postfach-Passwort an. TeamHub speichert dafür kein Passwort.', { email: me.email })}</p>
-          <div className="mt-4 space-y-2">
-            {tb && app && <a href={app} target="_blank" rel="noreferrer" className="h-12 rounded-2xl bg-olive-700 text-white flex items-center justify-center gap-2 text-[17px] font-medium">{t('Timebutler-App öffnen oder installieren')}</a>}
-            <a href={tb ? TOOL_LINKS.timebutlerWeb : TOOL_LINKS.webmail} target="_blank" rel="noreferrer" className={`h-12 rounded-2xl flex items-center justify-center gap-2 text-[17px] font-medium ${tb && app ? 'bg-white border border-sage-200' : 'bg-olive-700 text-white'}`}>{t('Im Browser öffnen')}<ExternalLink size={16} /></a>
-          </div>
-        </Card>
-        <p className="px-1 text-[13px] text-mute">{tb ? t('Wo steht was: Kundentermine und Schichten kommen aus Phorest, Schulungen und Events aus TeamHub, Ferien und Arbeitszeit aus Timebutler.') : t('Der Posteingang direkt im TeamHub folgt in einem späteren Schritt.')}</p>
-      </div>
-    </div>
-  )
-}
-
 function Connections() {
   const { me, myPhorest, branches, t } = useApp()
   const rows = [
