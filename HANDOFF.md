@@ -2,6 +2,15 @@
 
 Interne Mitarbeiter-App (PWA + Desktop-Backoffice) der Beautylounge AG. Kundin: Renée Baumann. PM-Projekt: `projekt.aleksa.ai`, Key **BLTH** (`d4ee5d5c-4553-436c-bba7-137a03a2b704`). ⚠️ Das Repo `beautyloungeag/Teamhub` ist **öffentlich** — nie Personendaten committen.
 
+### Nachtrag 2026-10-21 nachmittags — Mitarbeiter-App im Stil B (Aleksas Wahl)
+
+- **Farben nach Wichtigkeit:** Tokens `duty` (Pflicht), `note` (Wichtig/Aktion), `learn` (Learning), `studio`, `done`, `plum` in `src/index.css`, Zuordnung in `src/tones.ts` (`toneOf` nach Tag/Name, `tileTone` für Kacheln). Schrift in der App etwa 1,5 px grösser (Mobile, Todos, Quiz, Umfrage, Benni-Chat).
+- **Benni hat ein Gesicht:** `public/benni.jpg` (3D-Entwurf) ersetzt die Kugel in `BMark`/`BenniAvatar`, beim Arbeiten pulsierender Ring.
+- **Heute:** Foto-Kopf mit Begrüssung und Schicht, drei Kacheln (Checkliste, Pflicht offen, Für dich), „Gleich dran“ mit Terminfarbe, Benni-Karte zur nächsten Kundin (Zusatzverkauf), Pflicht-News als Karten.
+- **Wissen:** Foto-Karte „Meistgelesen“, farbige Themen-Kacheln (6 sichtbar, Rest aufklappbar), „Beliebt“. Beliebtheit zählt `wiki_views` (Migration `0028`, je Person und Tag einmal) über RPC `popular_articles`. Artikel: Etiketten, Hinweise als rote Karten, nummerierte Listen als Schritt-Karten.
+- **News:** Foto-Karten mit farbigem Etikett, Filter in Farbe, eigener Lesestatus.
+- **Home-Knopf** oben rechts auf jeder Unterseite. Fotos `public/hero-empfang.jpg`, `public/hero-studio.jpg` aus den eigenen Studios.
+
 ### Was wurde in dieser Session gemacht (2026-10-21) — Feedback der Inhaberin zur App
 
 - **Umgesetzt:** Kontaktdaten von Kundinnen (Telefon, E-Mail, Adresse, Geburtstag) liefert die Function `phorest` nur noch an Leitung und Büro (`seesContact`); Mitarbeiterinnen sehen unscharfe Platzhalter (`src/ContactLock.tsx`), Suche per Telefon/E-Mail ist für sie gesperrt (`contact_search_forbidden`), Benni nennt keine Kontaktdaten. Ziele legt nur die Leitung an (Migration `0027`, Knopf in „Meine Performance“ nur für Leitung). Performance und persönliche Ziele anderer sehen Mitarbeiterinnen schon vorher nicht (RLS `goals_read`, `performance` nur eigene).

@@ -1,4 +1,3 @@
-import { BenniOrb } from './BenniOrb'
 // Beautylounge-Logo (von beautylounge.ch), Farbe über currentColor.
 export function Logo({ className = '' }: { className?: string }) {
   return (
@@ -14,5 +13,10 @@ const LOGO = ' <path d="M111.8 241.2c.1 0 1.9 1.7 3.8 3.7a83.1 83.1 0 0 0 120 .8
 // Benni als ruhiges Monogramm statt Funkel-Symbol.
 // Benni als schwebende Kugel (früher Monogramm „B“); Grösse kommt über className
 export function BMark({ className = 'w-7 h-7', working = false }: { className?: string; inverse?: boolean; working?: boolean }) {
-  return <BenniOrb className={className} working={working} />
+  // Benni mit Gesicht (Renée 20.10.: kein grüner Kreis), beim Arbeiten mit ruhig pulsierendem Ring
+  return <span className={`relative inline-block shrink-0 rounded-full ${className}`}>
+    <img src="/benni.jpg" alt="" aria-hidden="true" className="w-full h-full rounded-full object-cover bg-sage-100" />
+    {working && <span className="absolute -inset-[3px] rounded-full border-2 border-olive-700/50 animate-pulse" />}
+  </span>
 }
+

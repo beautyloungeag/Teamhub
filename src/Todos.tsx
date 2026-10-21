@@ -79,8 +79,8 @@ export function MyTodos() {
     <div key={x.id} onClick={() => setSel(x)} className="flex items-center gap-3 px-4 py-3.5 cursor-pointer">
       <Check2 on={!!x.done_at} busy={busy === x.id} onClick={() => toggle(x)} label={x.done_at ? t('Rückgängig') : t('Erledigt')} />
       <div className="flex-1 min-w-0">
-        <p className={`text-[15px] leading-snug ${x.done_at ? 'text-mute line-through decoration-sage-400' : ''}`}>{x.title}</p>
-        <p className="text-[12px] text-mute mt-0.5">{[
+        <p className={`text-[17px] leading-snug ${x.done_at ? 'text-mute line-through decoration-sage-400' : ''}`}>{x.title}</p>
+        <p className="text-[13px] text-mute mt-0.5">{[
           x.done_at ? <span key="d">{t('Erledigt von {name}', { name: x.done_by_name ?? '' })}</span> : x.due_at ? <span key="d" className={isLate(x) ? 'text-alert' : ''}>{t('bis {when}', { when: due(x.due_at) })}</span> : null,
           !x.assignee_id && x.branch_id ? <span key="b">{t('fürs Studio {name}, eine Person reicht', { name: branches.find(b => b.id === x.branch_id)?.name ?? '' })}</span> : null,
           from(x) ? <span key="f">{from(x)}</span> : null,
@@ -90,8 +90,8 @@ export function MyTodos() {
   )
   return (
     <div>
-      <button onClick={() => setAdd(true)} className="w-full rounded-[16px] bg-white px-4 py-3.5 flex items-center gap-3 text-left text-[15px] text-ink/80 hover:text-ink"><span className="w-[26px] h-[26px] rounded-full bg-sage-100 text-olive-800 flex items-center justify-center"><Plus size={16} /></span>{t('Eigenes To-do hinzufügen')}</button>
-      {open.length === 0 && <p className="mt-6 px-1 text-[14px] text-mute">{t('Gerade nichts offen. Aufgaben von deiner Filialleitung oder dem Büro erscheinen hier mit Frist.')}</p>}
+      <button onClick={() => setAdd(true)} className="w-full rounded-[16px] bg-white px-4 py-3.5 flex items-center gap-3 text-left text-[17px] text-ink/80 hover:text-ink"><span className="w-[26px] h-[26px] rounded-full bg-sage-100 text-olive-800 flex items-center justify-center"><Plus size={16} /></span>{t('Eigenes To-do hinzufügen')}</button>
+      {open.length === 0 && <p className="mt-6 px-1 text-[15.5px] text-mute">{t('Gerade nichts offen. Aufgaben von deiner Filialleitung oder dem Büro erscheinen hier mit Frist.')}</p>}
       {groups.filter(([, l]) => l.length).map(([g, l, cls]) => (
         <div key={g}>
           <h2 className={`mt-7 mb-2.5 px-1 rubric ${cls ?? 'text-ink/70'}`}>{t(g)}</h2>
@@ -99,7 +99,7 @@ export function MyTodos() {
         </div>
       ))}
       {done.length > 0 && <>
-        <button onClick={() => setShowDone(!showDone)} className="mt-7 px-1 text-[13px] text-sage-800">{showDone ? t('Erledigte ausblenden') : t('{n} erledigt anzeigen', { n: done.length })}</button>
+        <button onClick={() => setShowDone(!showDone)} className="mt-7 px-1 text-[14.5px] text-sage-800">{showDone ? t('Erledigte ausblenden') : t('{n} erledigt anzeigen', { n: done.length })}</button>
         {showDone && <div className="mt-2.5 rounded-[16px] bg-white divide-y divide-sage-50 overflow-hidden">{done.map(row)}</div>}
       </>}
       {add && <TodoSheet onClose={() => setAdd(false)} />}
@@ -124,11 +124,11 @@ function DueFields({ date, time, setDate, setTime }: { date: string; time: strin
   const { t } = useApp()
   const pick = useRef<HTMLInputElement>(null)
   const today = isoDay(), tomorrow = addDays(1), custom = !!date && date !== today && date !== tomorrow
-  const chip = (on: boolean) => `h-9 px-3.5 rounded-full text-[14px] transition ${on ? 'bg-olive-700 text-white' : 'bg-sage-50 text-ink/80 hover:bg-sage-100'}`
+  const chip = (on: boolean) => `h-9 px-3.5 rounded-full text-[15.5px] transition ${on ? 'bg-olive-700 text-white' : 'bg-sage-50 text-ink/80 hover:bg-sage-100'}`
   const label = custom ? new Intl.DateTimeFormat(locale(), { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'numeric' }).format(new Date(date + 'T12:00:00Z')) : t('Anderes Datum')
   return (
     <div>
-      <p className="text-[12px] text-mute mb-1.5">{t('Frist')}</p>
+      <p className="text-[13px] text-mute mb-1.5">{t('Frist')}</p>
       <div className="flex flex-wrap gap-2">
         <button onClick={() => setDate('')} className={chip(!date)}>{t('Keine')}</button>
         <button onClick={() => setDate(today)} className={chip(date === today)}>{t('Heute')}</button>
@@ -139,7 +139,7 @@ function DueFields({ date, time, setDate, setTime }: { date: string; time: strin
           <input ref={pick} type="date" min={today} value={custom ? date : ''} onChange={e => setDate(e.target.value)} onClick={() => { try { pick.current?.showPicker() } catch { /* älterer Browser */ } }} aria-label={t('Anderes Datum')} className="absolute inset-0 opacity-0 cursor-pointer" />
         </span>
       </div>
-      {date && <div className="mt-3 flex items-center gap-2"><span className="text-[13px] text-mute">{t('Uhrzeit (optional)')}</span><input type="time" value={time} onChange={e => setTime(e.target.value)} className="h-9 px-3 rounded-full bg-sage-50 text-[14px] outline-none" /></div>}
+      {date && <div className="mt-3 flex items-center gap-2"><span className="text-[14.5px] text-mute">{t('Uhrzeit (optional)')}</span><input type="time" value={time} onChange={e => setTime(e.target.value)} className="h-9 px-3 rounded-full bg-sage-50 text-[15.5px] outline-none" /></div>}
     </div>
   )
 }
@@ -158,10 +158,10 @@ function TodoSheet({ onClose }: { onClose: () => void }) {
   return (
     <Modal onClose={onClose}>
       <p className="font-medium text-[18px]">{t('Eigenes To-do')}</p>
-      <input autoFocus value={title} onChange={e => setTitle(e.target.value)} onKeyDown={e => e.key === 'Enter' && save()} placeholder={t('Was ist zu tun?')} className="mt-4 w-full h-12 rounded-[12px] bg-sage-50 px-4 text-[15px] outline-none" />
-      <textarea value={note} onChange={e => setNote(e.target.value)} rows={2} placeholder={t('Notiz (optional)')} className="mt-2 w-full rounded-[12px] bg-sage-50 px-4 py-3 text-[14px] outline-none resize-none" />
+      <input autoFocus value={title} onChange={e => setTitle(e.target.value)} onKeyDown={e => e.key === 'Enter' && save()} placeholder={t('Was ist zu tun?')} className="mt-4 w-full h-12 rounded-[12px] bg-sage-50 px-4 text-[17px] outline-none" />
+      <textarea value={note} onChange={e => setNote(e.target.value)} rows={2} placeholder={t('Notiz (optional)')} className="mt-2 w-full rounded-[12px] bg-sage-50 px-4 py-3 text-[15.5px] outline-none resize-none" />
       <div className="mt-4"><DueFields date={date} time={time} setDate={setDate} setTime={setTime} /></div>
-      <button onClick={save} disabled={!title.trim() || busy} className="mt-6 w-full h-12 rounded-[14px] bg-olive-700 text-white text-[15px] disabled:opacity-50">{t('Speichern')}</button>
+      <button onClick={save} disabled={!title.trim() || busy} className="mt-6 w-full h-12 rounded-[14px] bg-olive-700 text-white text-[17px] disabled:opacity-50">{t('Speichern')}</button>
     </Modal>
   )
 }
@@ -173,15 +173,15 @@ function TodoDetail({ x, onClose, onToggle }: { x: Todo; onClose: () => void; on
   return (
     <Modal onClose={onClose}>
       <p className="font-medium text-[18px] pr-10">{x.title}</p>
-      {x.note && <p className="mt-2 text-[14px] text-ink/80 whitespace-pre-wrap">{x.note}</p>}
-      <div className="mt-4 rounded-[14px] bg-sage-50 divide-y divide-white text-[14px]">
+      {x.note && <p className="mt-2 text-[15.5px] text-ink/80 whitespace-pre-wrap">{x.note}</p>}
+      <div className="mt-4 rounded-[14px] bg-sage-50 divide-y divide-white text-[15.5px]">
         <div className="px-4 py-3 flex justify-between gap-3"><span className="text-mute">{t('Frist')}</span><span className={isLate(x) ? 'text-alert' : ''}>{x.due_at ? due(x.due_at) : t('Keine')}</span></div>
         <div className="px-4 py-3 flex justify-between gap-3"><span className="text-mute">{t('Für')}</span><span>{x.assignee_id ? (x.assignee_id === me.id ? t('dich') : '') : t('fürs Studio {name}, eine Person reicht', { name: branches.find(b => b.id === x.branch_id)?.name ?? '' })}</span></div>
         {x.created_by !== me.id && <div className="px-4 py-3 flex justify-between gap-3"><span className="text-mute">{t('Von')}</span><span>{x.created_by_name}</span></div>}
         {x.done_at && <div className="px-4 py-3 flex justify-between gap-3"><span className="text-mute">{t('Erledigt')}</span><span>{x.done_by_name}</span></div>}
       </div>
-      <button onClick={onToggle} className="mt-5 w-full h-12 rounded-[14px] bg-olive-700 text-white text-[15px]">{x.done_at ? t('Wieder öffnen') : t('Erledigt')}</button>
-      {x.created_by === me.id && <button onClick={del} className="mt-2 w-full h-10 text-[13px] text-mute hover:text-alert flex items-center justify-center gap-1.5"><Trash2 size={14} />{t('Löschen')}</button>}
+      <button onClick={onToggle} className="mt-5 w-full h-12 rounded-[14px] bg-olive-700 text-white text-[17px]">{x.done_at ? t('Wieder öffnen') : t('Erledigt')}</button>
+      {x.created_by === me.id && <button onClick={del} className="mt-2 w-full h-10 text-[14.5px] text-mute hover:text-alert flex items-center justify-center gap-1.5"><Trash2 size={14} />{t('Löschen')}</button>}
     </Modal>
   )
 }

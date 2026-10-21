@@ -17,6 +17,13 @@
   --color-ink: #1D221C;
   --color-mute: #7A8176;
   --color-paper: #FFFFFF;
+  /* Farben nach Wichtigkeit (21.10., Richtung B): Pflicht, Wichtig/Aktion, Learning, Studio, Erledigt, Verkauf */
+  --color-duty: #93392B; --color-duty-50: #F7E4DF;
+  --color-note: #7E5A22; --color-note-50: #F4EAD8;
+  --color-learn: #35566A; --color-learn-50: #E2EBF0;
+  --color-studio: #3E4D36; --color-studio-50: #E6ECE0;
+  --color-done: #3D6B38; --color-done-50: #E2EEDF;
+  --color-plum: #5E4468; --color-plum-50: #EDE6EF;
   --font-sans: "Albert Sans", "Avenir Next", -apple-system, BlinkMacSystemFont, sans-serif;
   --font-display: "Jost", "Futura", "Avenir Next", sans-serif;
 }

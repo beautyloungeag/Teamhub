@@ -42,9 +42,9 @@ export function QuizRunner({ quiz }: { quiz: Quiz }) {
   if (!qs) return (
     <div className="mt-10 rounded-[16px] bg-white px-4 py-4">
       <p className="rubric text-olive-700">{t('Kurzes Quiz')}</p>
-      <p className="mt-2 text-[15px]">{passed ? t('Bestanden mit {n} %', { n: Math.max(...mine.filter(a => a.passed).map(a => a.scorePct)) }) : t('Bestanden ab {n} % richtigen Antworten', { n: quiz.passPct })}</p>
-      {!passed && last && <p className="mt-1 text-[13px] text-mute">{t('Letzter Versuch: {n} %', { n: last.scorePct })}</p>}
-      {err && <p className="mt-2 text-[13px] text-alert">{err}</p>}
+      <p className="mt-2 text-[17px]">{passed ? t('Bestanden mit {n} %', { n: Math.max(...mine.filter(a => a.passed).map(a => a.scorePct)) }) : t('Bestanden ab {n} % richtigen Antworten', { n: quiz.passPct })}</p>
+      {!passed && last && <p className="mt-1 text-[14.5px] text-mute">{t('Letzter Versuch: {n} %', { n: last.scorePct })}</p>}
+      {err && <p className="mt-2 text-[14.5px] text-alert">{err}</p>}
       <button disabled={busy} onClick={start} className={`mt-4 w-full h-12 rounded-[10px] font-medium disabled:opacity-60 ${passed ? 'bg-sage-50 text-ink' : 'bg-olive-700 text-white'}`}>{passed ? t('Nochmal üben') : last ? t('Nochmal versuchen') : t('Quiz starten')}</button>
     </div>
   )
@@ -54,9 +54,9 @@ export function QuizRunner({ quiz }: { quiz: Quiz }) {
     <div className="mt-10">
       <p className="rubric text-olive-700">{t('Ergebnis')}</p>
       <p className="font-display text-[44px] leading-none mt-3">{res.score_pct} %</p>
-      <p className="mt-2 text-[15px]">{res.passed ? t('Bestanden. Danke!') : t('Noch nicht bestanden. Ab {n} % klappt es.', { n: res.pass_pct })}</p>
+      <p className="mt-2 text-[17px]">{res.passed ? t('Bestanden. Danke!') : t('Noch nicht bestanden. Ab {n} % klappt es.', { n: res.pass_pct })}</p>
       <div className="mt-4 rounded-[16px] bg-white divide-y divide-line">{qs.map((q, i) => (
-        <div key={q.id} className="px-4 py-3 flex gap-3 items-start text-[14px]"><span className={`mt-1.5 w-[7px] h-[7px] rounded-full shrink-0 ${res.results[q.id] ? 'bg-ok' : 'bg-alert'}`} /><span className="flex-1">{i + 1}. {q.prompt}{res.feedback?.[q.id] && <span className="block text-[13px] text-mute mt-1">{res.feedback[q.id]}</span>}</span><span className="text-mute text-[13px] shrink-0">{res.results[q.id] ? t('richtig') : t('falsch')}</span></div>
+        <div key={q.id} className="px-4 py-3 flex gap-3 items-start text-[15.5px]"><span className={`mt-1.5 w-[7px] h-[7px] rounded-full shrink-0 ${res.results[q.id] ? 'bg-ok' : 'bg-alert'}`} /><span className="flex-1">{i + 1}. {q.prompt}{res.feedback?.[q.id] && <span className="block text-[14.5px] text-mute mt-1">{res.feedback[q.id]}</span>}</span><span className="text-mute text-[14.5px] shrink-0">{res.results[q.id] ? t('richtig') : t('falsch')}</span></div>
       ))}</div>
       {!res.passed && <button onClick={() => { setRes(null); setAns({}) }} className="mt-4 w-full h-12 rounded-[10px] bg-olive-700 text-white font-medium">{t('Nochmal versuchen')}</button>}
       {res.passed && <button onClick={() => { setQs(null); setRes(null) }} className="mt-4 w-full h-12 rounded-[10px] bg-sage-50 font-medium">{t('Fertig')}</button>}
@@ -69,15 +69,15 @@ export function QuizRunner({ quiz }: { quiz: Quiz }) {
       <p className="rubric text-olive-700">{t('Kurzes Quiz')} · {t('{n} Fragen', { n: qs.length })}</p>
       <div className="mt-3 space-y-3">{qs.map((q, i) => (
         <div key={q.id} className="rounded-[16px] bg-white px-4 py-3">
-          <p className="text-[15px] font-medium">{i + 1}. {q.prompt}</p>
-          {q.kind === 'multi' && <p className="text-xs text-mute mt-0.5">{t('Mehrere Antworten richtig')}</p>}
-          {q.kind === 'text' ? <textarea value={String(ans[q.id] ?? '')} onChange={e => setAns(a => ({ ...a, [q.id]: e.target.value }))} rows={3} placeholder={t('Deine Antwort in eigenen Worten')} className="mt-2 w-full rounded-[10px] bg-sage-50 px-3 py-2 text-[15px] outline-none resize-none placeholder:text-mute" />
+          <p className="text-[17px] font-medium">{i + 1}. {q.prompt}</p>
+          {q.kind === 'multi' && <p className="text-[13px] text-mute mt-0.5">{t('Mehrere Antworten richtig')}</p>}
+          {q.kind === 'text' ? <textarea value={String(ans[q.id] ?? '')} onChange={e => setAns(a => ({ ...a, [q.id]: e.target.value }))} rows={3} placeholder={t('Deine Antwort in eigenen Worten')} className="mt-2 w-full rounded-[10px] bg-sage-50 px-3 py-2 text-[17px] outline-none resize-none placeholder:text-mute" />
           : <div className="mt-2">{q.options.map((o, j) => { const on = ((ans[q.id] ?? []) as number[]).includes(j)
-            return <button key={j} onClick={() => pick(q, j)} className="w-full flex items-center gap-3 py-2.5 text-left text-[15px] border-t border-line first:border-t-0">
+            return <button key={j} onClick={() => pick(q, j)} className="w-full flex items-center gap-3 py-2.5 text-left text-[17px] border-t border-line first:border-t-0">
               <span className={`w-5 h-5 shrink-0 flex items-center justify-center transition ${q.kind === 'single' ? 'rounded-full' : 'rounded-[6px]'} ${on ? 'bg-olive-700 text-white' : 'shadow-[inset_0_0_0_1.5px_#979E92]'}`}>{on && <Check size={12} strokeWidth={3} />}</span>{o}</button> })}</div>}
         </div>
       ))}</div>
-      {err && <p className="mt-2 text-[13px] text-alert">{err}</p>}
+      {err && <p className="mt-2 text-[14.5px] text-alert">{err}</p>}
       <button disabled={!done || busy} onClick={submit} className="mt-4 w-full h-12 rounded-[10px] bg-olive-700 text-white font-medium disabled:opacity-40">{busy ? t('Wird ausgewertet …') : t('Auswerten')}</button>
     </div>
   )

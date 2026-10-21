@@ -264,8 +264,8 @@ export function BenniWorking({ steps }: { steps: Step[] }) {
     <div className="flex gap-2.5 items-start" aria-live="polite">
       <BMark className="w-7 h-7" working />
       <div className="min-w-0 pt-1">
-        <p className="benni-shimmer text-[14px] leading-tight">{current} …</p>
-        {past.length > 0 && <ul className="mt-2 space-y-1">{past.map((p, i) => <li key={i} className="flex items-center gap-1.5 text-[12px] text-mute"><Check size={12} strokeWidth={2.4} className="text-ok shrink-0" />{p}</li>)}</ul>}
+        <p className="benni-shimmer text-[15.5px] leading-tight">{current} …</p>
+        {past.length > 0 && <ul className="mt-2 space-y-1">{past.map((p, i) => <li key={i} className="flex items-center gap-1.5 text-[13px] text-mute"><Check size={12} strokeWidth={2.4} className="text-ok shrink-0" />{p}</li>)}</ul>}
       </div>
     </div>
   )
@@ -296,16 +296,16 @@ const showTel = (p: string) => { const d = telOf(p); const m = d.match(/^\+(41)(
 /** Kundenkarte aus Phorest: Kontakt, nächste Termine, letzte Besuche, Notizen. */
 function ClientCardView({ c, onOpen }: { c: ClientCard; onOpen?: (id: string) => void }) {
   const { t } = useApp()
-  const Sec = ({ title, children }: { title: string; children: ReactNode }) => <div className="px-4 py-3 border-t border-line"><p className="text-[11.5px] text-mute mb-1.5">{title}</p>{children}</div>
-  const visit = (v: Visit, i: number) => <li key={i} className="flex gap-3 text-[13.5px] leading-snug"><span className="w-[62px] shrink-0 text-mute tabular-nums">{shortDate(v.date)}</span><span className="min-w-0">{v.service}<span className="text-mute">{[v.time, v.staff, v.branch].filter(Boolean).length ? ` · ${[v.time, v.staff].filter(Boolean).join(' · ')}` : ''}</span></span></li>
+  const Sec = ({ title, children }: { title: string; children: ReactNode }) => <div className="px-4 py-3 border-t border-line"><p className="text-[12.5px] text-mute mb-1.5">{title}</p>{children}</div>
+  const visit = (v: Visit, i: number) => <li key={i} className="flex gap-3 text-[15px] leading-snug"><span className="w-[62px] shrink-0 text-mute tabular-nums">{shortDate(v.date)}</span><span className="min-w-0">{v.service}<span className="text-mute">{[v.time, v.staff, v.branch].filter(Boolean).length ? ` · ${[v.time, v.staff].filter(Boolean).join(' · ')}` : ''}</span></span></li>
   const ini = c.name.split(/\s+/).map(x => x[0] ?? '').slice(0, 2).join('').toUpperCase()
   return (
     <div className="mt-2 rounded-[16px] bg-white border border-line/80 overflow-hidden">
       <div className="px-4 py-3.5 flex items-center gap-3">
-        <span className="w-10 h-10 rounded-full bg-sage-100 text-sage-800 flex items-center justify-center text-[14px] font-medium shrink-0">{ini}</span>
+        <span className="w-10 h-10 rounded-full bg-sage-100 text-sage-800 flex items-center justify-center text-[15.5px] font-medium shrink-0">{ini}</span>
         <div className="min-w-0">
-          <p className="text-[16px] font-medium truncate">{c.name}</p>
-          <p className="text-[12.5px] text-mute">{[c.since && t('Kunde seit {d}', { d: shortDate(c.since) }), t('{n} Besuche', { n: c.visits }), c.preferred && t('bevorzugt {name}', { name: c.preferred })].filter(Boolean).join(' · ')}</p>
+          <p className="text-[17.5px] font-medium truncate">{c.name}</p>
+          <p className="text-[14px] text-mute">{[c.since && t('Kunde seit {d}', { d: shortDate(c.since) }), t('{n} Besuche', { n: c.visits }), c.preferred && t('bevorzugt {name}', { name: c.preferred })].filter(Boolean).join(' · ')}</p>
         </div>
       </div>
       {c.contact_hidden && <ContactLocked className="border-t border-line" />}
@@ -315,8 +315,8 @@ function ClientCardView({ c, onOpen }: { c: ClientCard; onOpen?: (id: string) =>
       </div>}
       {c.upcoming.length > 0 && <Sec title={t('Nächste Termine')}><ul className="space-y-1">{c.upcoming.map(visit)}</ul></Sec>}
       {c.recent.length > 0 && <Sec title={t('Letzte Besuche')}><ul className="space-y-1">{c.recent.map(visit)}</ul></Sec>}
-      {c.notes.length > 0 && <Sec title={t('Notizen')}><ul className="space-y-1.5">{c.notes.map((n, i) => <li key={i} className="text-[13.5px] leading-snug"><span className="text-mute tabular-nums mr-2">{n.date ? shortDate(n.date) : t('Kundennotiz')}</span>{n.text}</li>)}</ul></Sec>}
-      {onOpen && <button onClick={() => onOpen(c.client_id)} className="w-full border-t border-line px-4 py-3 text-[13.5px] text-sage-800 flex items-center justify-between hover:bg-sage-50">{t('Ganze Historie')}<ArrowUpRight size={15} /></button>}
+      {c.notes.length > 0 && <Sec title={t('Notizen')}><ul className="space-y-1.5">{c.notes.map((n, i) => <li key={i} className="text-[15px] leading-snug"><span className="text-mute tabular-nums mr-2">{n.date ? shortDate(n.date) : t('Kundennotiz')}</span>{n.text}</li>)}</ul></Sec>}
+      {onOpen && <button onClick={() => onOpen(c.client_id)} className="w-full border-t border-line px-4 py-3 text-[15px] text-sage-800 flex items-center justify-between hover:bg-sage-50">{t('Ganze Historie')}<ArrowUpRight size={15} /></button>}
     </div>
   )
 }
@@ -329,13 +329,13 @@ function LessonCard({ c, i, n, hidden }: { c: { title: string; body: string }; i
     <div className="relative rounded-[16px] bg-white border border-line/80 overflow-hidden">
       <div className={`px-4 py-3.5 transition-[filter,opacity] duration-700 ${hidden ? 'blur-[7px] opacity-70 select-none' : ''}`} aria-hidden={hidden}>
         <p className="rubric text-olive-700">{t('Lernkarte {i} von {n}', { i: i + 1, n })}</p>
-        <p className="mt-1.5 text-[16px] font-medium leading-snug">{c.title}</p>
+        <p className="mt-1.5 text-[17.5px] font-medium leading-snug">{c.title}</p>
         <div className="mt-1.5 text-[14.5px] leading-relaxed text-ink/85"><BenniText text={c.body} /></div>
       </div>
       <AnimatePresence>
         {hidden && <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.5 }} className="absolute inset-0 flex items-center justify-center">
           {spots.map(([x, y], k) => <Sparkles key={k} size={k % 2 ? 11 : 14} className="sparkle absolute text-brass" style={{ left: `${x}%`, top: `${y}%`, animationDelay: `${k * 0.35}s` }} />)}
-          <span className="relative h-8 px-3 rounded-full bg-white/85 backdrop-blur-sm text-[12.5px] text-ink/80 flex items-center gap-1.5 shadow-sm"><Sparkles size={13} className="text-brass" />{t('Verdeckt bis nach der Kontrollfrage')}</span>
+          <span className="relative h-8 px-3 rounded-full bg-white/85 backdrop-blur-sm text-[14px] text-ink/80 flex items-center gap-1.5 shadow-sm"><Sparkles size={13} className="text-brass" />{t('Verdeckt bis nach der Kontrollfrage')}</span>
         </motion.div>}
       </AnimatePresence>
     </div>
@@ -347,10 +347,10 @@ function QuizCard({ q, chosen, active, onAnswer }: { q: { question: string; opti
   return (
     <div className="mt-2 rounded-[16px] bg-olive-800 text-white px-4 py-3.5">
       <p className="rubric text-sage-200">{t('Kontrollfrage')}</p>
-      <p className="mt-1.5 text-[16px] font-medium leading-snug">{q.question}</p>
+      <p className="mt-1.5 text-[17.5px] font-medium leading-snug">{q.question}</p>
       {q.options.length > 0 ? <div className="mt-3 space-y-2">{q.options.map(o => (
         <button key={o} disabled={!active} onClick={() => onAnswer(o)} className={`w-full text-left rounded-[12px] px-3.5 py-2.5 text-[14.5px] leading-snug transition ${chosen === o ? 'bg-white text-ink' : 'bg-white/10'} ${active ? 'hover:bg-white/20' : 'cursor-default'} ${!active && chosen !== o ? 'opacity-60' : ''}`}>{o}</button>
-      ))}</div> : active && <p className="mt-2 text-[13px] text-sage-200">{t('Schreib deine Antwort unten ins Feld.')}</p>}
+      ))}</div> : active && <p className="mt-2 text-[14.5px] text-sage-200">{t('Schreib deine Antwort unten ins Feld.')}</p>}
     </div>
   )
 }
@@ -367,7 +367,7 @@ function hiddenCards(msgs: ChatMsg[]) {
   return new Set(quiz ? section : [])
 }
 
-const bubble = (variant: 'app' | 'panel') => `rounded-[16px] rounded-tl-[6px] px-4 py-3 text-[15px] leading-snug ${variant === 'app' ? 'bg-white' : 'bg-sage-50'}`
+const bubble = (variant: 'app' | 'panel') => `rounded-[16px] rounded-tl-[6px] px-4 py-3 text-[17px] leading-snug ${variant === 'app' ? 'bg-white' : 'bg-sage-50'}`
 
 function BenniMessage({ m, next, latest, busy, hidden, variant, send, onOpenArticle, onOpenClient }: {
   m: ChatMsg; next?: ChatMsg; latest: boolean; busy: boolean; hidden: boolean; variant: 'app' | 'panel'; send: (s: string) => void
@@ -379,18 +379,18 @@ function BenniMessage({ m, next, latest, busy, hidden, variant, send, onOpenArti
     <div className="flex gap-2.5 items-start">
       <BenniAvatar className="w-7 h-7 mt-0.5" />
       <div className="min-w-0 flex-1 max-w-[560px]">
-        <p className="text-[12px] text-mute mb-1"><span className="text-ink/80 font-medium">Benni</span> · {hhmm(m.at)}</p>
+        <p className="text-[13px] text-mute mb-1"><span className="text-ink/80 font-medium">Benni</span> · {hhmm(m.at)}</p>
         {cards.length > 0 && <div className="space-y-2 mb-2">{cards.map((c, i) => <LessonCard key={i} c={c} i={i} n={cards.length} hidden={hidden} />)}</div>}
         {m.t && <div className={bubble(variant)}><BenniText text={m.t} />
           {!hidden && !d.quiz && d.sources?.map(s => onOpenArticle
-            ? <button key={s.id} onClick={() => onOpenArticle(s.id)} className="mt-2 text-[13px] text-sage-800 flex items-center gap-1"><BookOpen size={14} />{s.title}<ArrowUpRight size={13} /></button>
-            : <p key={s.id} className="mt-2 text-[13px] text-mute flex items-center gap-1"><BookOpen size={14} />{s.title}</p>)}
-          {d.links?.map(l => <a key={l.url} href={l.url} target="_blank" rel="noreferrer" className="mt-2 text-[13px] text-sage-800 flex items-center gap-1 min-w-0"><ExternalLink size={13} className="shrink-0" /><span className="truncate">{l.title}</span></a>)}
+            ? <button key={s.id} onClick={() => onOpenArticle(s.id)} className="mt-2 text-[14.5px] text-sage-800 flex items-center gap-1"><BookOpen size={14} />{s.title}<ArrowUpRight size={13} /></button>
+            : <p key={s.id} className="mt-2 text-[14.5px] text-mute flex items-center gap-1"><BookOpen size={14} />{s.title}</p>)}
+          {d.links?.map(l => <a key={l.url} href={l.url} target="_blank" rel="noreferrer" className="mt-2 text-[14.5px] text-sage-800 flex items-center gap-1 min-w-0"><ExternalLink size={13} className="shrink-0" /><span className="truncate">{l.title}</span></a>)}
           {d.ticket && <TicketDraft kind={d.ticket.kind} title={d.ticket.title} onSend={() => addTicket({ kind: d.ticket!.kind, title: d.ticket!.title, viaAI: true })} />}
         </div>}
         {d.quiz && <QuizCard q={d.quiz} chosen={next?.me ? next.t : undefined} active={latest && !busy} onAnswer={send} />}
         {d.card && <ClientCardView c={d.card} onOpen={onOpenClient} />}
-        {latest && !busy && (d.choices?.length ?? 0) > 0 && <div className="mt-2.5 flex flex-wrap gap-2">{d.choices!.map(c => <button key={c} onClick={() => send(c)} className="h-9 px-3.5 rounded-full bg-white border border-line text-[14px] hover:border-sage-400 transition">{c}</button>)}</div>}
+        {latest && !busy && (d.choices?.length ?? 0) > 0 && <div className="mt-2.5 flex flex-wrap gap-2">{d.choices!.map(c => <button key={c} onClick={() => send(c)} className="h-9 px-3.5 rounded-full bg-white border border-line text-[15.5px] hover:border-sage-400 transition">{c}</button>)}</div>}
         {!m.t && !cards.length && !d.quiz && !d.card && <div className={bubble(variant)}>{t('Ich bin gerade nicht erreichbar. Bitte versuche es gleich noch einmal.')}</div>}
       </div>
     </div>
@@ -403,13 +403,13 @@ function UserMessage({ m }: { m: ChatMsg }) {
   return (
     <div className="flex gap-2.5 items-start justify-end">
       <div className="min-w-0 max-w-[85%] flex flex-col items-end">
-        <p className="text-[12px] text-mute mb-1">{hhmm(m.at)} · <span className="text-ink/80 font-medium">{me.first}</span></p>
+        <p className="text-[13px] text-mute mb-1">{hhmm(m.at)} · <span className="text-ink/80 font-medium">{me.first}</span></p>
         {files.length > 0 && <div className="mb-1.5 flex flex-wrap justify-end gap-1.5">{files.map((f, i) => f.url
           ? <img key={i} src={f.url} alt={f.name} className="h-24 max-w-[180px] rounded-[12px] object-cover" />
-          : <span key={i} className="h-9 px-3 rounded-[10px] bg-white border border-line text-[13px] flex items-center gap-1.5 max-w-[220px]">{fileIcon(f.name)}<span className="truncate">{f.name}</span></span>)}</div>}
-        {m.t && <div className="rounded-[16px] rounded-tr-[6px] px-4 py-3 text-[15px] leading-snug bg-olive-700 text-white whitespace-pre-wrap break-words">{m.t}</div>}
+          : <span key={i} className="h-9 px-3 rounded-[10px] bg-white border border-line text-[14.5px] flex items-center gap-1.5 max-w-[220px]">{fileIcon(f.name)}<span className="truncate">{f.name}</span></span>)}</div>}
+        {m.t && <div className="rounded-[16px] rounded-tr-[6px] px-4 py-3 text-[17px] leading-snug bg-olive-700 text-white whitespace-pre-wrap break-words">{m.t}</div>}
       </div>
-      <Avatar s={me} photo={photo} size="w-7 h-7 text-[11px] mt-0.5" />
+      <Avatar s={me} photo={photo} size="w-7 h-7 text-[12px] mt-0.5" />
     </div>
   )
 }
@@ -453,21 +453,21 @@ function Composer({ busy, variant, onSend }: { busy: boolean; variant: 'app' | '
   const onPaste = (e: ClipboardEvent) => { if (e.clipboardData.files.length) { e.preventDefault(); add(e.clipboardData.files) } }
   const onDrop = (e: DragEvent) => { if (e.dataTransfer.files.length) { e.preventDefault(); add(e.dataTransfer.files) } }
   const cur = TIERS.find(x => x.k === tier)!
-  const chip = 'h-8 px-2.5 rounded-full text-[13px] flex items-center gap-1.5 transition'
+  const chip = 'h-8 px-2.5 rounded-full text-[14.5px] flex items-center gap-1.5 transition'
   return (
     <div onDragOver={e => e.preventDefault()} onDrop={onDrop} className={`relative rounded-[20px] bg-white ${variant === 'app' ? 'shadow-[0_1px_2px_rgba(29,34,28,.06),0_8px_24px_-12px_rgba(29,34,28,.18)]' : 'border border-line'}`}>
       {files.length > 0 && <div className="px-3 pt-3 flex flex-wrap gap-2">{files.map(f => (
         <span key={f.id} className="relative group">
           {f.preview ? <img src={f.preview} alt="" className="w-12 h-12 rounded-[10px] object-cover" />
-            : <span className="h-12 px-3 rounded-[10px] bg-sage-50 text-[13px] flex items-center gap-2 max-w-[200px]">{fileIcon(f.name)}<span className="truncate">{f.name}</span></span>}
+            : <span className="h-12 px-3 rounded-[10px] bg-sage-50 text-[14.5px] flex items-center gap-2 max-w-[200px]">{fileIcon(f.name)}<span className="truncate">{f.name}</span></span>}
           <button onClick={() => setFiles(x => x.filter(y => y.id !== f.id))} aria-label={t('Entfernen')} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-ink text-white flex items-center justify-center"><X size={11} /></button>
         </span>))}</div>}
       {dict.state === 'idle' ? (
         <textarea ref={area} rows={1} value={v} onChange={e => setV(e.target.value)} onPaste={onPaste}
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !touch && !e.nativeEvent.isComposing) { e.preventDefault(); send() } }}
-          placeholder={t('Frag Benni …')} className="block w-full resize-none bg-transparent px-4 pt-3.5 pb-1 text-[15px] leading-[22px] outline-none placeholder:text-mute max-h-[168px]" />
+          placeholder={t('Frag Benni …')} className="block w-full resize-none bg-transparent px-4 pt-3.5 pb-1 text-[17px] leading-[22px] outline-none placeholder:text-mute max-h-[168px]" />
       ) : (
-        <div className="px-4 pt-3.5 pb-1 min-h-[36px] text-[15px] leading-[22px]" aria-live="polite">
+        <div className="px-4 pt-3.5 pb-1 min-h-[36px] text-[17px] leading-[22px]" aria-live="polite">
           {v.trim() && <span>{v.trim()} </span>}
           {dict.live ? <span className="text-ink/60">{dict.live}</span> : <span className="text-mute">{dict.state === 'final' ? t('Schreibt den Text …') : t('Ich höre zu …')}</span>}
           {dict.state === 'rec' && <span className="inline-block w-[2px] h-[17px] -mb-[3px] ml-0.5 bg-olive-700 animate-pulse" />}
@@ -483,7 +483,7 @@ function Composer({ busy, variant, onSend }: { busy: boolean; variant: 'app' | '
               <div className="fixed inset-0 z-10" onClick={() => setMenu(false)} />
               <div className="absolute z-20 bottom-10 left-0 w-[264px] rounded-[14px] bg-white border border-line shadow-[0_12px_32px_-12px_rgba(29,34,28,.25)] p-1.5">
                 {TIERS.map(x => <button key={x.k} onClick={() => setModel(x.k)} className="w-full text-left rounded-[10px] px-3 py-2 hover:bg-sage-50 flex items-start gap-2">
-                  <span className="flex-1 min-w-0"><span className="block text-[14px]">{t(x.name)} <span className="text-[12px] text-mute">{x.model}</span></span><span className="block text-[12px] text-mute">{t(x.hint)}</span></span>
+                  <span className="flex-1 min-w-0"><span className="block text-[15.5px]">{t(x.name)} <span className="text-[13px] text-mute">{x.model}</span></span><span className="block text-[13px] text-mute">{t(x.hint)}</span></span>
                   {x.k === tier && <Check size={15} className="text-olive-700 mt-1 shrink-0" />}
                 </button>)}
               </div>
@@ -498,8 +498,8 @@ function Composer({ busy, variant, onSend }: { busy: boolean; variant: 'app' | '
           <div className="flex-1 h-8 flex items-center justify-center gap-[3px] overflow-hidden" aria-hidden="true">
             {dict.levels.map((l, i) => <span key={i} className="w-[3px] rounded-full bg-olive-700/70 transition-[height] duration-75" style={{ height: `${Math.max(3, l * 26)}px` }} />)}
           </div>
-          <span className="text-[12px] text-mute tabular-nums w-9 text-right">{Math.floor(dict.secs / 60)}:{String(dict.secs % 60).padStart(2, '0')}</span>
-          <button onClick={() => { after.current = 'edit'; dict.stop() }} disabled={dict.state !== 'rec'} title={t('Diktat beenden und Text bearbeiten')} className="h-8 pl-2.5 pr-3 rounded-full bg-sage-50 hover:bg-sage-100 text-[13px] text-ink/80 flex items-center gap-1.5 disabled:opacity-50 transition"><Square size={11} fill="currentColor" strokeWidth={0} />{t('Stopp')}</button>
+          <span className="text-[13px] text-mute tabular-nums w-9 text-right">{Math.floor(dict.secs / 60)}:{String(dict.secs % 60).padStart(2, '0')}</span>
+          <button onClick={() => { after.current = 'edit'; dict.stop() }} disabled={dict.state !== 'rec'} title={t('Diktat beenden und Text bearbeiten')} className="h-8 pl-2.5 pr-3 rounded-full bg-sage-50 hover:bg-sage-100 text-[14.5px] text-ink/80 flex items-center gap-1.5 disabled:opacity-50 transition"><Square size={11} fill="currentColor" strokeWidth={0} />{t('Stopp')}</button>
           <button onClick={() => { after.current = 'send'; dict.stop() }} disabled={dict.state !== 'rec' || busy} title={t('Diktat beenden und senden')} aria-label={t('Diktat beenden und senden')} className="w-8 h-8 rounded-full bg-olive-700 text-white flex items-center justify-center disabled:opacity-50"><ArrowUp size={17} strokeWidth={2.2} /></button>
         </>}
       </div>
@@ -513,7 +513,7 @@ function ChatList({ onPicked }: { onPicked?: () => void }) {
   const st = useBenni()
   const [armed, setArmed] = useState<string | null>(null)
   useEffect(() => { if (!armed) return; const h = setTimeout(() => setArmed(null), 5000); return () => clearTimeout(h) }, [armed])
-  if (!st.chats.length) return <p className="px-3 py-2 text-[13px] text-mute">{t('Noch keine Chats.')}</p>
+  if (!st.chats.length) return <p className="px-3 py-2 text-[14.5px] text-mute">{t('Noch keine Chats.')}</p>
   // Gruppen wie in ChatGPT: Heute, Gestern, Letzte 7 Tage, Älter
   const today = isoDay(), yesterday = addDays(-1), week = addDays(-7)
   const groupOf = (iso: string) => { const d = isoDay(new Date(iso)); return d === today ? 'Heute' : d === yesterday ? 'Gestern' : d >= week ? 'Letzte 7 Tage' : 'Älter' }
@@ -521,17 +521,17 @@ function ChatList({ onPicked }: { onPicked?: () => void }) {
   return (
     <div className="space-y-4">{groups.map(({ g, list }) => (
       <div key={g}>
-        <p className="px-3 pb-1 text-[11.5px] text-mute">{t(g)}</p>
+        <p className="px-3 pb-1 text-[12.5px] text-mute">{t(g)}</p>
         <ul className="space-y-px">{list.map(c => {
           const on = c.id === st.active
           return (
             <li key={c.id} className={`group relative flex items-center rounded-[10px] transition ${on ? 'bg-sage-100' : 'hover:bg-sage-50'}`}>
               <button onClick={() => { openChat(c.id); onPicked?.() }} className="flex-1 min-w-0 text-left pl-3 pr-2 h-10 flex items-center gap-2">
                 {c.busy && <span className="w-1.5 h-1.5 rounded-full bg-olive-700 animate-pulse shrink-0" aria-label={t('Benni arbeitet …')} />}
-                <span className={`truncate text-[14px] ${on ? 'text-ink' : 'text-ink/80'}`}>{c.title || t('Neuer Chat')}</span>
+                <span className={`truncate text-[15.5px] ${on ? 'text-ink' : 'text-ink/80'}`}>{c.title || t('Neuer Chat')}</span>
               </button>
               {armed === c.id
-                ? <button onClick={async () => { setArmed(null); const ok = await deleteChat(c.id); toast(ok ? t('Chat gelöscht') : t('Löschen hat nicht geklappt'), ok ? 'ok' : 'error') }} className="mr-1.5 h-7 px-2.5 rounded-full bg-alert/10 text-alert text-[12px] shrink-0">{t('Löschen')}</button>
+                ? <button onClick={async () => { setArmed(null); const ok = await deleteChat(c.id); toast(ok ? t('Chat gelöscht') : t('Löschen hat nicht geklappt'), ok ? 'ok' : 'error') }} className="mr-1.5 h-7 px-2.5 rounded-full bg-alert/10 text-alert text-[13px] shrink-0">{t('Löschen')}</button>
                 : <button onClick={() => setArmed(c.id)} aria-label={t('Chat löschen')} title={t('Chat löschen')} className="mr-1 w-8 h-8 rounded-full text-mute hover:text-alert flex items-center justify-center shrink-0 md:opacity-0 md:group-hover:opacity-100 focus:opacity-100"><Trash2 size={14} /></button>}
             </li>
           )
@@ -573,10 +573,10 @@ export function BenniChat({ variant = 'app', onOpenArticle, onOpenClient, onClos
           <BMark className={variant === 'app' ? 'w-12 h-12' : 'w-10 h-10'} />
           <h1 className={`mt-5 leading-tight ${variant === 'app' ? 'text-[28px]' : 'text-[22px]'}`}>{t('Hallo {name}, wie kann ich helfen?', { name: me.first })}</h1>
           <p className="mt-1.5 text-[14.5px] text-mute">{t('Termine, Kunden, Wissen, Dateien: frag einfach.')}</p>
-          <div className={`mt-6 rounded-[16px] divide-y divide-line ${variant === 'app' ? 'bg-white md:hidden' : 'border border-line'}`}>{IDEAS.map(i => <button key={i} onClick={() => send(t(i))} className="w-full text-left px-4 py-3.5 text-[15px] flex items-center gap-3"><span className="flex-1">{t(i)}</span><ArrowUpRight size={16} className="text-sage-400 shrink-0" /></button>)}</div>
-          {variant === 'app' && <div className="hidden md:flex mt-7 flex-wrap justify-center gap-2">{IDEAS.map(i => <button key={i} onClick={() => send(t(i))} className="h-9 px-3.5 rounded-full bg-white border border-line text-[13.5px] text-ink/80 hover:border-sage-400 hover:text-ink transition">{t(i)}</button>)}</div>}
+          <div className={`mt-6 rounded-[16px] divide-y divide-line ${variant === 'app' ? 'bg-white md:hidden' : 'border border-line'}`}>{IDEAS.map(i => <button key={i} onClick={() => send(t(i))} className="w-full text-left px-4 py-3.5 text-[17px] flex items-center gap-3"><span className="flex-1">{t(i)}</span><ArrowUpRight size={16} className="text-sage-400 shrink-0" /></button>)}</div>
+          {variant === 'app' && <div className="hidden md:flex mt-7 flex-wrap justify-center gap-2">{IDEAS.map(i => <button key={i} onClick={() => send(t(i))} className="h-9 px-3.5 rounded-full bg-white border border-line text-[15px] text-ink/80 hover:border-sage-400 hover:text-ink transition">{t(i)}</button>)}</div>}
         </div>
-      ) : chat.loading ? <p className="pt-6 text-mute text-[14px]">{t('Lädt …')}</p> : (
+      ) : chat.loading ? <p className="pt-6 text-mute text-[15.5px]">{t('Lädt …')}</p> : (
         <div className="pt-2 space-y-5">
           {msgs.map((m, i) => <div key={m.id} id={'bm-' + m.id} className="scroll-mt-4">{m.me ? <UserMessage m={m} /> : <BenniMessage m={m} next={msgs[i + 1]} latest={m === lastA && i === msgs.length - 1} busy={chat.busy} hidden={hidden.has(m.id)} variant={variant} send={s => send(s)} onOpenArticle={onOpenArticle} onOpenClient={onOpenClient} />}</div>)}
           {chat.busy && <BenniWorking steps={chat.steps} />}
@@ -592,7 +592,7 @@ export function BenniChat({ variant = 'app', onOpenArticle, onOpenClient, onClos
     <aside className="w-[400px] shrink-0 border-l border-line flex flex-col bg-white relative">
       <div className="h-16 px-3 flex items-center gap-1 border-b border-line">
         <button onClick={() => setDrawer(!drawer)} className="flex-1 min-w-0 h-10 px-2 rounded-[10px] hover:bg-sage-50 flex items-center gap-2 text-left" aria-expanded={drawer}>
-          <BMark className="w-6 h-6" /><span className="min-w-0 truncate font-medium text-[15px]">{title}</span><ChevronDown size={15} className="text-mute shrink-0" />
+          <BMark className="w-6 h-6" /><span className="min-w-0 truncate font-medium text-[17px]">{title}</span><ChevronDown size={15} className="text-mute shrink-0" />
         </button>
         {newBtn}
         {onClose && <button onClick={onClose} aria-label={t('Schliessen')} className="w-9 h-9 rounded-full hover:bg-sage-50 flex items-center justify-center"><X size={17} /></button>}
@@ -609,15 +609,15 @@ export function BenniChat({ variant = 'app', onOpenArticle, onOpenClient, onClos
       {/* Desktop: Chats als eigene Spalte, bündig an der Navigation */}
       <aside className="hidden md:flex w-[260px] shrink-0 flex-col bg-white border-r border-line">
         <div className="h-[60px] shrink-0 pl-5 pr-3 flex items-center justify-between border-b border-line/70">
-          <p className="text-[15px] font-medium">{t('Chats')}</p>
-          <button onClick={() => openChat(null)} className="h-9 px-3 rounded-[10px] bg-sage-50 hover:bg-sage-100 text-[13.5px] flex items-center gap-1.5 transition"><SquarePen size={15} />{t('Neuer Chat')}</button>
+          <p className="text-[17px] font-medium">{t('Chats')}</p>
+          <button onClick={() => openChat(null)} className="h-9 px-3 rounded-[10px] bg-sage-50 hover:bg-sage-100 text-[15px] flex items-center gap-1.5 transition"><SquarePen size={15} />{t('Neuer Chat')}</button>
         </div>
         <div className="flex-1 overflow-y-auto no-scrollbar px-2 py-3"><ChatList /></div>
       </aside>
       <div className="flex-1 min-w-0 flex flex-col">
         <div className="shrink-0 pt-11 md:pt-0 h-auto md:h-[60px] px-3 md:px-8 flex items-center gap-1 md:border-b md:border-line/70">
-          <button onClick={() => setDrawer(true)} className="md:hidden h-9 px-2.5 rounded-full hover:bg-sage-100 flex items-center gap-1.5 text-[14px] text-ink/80"><MessagesSquare size={17} />{t('Chats')}</button>
-          <p className="flex-1 min-w-0 truncate text-center md:text-left text-[14px] text-mute md:text-[15px] md:text-ink md:font-medium">{chat ? title : <span className="hidden md:inline text-mute font-normal">{t('Neuer Chat')}</span>}</p>
+          <button onClick={() => setDrawer(true)} className="md:hidden h-9 px-2.5 rounded-full hover:bg-sage-100 flex items-center gap-1.5 text-[15.5px] text-ink/80"><MessagesSquare size={17} />{t('Chats')}</button>
+          <p className="flex-1 min-w-0 truncate text-center md:text-left text-[15.5px] text-mute md:text-[17px] md:text-ink md:font-medium">{chat ? title : <span className="hidden md:inline text-mute font-normal">{t('Neuer Chat')}</span>}</p>
           <span className="md:hidden">{newBtn}</span>
         </div>
         {fresh && <div className="hidden md:block flex-1" />}
@@ -631,7 +631,7 @@ export function BenniChat({ variant = 'app', onOpenArticle, onOpenClient, onClos
         <motion.div key="bg" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-40 bg-ink/30 md:hidden" onClick={() => setDrawer(false)} />
         <motion.div key="dr" initial={{ x: '-100%' }} animate={{ x: 0 }} exit={{ x: '-100%' }} transition={{ type: 'tween', duration: 0.22 }} className="fixed inset-y-0 left-0 z-50 w-[84%] max-w-[340px] bg-white pt-12 flex flex-col md:hidden">
           <div className="px-4 flex items-center justify-between mb-3"><p className="text-[20px]">{t('Chats')}</p><button onClick={() => setDrawer(false)} aria-label={t('Schliessen')} className="w-9 h-9 rounded-full hover:bg-sage-100 flex items-center justify-center"><X size={18} /></button></div>
-          <div className="px-4"><button onClick={() => { openChat(null); setDrawer(false) }} className="w-full h-11 px-3 rounded-[12px] bg-sage-50 flex items-center gap-2 text-[15px] mb-3"><SquarePen size={17} />{t('Neuer Chat')}</button></div>
+          <div className="px-4"><button onClick={() => { openChat(null); setDrawer(false) }} className="w-full h-11 px-3 rounded-[12px] bg-sage-50 flex items-center gap-2 text-[17px] mb-3"><SquarePen size={17} />{t('Neuer Chat')}</button></div>
           <div className="flex-1 overflow-y-auto no-scrollbar px-2 pb-6"><ChatList onPicked={() => setDrawer(false)} /></div>
         </motion.div>
       </>}</AnimatePresence>

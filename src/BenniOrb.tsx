@@ -129,7 +129,7 @@ export function BenniOrb({ className = 'w-7 h-7', still = false, working = false
 // Standbild der Kugel für Listen (z. B. jede Benni-Nachricht): einmal zeichnen, als Bild wiederverwenden.
 // Browser erlauben nur rund 16 WebGL-Kontexte, eine lebende Kugel pro Nachricht wäre zu viel.
 let still: Promise<string | null> | null = null
-function orbImage(): Promise<string | null> {
+export function orbImage(): Promise<string | null> {
   still ??= new Promise(resolve => {
     try {
       const el = document.createElement('canvas'); el.width = el.height = 112
@@ -154,8 +154,6 @@ function orbImage(): Promise<string | null> {
 
 /** Benni als kleines, ruhiges Profilbild (ohne eigenen WebGL-Kontext). */
 export function BenniAvatar({ className = 'w-7 h-7' }: { className?: string }) {
-  const [src, setSrc] = useState<string | null>(null)
-  useEffect(() => { let on = true; orbImage().then(u => { if (on) setSrc(u) }); return () => { on = false } }, [])
-  return src ? <img src={src} alt="" aria-hidden="true" className={`rounded-full shrink-0 ${className}`} />
-    : <span className={`benni-orb ${className}`} aria-hidden="true"><span className="orb-float"><span className="orb-fallback" /></span></span>
+  return <img src="/benni.jpg" alt="" aria-hidden="true" className={`rounded-full shrink-0 object-cover bg-sage-100 ${className}`} />
 }
+
