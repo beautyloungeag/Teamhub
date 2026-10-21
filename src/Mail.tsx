@@ -52,7 +52,7 @@ export function Inbox({ onOpen }: { onOpen: (uid: number, item: MailItem) => voi
   const [box, setBox] = useState<Box | null>(cache)
   const [busy, setBusy] = useState(false), [compose, setCompose] = useState(false)
   const load = async () => {
-    if (demoOn()) { const b = { ok: true, configured: true, connected: true, address: 'julia@beautylounge.ch', total: 4, unseen: 2, items: DEMO }; cache = b; setBox(b); return }
+    if (demoOn()) { const b = { ok: true, configured: true, connected: true, address: 'vorname@beautylounge.ch', total: 4, unseen: 2, items: DEMO }; cache = b; setBox(b); return }
     setBusy(true); const b = await call({ action: 'list' }).catch(() => ({ ok: false } as Box)); setBusy(false)
     if (b?.ok && b.connected) cache = b
     setBox(b ?? { ok: false })
@@ -131,7 +131,7 @@ export function MailRead({ uid, item }: { uid: number; item?: MailItem }) {
   const [compose, setCompose] = useState<null | 'reply' | 'forward'>(null)
   const frame = useRef<HTMLIFrameElement>(null)
   useEffect(() => {
-    if (demoOn()) { const d = DEMO.find(x => x.uid === uid) ?? DEMO[0]; setM({ uid, subject: d.subject, date: d.date, from: d.from, to: [{ name: 'Julia', address: 'julia@beautylounge.ch' }], cc: [], messageId: null, references: null, html: '', attachments: d.attachments ? [{ name: 'Dienstplan-November.pdf', size: 184000 }] : [],
+    if (demoOn()) { const d = DEMO.find(x => x.uid === uid) ?? DEMO[0]; setM({ uid, subject: d.subject, date: d.date, from: d.from, to: [{ name: 'Du', address: 'vorname@beautylounge.ch' }], cc: [], messageId: null, references: null, html: '', attachments: d.attachments ? [{ name: 'Dienstplan-November.pdf', size: 184000 }] : [],
       text: `${d.snippet}\n\nBei Fragen meldet euch einfach im Büro oder schreibt im Team-Chat.\n\nLiebe Grüsse\n${d.from?.name ?? ''}` }); return }
     call({ action: 'message', uid }).then(r => r?.ok ? setM(r as unknown as Full) : setErr(true)).catch(() => setErr(true))
   }, [uid])
