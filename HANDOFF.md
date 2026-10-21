@@ -2,6 +2,17 @@
 
 Interne Mitarbeiter-App (PWA + Desktop-Backoffice) der Beautylounge AG. Kundin: Renée Baumann. PM-Projekt: `projekt.aleksa.ai`, Key **BLTH** (`d4ee5d5c-4553-436c-bba7-137a03a2b704`). ⚠️ Das Repo `beautyloungeag/Teamhub` ist **öffentlich** — nie Personendaten committen.
 
+### Was wurde in dieser Session gemacht (2026-10-21, Abschluss nachts)
+
+- Renées Antwort „Re: App Optik“ (zweite Runde + Ergänzung Zeit/Ferien/Mail) ist komplett umgesetzt, Details in den drei Nachträgen darunter. PDF `~/Downloads/TeamHub-Mitarbeiter-App-neuer-Stand.pdf` (32 Ansichten, 6 Seiten) und Antwortmail liegen bei Aleksa zum Versand.
+- **Offen:**
+  - Erster echter Test von Timebutler-Verbinden und Postfach-Verbinden mit dem Konto einer Mitarbeiterin
+  - Auf der Timebutler-Verbinden-Seite fehlen noch der Link „Passwort vergessen?“ (Timebutler `/do?ha=pwd&ac=3`) und ein Hinweis für Konten, die sich nur „Mit Microsoft anmelden“ (dann erst in Timebutler ein Passwort setzen). Angeboten, nicht gebaut.
+  - Push bei neuen Chat-Nachrichten
+  - Medien im Chat
+  - Live schalten, sobald Netlify wieder läuft
+- Mitarbeiterinnen brauchen **keinen eigenen API-Schlüssel**, sie melden sich mit ihrem normalen Timebutler-Zugang an.
+
 ### Nachtrag 2026-10-21 nachts — Zeit & Ferien und Posteingang in der App
 
 Die Inhaberin ergänzt: Zeit-/Ferienerfassung und Mail fehlen noch, sie sollen sinnvoll und ansprechend in der App stehen. Bisher waren beides nur Links.
