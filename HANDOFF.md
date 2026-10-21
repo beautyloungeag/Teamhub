@@ -2,6 +2,12 @@
 
 Interne Mitarbeiter-App (PWA + Desktop-Backoffice) der Beautylounge AG. Kundin: Renée Baumann. PM-Projekt: `projekt.aleksa.ai`, Key **BLTH** (`d4ee5d5c-4553-436c-bba7-137a03a2b704`). ⚠️ Das Repo `beautyloungeag/Teamhub` ist **öffentlich** — nie Personendaten committen.
 
+### Was wurde in dieser Session gemacht (2026-10-21) — Feedback der Inhaberin zur App
+
+- **Umgesetzt:** Kontaktdaten von Kundinnen (Telefon, E-Mail, Adresse, Geburtstag) liefert die Function `phorest` nur noch an Leitung und Büro (`seesContact`); Mitarbeiterinnen sehen unscharfe Platzhalter (`src/ContactLock.tsx`), Suche per Telefon/E-Mail ist für sie gesperrt (`contact_search_forbidden`), Benni nennt keine Kontaktdaten. Ziele legt nur die Leitung an (Migration `0027`, Knopf in „Meine Performance“ nur für Leitung). Performance und persönliche Ziele anderer sehen Mitarbeiterinnen schon vorher nicht (RLS `goals_read`, `performance` nur eigene).
+- **Design:** zwei Richtungen als Canvas (Artifact „TeamHub App · Design-Richtungen“): Farben nach Wichtigkeit (Pflicht/Wichtig/Learning/Studio/Erledigt), Schrift 17 px, Benni mit Gesicht (zwei Entwürfe), Home-Knopf oben auf Unterseiten. Wartet auf Aleksas Wahl.
+- **Offen aus dem Feedback:** Phorest-Hilfe als Wissen für Benni (Phorest Learning), Wissen auf ~6 Themen reduzieren + nach Beliebtheit sortieren (braucht Lesezählung), Kundentermine in Phorest-Farben, Melden & Ideen um „Learning“ (Videos teilen) erweitern, Ziele im Phorest-Stil, Chats zwischen Mitarbeiterinnen, Antwort zur Aushilfe-Logik.
+
 ### Was wurde in dieser Session gemacht (2026-10-20)
 
 - **Demo mit der Inhaberin 20.10. 12:00 (Google Meet), lokal gezeigt:** grundsätzlich zufrieden. **Offen: Design der Mitarbeiter-App** — Sie schickt Verbesserungsvorschläge anhand eines PDFs mit 24 nummerierten Ansichten (claude-team `ai-team/assets/beautylounge-teamhub/app-ansichten/`, dort auch die Skripte zum Neu-Aufnehmen; Bilder/PDF bewusst nicht im Repo).
