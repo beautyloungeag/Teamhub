@@ -8,6 +8,7 @@
 // Secrets: OPENAI_API_KEY (optional; ohne ihn antwortet Marc nur aus dem Wissen),
 //          ASSISTANT_MODEL, ASSISTANT_REASONING, TITLE_MODEL (optional).
 import { createClient } from 'jsr:@supabase/supabase-js@2'
+import { appendToolRound, CONTEXT_BUCKET, contextPathAllowed, privateRequest, readContext, saveContext, type Context, type Item } from './privacy-context.ts'
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -111,7 +112,9 @@ Deno.serve(async (req) => {
   const chatId: string | null = typeof body.chat_id === 'string' && body.chat_id ? body.chat_id : null
   let chat: { id: string; title: string } | null = null
   let history: { me: boolean; t: string }[] = Array.isArray(body.history) ? body.history : []
-  let prevResponse: { id: string; model: string } | null = null
+  let contextRef: string | null = null
+  let newContext: string | null = null
+  let contextSaved = true
   if (chatId) {
     const { data: c } = await db.from('benni_chats').select('id, title').eq('id', chatId).maybeSingle()
     if (!c) return json({ ok: false, error: 'chat_not_found' }, 404)
@@ -120,8 +123,9 @@ Deno.serve(async (req) => {
     const list = (rows ?? []).reverse() as any[]
     history = list.map((r) => ({ me: r.role === 'user', t: r.text + (r.data?.files?.length ? ` [Anhang: ${r.data.files.map((f: any) => f.name).join(', ')}]` : '') }))
     const lastA = [...list].reverse().find((r) => r.role === 'assistant')
-    // OpenAI hält den Gesprächsstand 30 Tage; damit kennt Marc auch Dateien und Werkzeugergebnisse von vorher
-    if (lastA?.data?.response_id && Date.now() - new Date(lastA.created_at).getTime() < 25 * 864e5) prevResponse = { id: lastA.data.response_id, model: lastA.data.model }
+    // Conversation state stays in our private storage, not at the model provider.
+    if (contextPathAllowed(lastA?.data?.context_path, me.id, chatId)
+      && Date.now() - new Date(lastA.created_at).getTime() < 25 * 864e5) contextRef = lastA.data.context_path
     await db.from('benni_messages').insert({ chat_id: chatId, role: 'user', text: q, data: files.length ? { files: files.map((f) => ({ name: f.name, kind: f.mime.startsWith('image/') ? 'image' : 'file' })) } : {} })
   }
 
@@ -382,7 +386,6 @@ Deno.serve(async (req) => {
     }
 
     const links = new Map<string, string>()
-    let responseId: string | null = null
     const finish = async (raw: string) => {
       emit({ step: 'write' })
       // Mit Websuche gibt es keinen strengen JSON-Modus: das Objekt aus dem Text lösen
@@ -410,12 +413,12 @@ Deno.serve(async (req) => {
         ...(typeof o.graded === 'boolean' ? { graded: o.graded } : {}),
         ...(links.size ? { links: [...links].slice(0, 5).map(([url, title]) => ({ url, title })) } : {}),
       }
-      return { ok: true, mode: 'ki', ...answer, response_id: responseId, model: model }
+      return { ok: true, mode: 'ki', ...answer, model: model }
     }
     const past = history.slice(-12).map((h: any) => ({ role: h.me ? 'user' : 'assistant', content: String(h.t ?? '').slice(0, 2000) }))
     const { id: model, effort } = MODELS[tier]
-    const ai = async (path: string, payload: unknown) => {
-      const r = await fetch(`https://api.openai.com/v1/${path}`, { method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify(payload), signal: AbortSignal.timeout(150000) })
+    const ai = async (path: string, payload: Record<string, unknown>) => {
+      const r = await fetch(`https://api.openai.com/v1/${path}`, { method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify(privateRequest(payload)), signal: AbortSignal.timeout(150000) })
       if (!r.ok) throw new Error(`openai_${r.status}: ${(await r.text()).slice(0, 300)}`)
       return await r.json()
     }
@@ -433,29 +436,35 @@ Deno.serve(async (req) => {
     const viaResponses = async () => {
       let webTool = 'web_search'
       const tools = () => [...defs.map(([name, description, p, r]) => ({ type: 'function', name, description, parameters: params(p, r) })), ...(web ? [{ type: webTool }] : [])]
-      // Gleiches Modell wie zuletzt: am gespeicherten Stand weitermachen, sonst Verlauf als Text
-      let usePrev = !!prevResponse && prevResponse.model === model
-      const first = () => [{ role: 'developer', content: 'Antworte am Ende als JSON-Objekt wie in den Anweisungen beschrieben.' }, ...(usePrev ? [] : past), { role: 'user', content: userParts }]
-      let input: any[] = first(), prev: string | undefined = usePrev ? prevResponse!.id : undefined
+      const scope = `${me.id}|${me.app_role}|${me.branch_id}`
+      let previous: Context | null = null
+      if (contextRef) {
+        const { data } = await db.storage.from(CONTEXT_BUCKET).download(contextRef)
+        if (data) try { previous = readContext(JSON.parse(await data.text()), model, scope) } catch { /* text history remains */ }
+      }
+      const turn: Item[] = [...(previous ? [] : past), { role: 'user', content: userParts }]
+      let input: Item[] = [{ role: 'developer', content: 'Antworte am Ende als JSON-Objekt wie in den Anweisungen beschrieben.' }, ...(previous?.turns.flat() ?? []), ...turn]
       for (let round = 0; round < 10; round++) {
         let res: any
         try {
-          res = await ai('responses', { model, instructions: sys, input, tools: tools(), reasoning: { effort }, ...(web ? {} : { text: { format: { type: 'json_object' } } }), ...(prev ? { previous_response_id: prev } : {}) })
+          res = await ai('responses', { model, instructions: sys, input, tools: tools(), reasoning: { effort }, ...(web ? {} : { text: { format: { type: 'json_object' } } }) })
         } catch (e) {
           const m = String(e)
-          if (round === 0 && usePrev && /previous|not found|404/i.test(m)) { usePrev = false; input = first(); prev = undefined; round--; continue }
           if (web && webTool === 'web_search' && /web_search/.test(m)) { webTool = 'web_search_preview'; round--; continue }
           throw e
         }
-        prev = res.id; responseId = res.id
         for (const w of (res.output ?? []).filter((o: any) => o.type === 'web_search_call')) emit({ step: 'web', detail: String(w.action?.query ?? '') })
         const calls = (res.output ?? []).filter((o: any) => o.type === 'function_call')
         if (calls.length) {
-          input = (await run(calls.map((c: any) => ({ id: c.call_id, name: c.name, args: c.arguments })))).map((x) => ({ type: 'function_call_output', call_id: x.id, output: x.output }))
+          const results = (await run(calls.map((c: any) => ({ id: c.call_id, name: c.name, args: c.arguments })))).map((x) => ({ type: 'function_call_output', call_id: x.id, output: x.output }))
+          input = appendToolRound(input, res.output ?? [], results)
+          turn.push(...(res.output ?? []), ...results)
           continue
         }
         const parts = (res.output ?? []).filter((o: any) => o.type === 'message').flatMap((o: any) => o.content ?? []).filter((c: any) => c.type === 'output_text')
         for (const a of parts.flatMap((c: any) => c.annotations ?? [])) if (a.type === 'url_citation' && a.url && !links.has(a.url)) links.set(a.url, String(a.title ?? new URL(a.url).hostname).slice(0, 120))
+        turn.push(...(res.output ?? []))
+        if (chat) try { newContext = saveContext(previous, model, scope, turn) } catch { contextSaved = false }
         return finish(parts.map((c: any) => c.text).join(''))
       }
       throw new Error('too_many_rounds')
@@ -492,7 +501,7 @@ Deno.serve(async (req) => {
     if (key) try {
       const r = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(15000),
-        body: JSON.stringify({ model: Deno.env.get('TITLE_MODEL') ?? 'gpt-5.4-nano', reasoning_effort: 'none', messages: [
+        body: JSON.stringify({ store: false, model: Deno.env.get('TITLE_MODEL') ?? 'gpt-5.4-nano', reasoning_effort: 'none', messages: [
           { role: 'system', content: 'Gib diesem Gespräch einen kurzen Titel: 2 bis 5 Wörter, in der Sprache der Nachricht und mit deren normaler Rechtschreibung (auf Deutsch also nur Nomen gross, z. B. „Onboarding weiterlernen“), ohne Anführungszeichen und ohne Punkt am Ende. Antworte nur mit dem Titel.' },
           { role: 'user', content: q.slice(0, 800) + (files.length ? ` [Anhang: ${files.map((f) => f.name).join(', ')}]` : '') },
         ] }),
@@ -508,10 +517,27 @@ Deno.serve(async (req) => {
   // Antwort im Chat speichern; liefert die Nachrichten-ID für die App
   const save = async (r: Record<string, any>) => {
     if (!chat) return {}
-    const text = r.ok && r.text ? String(r.text) : 'Ich bin gerade nicht erreichbar. Bitte versuche es gleich noch einmal.'
+    let text = r.ok && r.text ? String(r.text) : 'Ich bin gerade nicht erreichbar. Bitte versuche es gleich noch einmal.'
     const data: Record<string, unknown> = {}
-    for (const k of ['sources', 'ticket', 'card', 'cards', 'quiz', 'choices', 'reveal', 'graded', 'links', 'response_id', 'model']) if (r[k] != null && !(Array.isArray(r[k]) && !r[k].length)) data[k] = r[k]
-    const { data: row } = await db.from('benni_messages').insert({ chat_id: chat.id, role: 'assistant', text, data }).select('id, created_at').single()
+    for (const k of ['sources', 'ticket', 'card', 'cards', 'quiz', 'choices', 'reveal', 'graded', 'links', 'model']) if (r[k] != null && !(Array.isArray(r[k]) && !r[k].length)) data[k] = r[k]
+    let contextPath: string | null = null
+    if (newContext) {
+      const path = `${me.id}/${chat.id}/${crypto.randomUUID()}.json`
+      const { error } = await db.storage.from(CONTEXT_BUCKET).upload(path, new Blob([newContext], { type: 'application/json' }), { contentType: 'application/json', upsert: false })
+      if (!error) { contextPath = path; data.context_path = path }
+      else contextSaved = false
+    }
+    if (!contextSaved) {
+      const note = me.lang === 'EN' ? 'I could not save the file context. Please attach the file again for follow-up questions.'
+        : me.lang === 'FR' ? 'Je n’ai pas pu enregistrer le contexte du fichier. Merci de le joindre à nouveau pour les questions suivantes.'
+        : 'Ich konnte den Dateikontext nicht speichern. Bitte hänge die Datei bei Rückfragen erneut an.'
+      text += `\n\n${note}`
+      r.text = text
+    }
+    const { data: row, error } = await db.from('benni_messages').insert({ chat_id: chat.id, role: 'assistant', text, data }).select('id, created_at').single()
+    if (error && contextPath) await db.storage.from(CONTEXT_BUCKET).remove([contextPath])
+    if (!error && contextPath && contextRef) await db.storage.from(CONTEXT_BUCKET).remove([contextRef])
+    if (!contextSaved) r.context_saved = false
     await db.from('benni_chats').update({ updated_at: new Date().toISOString() }).eq('id', chat.id)
     return { message_id: row?.id ?? null, chat_id: chat.id }
   }

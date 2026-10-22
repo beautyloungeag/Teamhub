@@ -1,5 +1,9 @@
 # HANDOFF — Beautylounge TeamHub
 
+### 2026-10-22 — Privacy changes published
+
+On the owner's explicit approval, twelve-month assistant/team-chat retention is active hourly, with holds and physical file cleanup. `assistant` v34 now uses OpenAI `store:false` and private local context instead of provider-held response chains; `privacy-retention` v1 and two additive migrations are live. Real attachment-follow-up/RLS/deletion and scheduler-transport checks passed and disposable data was removed. Details and limits: `PRIVACY.md`. Source is on `codex/teamhub-privacy-20261022` in `teamhub-privacy`; no GitHub push or frontend deployment. Retell was explicitly excluded. The native customer app/HTTPS review is deferred by the owner to 23 October.
+
 Interne Mitarbeiter-App (PWA + Desktop-Backoffice) der Beautylounge AG. Kundin: Renée Baumann. PM-Projekt: `projekt.aleksa.ai`, Key **BLTH** (`d4ee5d5c-4553-436c-bba7-137a03a2b704`). ⚠️ Das Repo `beautyloungeag/Teamhub` ist **öffentlich** — nie Personendaten committen.
 
 ### Was wurde in dieser Session gemacht (2026-10-22, abends) — Backoffice an die Mitarbeiter-App angeglichen
