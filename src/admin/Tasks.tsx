@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Camera, ChevronLeft, ChevronRight, Flag, Plus, Trash2, X } from 'lucide-react'
+import { BookOpen, Camera, ChevronLeft, ChevronRight, Flag, Link2, Plus, Trash2, X } from 'lucide-react'
 import { useApp, isoDay, addDays, appliesOn, fmtDate, type Template, type Staff } from '../store'
 import { supabase } from '../lib/supabase'
 import { toast } from '../Toast'
@@ -207,9 +207,12 @@ function Lists({ onOpen }: { onOpen: (id: string) => void }) {
   </>)
 }
 
-type Row = { id?: string; time: string; title: string; proof: boolean; prio: boolean }
+type Row = { id?: string; time: string; title: string; proof: boolean; prio: boolean; articleId: string | null; linkUrl: string }
+const blankRow = (): Row => ({ time: '', title: '', proof: false, prio: false, articleId: null, linkUrl: '' })
+const hasLink = (r: Row) => !!r.articleId || !!r.linkUrl.trim()
+const normUrl = (u: string) => { const x = u.trim(); return !x ? null : /^https?:\/\//i.test(x) ? x : `https://${x}` }
 function ChecklistPage({ id, onBack }: { id: string | 'neu'; onBack: () => void }) {
-  const { templates, branches, me, reload } = useApp()
+  const { templates, branches, me, reload, wiki } = useApp()
   const office = me.app_role === 'buero'
   const t = id === 'neu' ? null : templates.find(x => x.id === id) ?? null
   const mine = [me.branch_id, ...(me.extra ?? [])]
@@ -217,7 +220,8 @@ function ChecklistPage({ id, onBack }: { id: string | 'neu'; onBack: () => void 
   const own = branches.filter(b => !b.is_office && (office || mine.includes(b.id)))
   const [name, setName] = useState(t?.name ?? ''), [repeat, setRepeat] = useState<Template['repeat']>(t?.repeat ?? 'daily'), [weekday, setWeekday] = useState(String(t?.weekday ?? 1)), [monthday, setMonthday] = useState(String(t?.monthday ?? 1))
   const [studios, setStudios] = useState<string[]>(t?.branchIds ?? (office ? [] : [me.branch_id]))
-  const [rows, setRows] = useState<Row[]>(t ? t.items.map(i => ({ id: i.id, time: i.time, title: i.title, proof: i.proof, prio: i.prio })) : [{ time: '', title: '', proof: false, prio: false }])
+  const [rows, setRows] = useState<Row[]>(t ? t.items.map(i => ({ id: i.id, time: i.time, title: i.title, proof: i.proof, prio: i.prio, articleId: i.articleId, linkUrl: i.linkUrl ?? '' })) : [blankRow()])
+  const [linkOpen, setLinkOpen] = useState<number | null>(null), [lq, setLq] = useState('')
   const [err, setErr] = useState(''), [busy, setBusy] = useState(false), [dirty, setDirty] = useState(!t)
   const touch = <T,>(f: (v: T) => void) => (v: T) => { f(v); setDirty(true) }
   const set = (i: number, p: Partial<Row>) => { setRows(rows.map((r, j) => j === i ? { ...r, ...p } : r)); setDirty(true) }
@@ -232,7 +236,7 @@ function ChecklistPage({ id, onBack }: { id: string | 'neu'; onBack: () => void 
     const tid = res.data.id
     const removed = (t?.items ?? []).filter(i => !items.some(r => r.id === i.id))
     const results = await Promise.all([
-      ...items.map((r, i) => { const row = { title: r.title.trim(), due_time: r.time || null, proof_photo: r.proof, prio: r.prio, sort: i }
+      ...items.map((r, i) => { const row = { title: r.title.trim(), due_time: r.time || null, proof_photo: r.proof, prio: r.prio, sort: i, article_id: r.articleId, link_url: r.articleId ? null : normUrl(r.linkUrl) }
         return r.id ? supabase!.from('task_items').update(row).eq('id', r.id) : supabase!.from('task_items').insert({ template_id: tid, ...row }) }),
       ...removed.map(r => supabase!.from('task_items').delete().eq('id', r.id)),
     ])
@@ -271,19 +275,27 @@ function ChecklistPage({ id, onBack }: { id: string | 'neu'; onBack: () => void 
       </div>
 
       <Section title="Punkte" count={rows.filter(r => r.title.trim()).length}>
-        <div className="grid grid-cols-[96px_minmax(0,1fr)_auto] text-xs text-mute px-1 pb-2 border-b border-line"><span>Bis</span><span>Was ist zu tun</span><span className="pr-1">Foto · Wichtig</span></div>
+        <div className="grid grid-cols-[96px_minmax(0,1fr)_auto] text-xs text-mute px-1 pb-2 border-b border-line"><span>Bis</span><span>Was ist zu tun</span><span className="pr-1">Anleitung · Foto · Wichtig</span></div>
         <ul className="divide-y divide-line">{rows.map((r, i) => <li key={i} className="group grid grid-cols-[96px_minmax(0,1fr)_auto] items-center gap-2 py-1.5">
           {canEdit ? <input type="time" value={r.time} onChange={e => set(i, { time: e.target.value })} aria-label="Bis wann" className="h-9 rounded-[8px] px-1.5 bg-transparent hover:bg-sage-50 focus:bg-sage-50 outline-none text-[14px] tabular-nums" />
             : <span className="px-1.5 text-[14px] tabular-nums text-mute">{r.time || '–'}</span>}
           {canEdit ? <input value={r.title} onChange={e => set(i, { title: e.target.value })} placeholder={i === 0 ? 'z. B. Kabinen desinfizieren' : 'Weiterer Punkt'} className="h-9 rounded-[8px] px-2 bg-transparent hover:bg-sage-50 focus:bg-sage-50 outline-none text-[14px]" />
             : <span className="px-2 text-[14px]">{r.title}</span>}
           <span className="flex items-center gap-1 pr-1">
+            <button disabled={!canEdit && !hasLink(r)} onClick={() => { setLinkOpen(linkOpen === i ? null : i); setLq('') }} title={hasLink(r) ? 'Anleitung hinterlegt' : 'Anleitung oder Video verlinken'} className={`w-8 h-8 rounded-[8px] flex items-center justify-center transition ${hasLink(r) ? 'text-olive-700' : 'text-sage-400'} enabled:hover:bg-sage-50`}><Link2 size={16} /></button>
             <button disabled={!canEdit} onClick={() => set(i, { proof: !r.proof })} title={r.proof ? 'Mit Foto als Nachweis' : 'Ohne Foto'} className={`w-8 h-8 rounded-[8px] flex items-center justify-center transition ${r.proof ? 'text-olive-700' : 'text-sage-400'} enabled:hover:bg-sage-50`}><Camera size={16} /></button>
             <button disabled={!canEdit} onClick={() => set(i, { prio: !r.prio })} title={r.prio ? 'Wichtig' : 'Normal'} className={`w-8 h-8 rounded-[8px] flex items-center justify-center transition ${r.prio ? 'text-brass' : 'text-sage-400'} enabled:hover:bg-sage-50`}><Flag size={15} /></button>
             {canEdit && <button onClick={() => { setRows(rows.filter((_, j) => j !== i)); setDirty(true) }} aria-label="Punkt entfernen" className="w-8 h-8 rounded-[8px] text-mute hover:text-alert hover:bg-sage-50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition"><X size={15} /></button>}
           </span>
+          {linkOpen === i && <div className="col-span-3 pl-[104px] pr-1 pb-2">
+            {r.articleId ? <div className="flex items-center gap-2 h-9 px-3 rounded-[10px] bg-sage-50 text-[13.5px]"><BookOpen size={14} className="text-olive-700 shrink-0" /><span className="flex-1 truncate">{wiki.find(a => a.id === r.articleId)?.title ?? 'Artikel im Wissen'}</span>{canEdit && <button onClick={() => set(i, { articleId: null })} aria-label="Verlinkung entfernen" className="text-mute"><X size={14} /></button>}</div>
+              : canEdit ? <div className="relative"><input autoFocus value={r.linkUrl || lq} onChange={e => { const v = e.target.value; if (/^(https?:\/\/|www\.)/i.test(v) || r.linkUrl) { set(i, { linkUrl: v }); setLq('') } else setLq(v) }} placeholder="Artikel aus dem Wissen suchen oder Link einfügen, z. B. das Sonos-Video" className={inpStone} />
+                {!r.linkUrl && lq.trim().length > 1 && <div className="absolute z-10 left-0 right-0 mt-1 rounded-[12px] bg-white border border-line shadow-[0_16px_40px_-16px_rgba(29,34,28,.35)] p-1 max-h-56 overflow-y-auto">{wiki.filter(a => !a.fromNews && `${a.title} ${a.cat}`.toLowerCase().includes(lq.toLowerCase())).slice(0, 8).map(a => <button key={a.id} onClick={() => { set(i, { articleId: a.id, linkUrl: '' }); setLq('') }} className="w-full text-left px-3 py-2 rounded-[8px] text-[13.5px] hover:bg-sage-50">{a.title} <span className="text-mute">· {a.cat}</span></button>)}</div>}
+                <p className="text-[12px] text-mute mt-1">In der App steht unter dem Punkt „So geht es“ oder „Video ansehen“.</p></div>
+              : <a href={r.linkUrl} target="_blank" rel="noreferrer" className="text-[13.5px] text-olive-700 underline truncate block">{r.linkUrl}</a>}
+          </div>}
         </li>)}</ul>
-        {canEdit && <button onClick={() => { setRows([...rows, { time: '', title: '', proof: false, prio: false }]); setDirty(true) }} className="mt-2 h-9 px-2 rounded-[8px] text-[13.5px] text-olive-700 hover:bg-sage-50 flex items-center gap-1.5"><Plus size={15} />Punkt hinzufügen</button>}
+        {canEdit && <button onClick={() => { setRows([...rows, blankRow()]); setDirty(true) }} className="mt-2 h-9 px-2 rounded-[8px] text-[13.5px] text-olive-700 hover:bg-sage-50 flex items-center gap-1.5"><Plus size={15} />Punkt hinzufügen</button>}
         <div className="mt-3"><Err m={err} /></div>
       </Section>
       {t && canEdit && <button onClick={remove} className="mt-10 h-9 px-2 rounded-[8px] text-[13.5px] text-mute hover:text-alert flex items-center gap-1.5"><Trash2 size={14} />Checkliste löschen</button>}

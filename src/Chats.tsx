@@ -8,6 +8,8 @@ import { locale } from './lib/i18n'
 import { toast } from './Toast'
 
 // Team-Chats (Wunsch der Inhaberin 20./21.10.): ein Raum je Studio, einer fürs ganze Team, Direkt- und Gruppenchats.
+// Seit 22.10. zum Start nur die festen Gruppen (Studio, ganzes Team); Einzel- und eigene Gruppenchats schaltet das Büro
+// bei Bedarf ein (app_settings chat_private), bis dahin sperrt die Datenbank sie auch.
 // Marc steht oben angeheftet, damit der Assistent ein eigener Eintrag bleibt.
 type Room = { id: string; kind: 'studio' | 'team' | 'direkt' | 'gruppe'; branch_id: string | null; title: string | null; last_message_at: string }
 type Member = { room_id: string; employee_id: string; last_read_at: string }
@@ -62,22 +64,22 @@ function roomName(r: Room, members: string[], staff: Staff[], meId: string, t: (
 }
 
 export function ChatHub({ onOpenMarc, onOpenRoom }: { onOpenMarc: () => void; onOpenRoom: (id: string) => void }) {
-  const { me, staff, branches, t } = useApp()
+  const { me, staff, branches, t, privateChats } = useApp()
   const [list, setList] = useState<ChatSummary[] | null>(null)
   const [picking, setPicking] = useState(false)
   const bname = (id: string) => branches.find(b => b.id === id)?.name ?? id
   useEffect(() => { loadChatSummaries(me.id).then(setList) }, [me.id])
   // Studio-Räume erst, eigene zuerst; danach nach letzter Nachricht
-  const sorted = useMemo(() => [...(list ?? [])].sort((a, b) => {
+  const sorted = useMemo(() => [...(list ?? [])].filter(x => privateChats || x.room.kind === 'studio' || x.room.kind === 'team').sort((a, b) => {
     const rank = (x: ChatSummary) => x.room.kind === 'studio' && x.room.branch_id === me.branch_id ? 0 : x.room.kind === 'team' ? 1 : 2
     return (b.last?.created_at ?? '').localeCompare(a.last?.created_at ?? '') || rank(a) - rank(b)
-  }), [list, me.branch_id])
+  }), [list, me.branch_id, privateChats])
   const other = (s: ChatSummary) => s.room.kind === 'direkt' ? staff.find(x => x.id === s.members.find(m => m !== me.id)) : undefined
   return (
     <div className="pb-10">
       <div className="px-5 pt-3 pb-4 flex items-end justify-between gap-3">
         <h1 className="text-[30px] leading-tight">{t('Chats')}</h1>
-        <button onClick={() => setPicking(true)} className="h-10 px-3.5 rounded-full bg-white text-[15.5px] font-medium flex items-center gap-1.5"><SquarePen size={16} />{t('Neuer Chat')}</button>
+        {privateChats && <button onClick={() => setPicking(true)} className="h-10 px-3.5 rounded-full bg-white text-[15.5px] font-medium flex items-center gap-1.5"><SquarePen size={16} />{t('Neuer Chat')}</button>}
       </div>
       <div className="px-4 space-y-3">
         <button onClick={onOpenMarc} className="w-full rounded-[20px] bg-white p-4 flex items-center gap-3.5 text-left">

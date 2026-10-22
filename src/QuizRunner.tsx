@@ -4,7 +4,7 @@ import { supabase } from './lib/supabase'
 import { useApp, type Quiz, type QuizQuestion, type QuizResult } from './store'
 
 // Quiz am Ende einer News oder eines Wissensartikels. Lösungen kennt nur der Server (submit_quiz).
-export function QuizRunner({ quiz }: { quiz: Quiz }) {
+export function QuizRunner({ quiz, onPassed }: { quiz: Quiz; onPassed?: () => void }) {
   const { attempts, me, submitQuiz, lang, t } = useApp()
   const mine = attempts.filter(a => a.quizId === quiz.id && a.employeeId === me.id)
   const passed = mine.find(a => a.passed)
@@ -36,6 +36,7 @@ export function QuizRunner({ quiz }: { quiz: Quiz }) {
     setBusy(false)
     if (!r || r.error) { setErr(r?.error === 'ai_unavailable' ? t('Die Auswertung der Freitext-Antworten klappt gerade nicht. Bitte gleich noch einmal.') : t('Das hat nicht geklappt. Bitte versuche es noch einmal.')); return }
     setRes(r)
+    if (r.passed) onPassed?.()
   }
 
   // Noch nicht gestartet

@@ -168,7 +168,7 @@ Deno.serve(async (req) => {
     ])
     const demo = (flagsR.data as any)?.demo_data !== false
     // Kontrollfragen je Lektion und Mindestzahl richtiger Antworten (Backoffice → Lernen)
-    const qN = Math.min(5, Math.max(1, Number((flagsR.data as any)?.learn_questions) || 3))
+    const qN = Math.min(10, Math.max(3, Number((flagsR.data as any)?.learn_questions) || 3))
     const qMin = Math.min(qN, Math.max(1, Number((flagsR.data as any)?.learn_min_correct) || qN))
     const keep = (x: any) => demo || !x.is_sample
     const branches = (branchR.data ?? []) as any[]

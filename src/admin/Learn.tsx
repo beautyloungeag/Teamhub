@@ -157,7 +157,7 @@ function LearnSettings() {
   const { me } = useApp()
   const isBuero = me.app_role === 'buero'
   const [n, setN] = useState<number | null>(null), [m, setM] = useState(2)
-  useEffect(() => { supabase!.rpc('app_flags').then(({ data }) => { const d = data as { learn_questions?: number; learn_min_correct?: number } | null; setN(Number(d?.learn_questions) || 3); setM(Number(d?.learn_min_correct) || 2) }) }, [])
+  useEffect(() => { supabase!.rpc('app_flags').then(({ data }) => { const d = data as { learn_questions?: number; learn_min_correct?: number } | null; setN(Math.min(10, Math.max(3, Number(d?.learn_questions) || 3))); setM(Number(d?.learn_min_correct) || 2) }) }, [])
   const save = async (nn: number, mm: number) => {
     const min = Math.min(mm, nn); setN(nn); setM(min)
     const at = new Date().toISOString()
@@ -169,7 +169,7 @@ function LearnSettings() {
     <button key={k} onClick={() => on(k)} className={`w-8 h-7 rounded-[7px] text-[13px] tabular-nums transition-colors ${cur === k ? 'bg-olive-700 text-white' : 'text-ink/70 hover:bg-white'}`}>{k}</button>)}</span>
   return (
     <div className="mb-8 pb-6 border-b border-line flex flex-wrap items-center justify-between gap-4 text-[14px]">
-      {isBuero ? <p className="leading-[2.2]">Marc stellt nach jeder Lektion{pick([1, 2, 3, 4, 5], n, k => save(k, m))}Kontrollfragen, bestanden ab{pick(Array.from({ length: n }, (_, i) => i + 1), m, k => save(n, k))}richtigen.</p>
+      {isBuero ? <p className="leading-[2.2]">Marc stellt nach jeder Lektion{pick([3, 4, 5, 6, 7, 8, 9, 10], n, k => save(k, m))}Kontrollfragen, bestanden ab{pick(Array.from({ length: n }, (_, i) => i + 1), m, k => save(n, k))}richtigen.</p>
         : <p>Marc stellt nach jeder Lektion <span className="font-medium">{n} Kontrollfragen</span>, bestanden ab <span className="font-medium">{m} richtigen</span>.</p>}
       {!isBuero && <ReadOnly>Stellt das Büro ein</ReadOnly>}
     </div>
@@ -179,8 +179,9 @@ function LearnSettings() {
 /* ---------- Quiz ---------- */
 type QEdit = { kind: 'single' | 'multi' | 'text'; prompt: string; options: string[]; correct: number[]; rubric: string }
 type QuizEdit = { id?: string; target: 'neu' | 'news' | 'article'; newsId: string; articleId: string; title: string; text: string; branches: string[] | null; passPct: number; qs: QEdit[] }
+const MIN_Q = 3, MAX_Q = 10
 const emptyQ = (): QEdit => ({ kind: 'single', prompt: '', options: ['', ''], correct: [], rubric: '' })
-const blankQuiz = (): QuizEdit => ({ target: 'neu', newsId: '', articleId: '', title: '', text: '', branches: null, passPct: 80, qs: [emptyQ()] })
+const blankQuiz = (): QuizEdit => ({ target: 'neu', newsId: '', articleId: '', title: '', text: '', branches: null, passPct: 80, qs: [emptyQ(), emptyQ(), emptyQ()] })
 
 function useQuizMeta() {
   const { news, wiki, me } = useApp()
@@ -261,7 +262,8 @@ function QuizEditor({ q, onBack }: { q: QuizEdit; onBack: () => void }) {
     if (edit.target === 'neu' && !office && !edit.branches?.length) { setErr('Bitte dein Studio wählen.'); return }
     if (edit.target === 'news' && !edit.newsId) { setErr('Bitte eine News wählen.'); return }
     if (edit.target === 'article' && !edit.articleId) { setErr('Bitte einen Artikel wählen.'); return }
-    if (!qs.length) { setErr('Mindestens eine Frage ist nötig.'); return }
+    // 3 bis höchstens 10 Fragen je Test (Wunsch der Inhaberin 22.10.)
+    if (qs.length < MIN_Q || qs.length > MAX_Q) { setErr(`Ein Test hat ${MIN_Q} bis ${MAX_Q} Fragen, jetzt sind es ${qs.length}.`); return }
     const bad = qs.findIndex(x => x.kind === 'text' ? !x.rubric.trim() : x.options.filter(Boolean).length < 2 || x.correct.length === 0 || x.correct.some(c => !x.options[c]))
     if (bad >= 0) { setErr(qs[bad].kind === 'text' ? `Frage ${bad + 1}: bitte das Lernziel für Marc ausfüllen.` : `Frage ${bad + 1}: mindestens zwei Antworten und eine richtige markieren.`); return }
     setBusy(true); setErr('')
@@ -325,7 +327,8 @@ function QuizEditor({ q, onBack }: { q: QuizEdit; onBack: () => void }) {
               </div> })}
               <button onClick={() => setQ(i, { options: [...x.options, ''] })} className="text-[13px] text-olive-700 pt-1 pl-7">Antwort hinzufügen</button></div>}
         </div>)}</div>
-        <button onClick={() => setEdit({ ...edit, qs: [...edit.qs, emptyQ()] })} className="mt-2 h-9 px-2 rounded-[8px] text-[13.5px] text-olive-700 hover:bg-sage-50 flex items-center gap-1.5"><Plus size={15} />Frage hinzufügen</button>
+        {edit.qs.length < MAX_Q && <button onClick={() => setEdit({ ...edit, qs: [...edit.qs, emptyQ()] })} className="mt-2 h-9 px-2 rounded-[8px] text-[13.5px] text-olive-700 hover:bg-sage-50 flex items-center gap-1.5"><Plus size={15} />Frage hinzufügen</button>}
+        <p className="mt-1 text-[12.5px] text-mute">{MIN_Q} bis {MAX_Q} Fragen je Test.</p>
         <div className="mt-3"><Err m={err} /></div>
       </Section>
     </div>

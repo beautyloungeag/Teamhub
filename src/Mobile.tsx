@@ -52,7 +52,7 @@ const Card = ({ children, className = '', onClick }: { children: ReactNode; clas
     : <div className={`rounded-[16px] bg-white ${className}`}>{children}</div>
 const Row = ({ icon, title, sub, onClick, right }: { icon?: ReactNode; title: string; sub?: string; onClick?: () => void; right?: ReactNode }) => (
   <button onClick={onClick} className="w-full flex items-center gap-3 px-4 py-3.5 text-left">
-    {icon && <span className="w-6 flex items-center justify-center text-olive-700 shrink-0">{icon}</span>}
+    {icon && <span className="min-w-6 flex items-center justify-center text-olive-700 shrink-0">{icon}</span>}
     <span className="flex-1 min-w-0"><span className="block text-[17px] truncate">{title}</span>{sub && <span className="block text-[13px] text-mute truncate mt-0.5">{sub}</span>}</span>
     {right ?? <ChevronRight size={18} className="text-sage-400 shrink-0" />}
   </button>
@@ -480,11 +480,18 @@ function Tasks({ open }: { open: (s: Sub) => void }) {
       : t('Am {n}. jedes Monats', { n: tpl.monthday ?? 1 })
     // Frist der Liste = spätester Punkt
     const span = times.length ? t('bis {time}', { time: times[times.length - 1] }) : ''
-    return { g, items, sub: [when, span].filter(Boolean).join(' · ') }
-  })
+    // Offenes oben, Erledigtes rutscht nach unten (Wunsch der Inhaberin 22.10.); fertige Listen ganz ans Ende
+    const sorted = [...items].sort((a, b) => Number(done.has(a.id)) - Number(done.has(b.id)))
+    return { g, items: sorted, sub: [when, span].filter(Boolean).join(' · '), finished: items.every(i => done.has(i.id)) }
+  }).sort((a, b) => Number(a.finished) - Number(b.finished))
   const total = tasks.length, n = tasks.filter(x => done.has(x.id)).length
   const next = tasks.find(x => !done.has(x.id))
   const nowHM = new Intl.DateTimeFormat('de-CH', { timeZone: 'Europe/Zurich', hour: '2-digit', minute: '2-digit' }).format(new Date())
+  // Wo nachlesen, was genau verlangt ist: Artikel im Wissen oder Link (Video, How-to)
+  const guide = (x: typeof tasks[number]) => { const a = x.articleId ? wiki.find(w => w.id === x.articleId) : undefined
+    if (a) return { go: () => open({ k: 'wiki', item: a }), video: a.mediaKind === 'video' || a.mediaKind === 'youtube' }
+    if (x.linkUrl) return { go: () => window.open(x.linkUrl!, '_blank', 'noopener'), video: /youtu|vimeo|\.mp4|video/i.test(x.linkUrl) }
+    return null }
   return (
     <div className="pb-10"><Title sub={t('Studio {name} · heute', { name: me.branch })}>{t('Aufgaben')}</Title>
       <div className="px-5">
@@ -522,8 +529,8 @@ function Tasks({ open }: { open: (s: Sub) => void }) {
                         {x.prio && !d && <span className="text-brass">{t('Wichtig')}</span>}
                         {x.proof && <span className="inline-flex items-center gap-1"><Camera size={12} />{t('mit Foto')}</span>}
                       </p>
+                      {guide(x) && <button onClick={guide(x)!.go} className="mt-1.5 h-8 px-3 rounded-full bg-studio-50 text-studio text-[14px] font-medium inline-flex items-center gap-1.5">{guide(x)!.video ? <Play size={13} /> : <BookOpen size={13} />}{guide(x)!.video ? t('Video ansehen') : t('So geht es')}<ArrowUpRight size={13} /></button>}
                     </div>
-                    {x.articleId && wiki.find(w => w.id === x.articleId) && <button onClick={() => open({ k: 'wiki', item: wiki.find(w => w.id === x.articleId)! })} className="w-8 h-8 rounded-lg text-sage-800 hover:bg-sage-50 flex items-center justify-center shrink-0" title={t('Anleitung im Wissen')}><BookOpen size={16} /></button>}
                     {!d && <button disabled={busy === x.id} onClick={doIt} className="h-8 px-3 rounded-full bg-olive-700/10 text-olive-800 text-[14.5px] font-medium flex items-center gap-1.5 shrink-0 hover:bg-olive-700/15 disabled:opacity-50">{x.proof ? <Camera size={14} /> : <Check size={14} strokeWidth={2.6} />}{t('Erledigt')}</button>}
                   </div>
                 )
@@ -561,7 +568,21 @@ function AI({ open, onBack }: { open: (s: Sub) => void; onBack?: () => void }) {
 /* ---------- Wissen ---------- */
 // Jede Kategorie bekommt ein Emoji statt eines Fotos: einheitlich, ruhig, auch ohne Bilder im Artikel (Standard in lib/wiki, Büro kann es ändern)
 const catName = (name: string) => name.slice(0, 1).toUpperCase() + name.slice(1)
-const articleIcon = (a: WikiArticle) => a.mediaKind === 'video' || a.mediaKind === 'youtube' ? <Video size={17} /> : a.fromNews ? <Newspaper size={17} /> : <BookOpen size={17} />
+// Statt des Buchs das Zeichen des Hauptbereichs, zu dem der Artikel gehört (Wunsch der Inhaberin 22.10.)
+const articleIcon = (a: WikiArticle) => { if (a.fromNews) return <Newspaper size={17} />
+  const look = AREA_LOOK[areaOf(a.catKey, a.title)] ?? AREA_LOOK.studio, Icon = look.icon
+  return <span className={`w-9 h-9 rounded-[11px] flex items-center justify-center ${TONE[look.tone].bg} ${TONE[look.tone].fg}`}><Icon size={17} /></span> }
+// Suche im Wissen mit Marc daneben: wer nichts findet, fragt ihn direkt
+function WikiSearch({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder: string }) {
+  const { t } = useApp()
+  return <div className="flex gap-2"><div className="flex-1 min-w-0"><SearchBox value={value} onChange={onChange} placeholder={placeholder} /></div>
+    <button onClick={() => openNewBenniChat(value.trim() ? t('Ich suche im Wissen nach „{q}“. Welche Anleitung passt und was steht drin?', { q: value.trim() }) : t('Ich suche eine Anleitung im Wissen.'))} className={`h-11 px-3.5 rounded-2xl font-semibold flex items-center gap-1.5 shrink-0 ${TONE.note.bg} ${TONE.note.fg}`}><MessageCircle size={17} />Marc</button></div>
+}
+// Treffer: Titel zuerst, dann alles aus dem passenden Thema oder Bereich, dann Treffer im Text
+const wikiHits = (list: WikiArticle[], q: string) => { const x = q.trim().toLowerCase(); if (!x) return list
+  const areaName = (a: WikiArticle) => AREAS.find(r => r.key === areaOf(a.catKey, a.title))?.name ?? ''
+  const rank = (a: WikiArticle) => a.title.toLowerCase().includes(x) ? 0 : `${a.cat} ${areaName(a)}`.toLowerCase().includes(x) ? 1 : [a.intro, ...a.tags, ...a.body].join(' ').toLowerCase().includes(x) ? 2 : 3
+  return list.map(a => [a, rank(a)] as const).filter(([, r]) => r < 3).sort((a, b) => a[1] - b[1] || a[0].title.localeCompare(b[0].title)).map(([a]) => a) }
 
 // Beliebteste Artikel (Öffnungen der letzten 30 Tage, Tabelle wiki_views)
 function usePopular() {
@@ -569,21 +590,23 @@ function usePopular() {
   useEffect(() => { supabase?.rpc('popular_articles', { p_days: 30 }).then(({ data }) => setPop(new Map(((data ?? []) as { article_id: string; views: number }[]).map(r => [r.article_id, Number(r.views)])))) }, [])
   return pop
 }
-// Eigener Fortschritt im Wissen: „gelesen & bestätigt“ oder ein Durchgang gemacht (Tabelle wiki_runs)
+// Eigener Fortschritt im Wissen: „gelesen & bestätigt“ oder ein Durchgang gemacht (Tabelle wiki_runs).
+// Artikel mit Test gelten erst nach bestandenem Test als gelesen (Wunsch der Inhaberin 22.10.), das trägt der Test ein.
 type Runs = { read: Set<string>; runs: Map<string, number> }
 let runsCache: Runs | null = null
 const reloadRuns = () => window.dispatchEvent(new Event('th-wiki-runs'))
 function useWikiRuns() {
-  const { me } = useApp()
+  const { me, quizzes } = useApp()
+  const tested = new Set(quizzes.map(q => q.articleId).filter(Boolean))
   const [v, setV] = useState<Runs>(runsCache ?? { read: new Set(), runs: new Map() })
   useEffect(() => {
     const load = () => { supabase?.from('wiki_runs').select('article_id, kind').eq('employee_id', me.id).then(({ data }) => {
       const read = new Set<string>(), runs = new Map<string, number>()
-      for (const r of (data ?? []) as { article_id: string; kind: string }[]) { read.add(r.article_id); if (r.kind === 'durchgang') runs.set(r.article_id, (runs.get(r.article_id) ?? 0) + 1) }
+      for (const r of (data ?? []) as { article_id: string; kind: string }[]) { if (r.kind === 'gelesen' || !tested.has(r.article_id)) read.add(r.article_id); if (r.kind === 'durchgang') runs.set(r.article_id, (runs.get(r.article_id) ?? 0) + 1) }
       runsCache = { read, runs }; setV(runsCache)
     }) }
     load(); window.addEventListener('th-wiki-runs', load); return () => window.removeEventListener('th-wiki-runs', load)
-  }, [me.id])
+  }, [me.id, quizzes.length]) // eslint-disable-line react-hooks/exhaustive-deps
   return v
 }
 const AREA_LOOK: Record<string, { tone: Tone; icon: typeof Home }> = {
@@ -609,11 +632,11 @@ function Wiki({ open }: { open: (s: Sub) => void }) {
   const doneAll = wiki.filter(a => read.has(a.id)).length
   const popular = [...wiki].filter(a => (pop.get(a.id) ?? 0) > 0).sort((x, y) => (pop.get(y.id) ?? 0) - (pop.get(x.id) ?? 0)).slice(0, 5)
   const learnings = tickets.filter(x => x.kind === 'Learning')
-  const hits = allWiki.filter(a => a.published && [a.title, a.cat, a.intro, ...a.tags, ...a.body].join(' ').toLowerCase().includes(q.toLowerCase()))
+  const hits = wikiHits(allWiki.filter(a => a.published), q)
   return (
     <div className="pb-10"><Title right={<button onClick={() => open({ k: 'tickets', learning: true })} className={`mb-1 h-10 px-3.5 rounded-full text-[15px] font-semibold flex items-center gap-1.5 ${TONE.note.bg} ${TONE.note.fg}`}><Share2 size={16} />{t('Wissen teilen')}</button>}>{t('Wissen')}</Title>
       <div className="px-4">
-        <SearchBox value={q} onChange={setQ} placeholder={t('In allen Anleitungen suchen …')} />
+        <WikiSearch value={q} onChange={setQ} placeholder={t('In allen Anleitungen suchen …')} />
         {!q && <>
           <div className="mt-4 rounded-[20px] bg-white p-4">
             <div className="flex items-baseline justify-between"><p className="text-[17px] font-semibold">{t('Dein Fortschritt')}</p><p className="font-display text-[22px] tabular-nums">{pct(doneAll, wiki.length)} %</p></div>
@@ -646,7 +669,7 @@ function Wiki({ open }: { open: (s: Sub) => void }) {
             <List>{popular.map(a => <Row key={a.id} icon={articleIcon(a)} title={a.title} sub={`${catName(a.cat)} · ${t('{n} Min.', { n: a.minutes })}`} onClick={() => open({ k: 'wiki', item: a })} right={read.has(a.id) ? <Check size={18} className="text-done shrink-0" /> : undefined} />)}</List></>}
         </>}
         {q && <><Label>{t('{n} Treffer', { n: hits.length })}</Label>
-          {hits.length > 0 && <List>{hits.slice(0, 60).map(a => <Row key={a.id} icon={articleIcon(a)} title={a.title} sub={`${catName(a.cat)} · ${t('{n} Min.', { n: a.minutes })}`} onClick={() => open({ k: 'wiki', item: a })} />)}</List>}
+          {hits.length > 0 && <List>{hits.slice(0, 60).map(a => <Row key={a.id} icon={articleIcon(a)} title={a.title} sub={`${catName(a.cat)} · ${t('{n} Min.', { n: a.minutes })}`} onClick={() => open({ k: 'wiki', item: a })} right={read.has(a.id) ? <Check size={18} className="text-done shrink-0" /> : undefined} />)}</List>}
           {hits.length === 0 && <p className="text-[15.5px] text-mute">{t('Nichts gefunden. Frag {name} oder schick eine Idee ans Büro.', { name: ASSISTANT })}</p>}
         </>}
       </div>
@@ -661,9 +684,14 @@ function WikiArea({ k, open }: { k: string; open: (s: Sub) => void }) {
   const ar = AREAS.find(x => x.key === k)!, look = AREA_LOOK[k], Icon = look.icon
   const items = wiki.filter(a => a.published && !a.fromNews && areaOf(a.catKey, a.title) === k)
   const cats = [...new Set(items.map(a => a.cat))].sort((x, y) => items.filter(a => a.cat === y).length - items.filter(a => a.cat === x).length)
-  const [c, setC] = useState('Alle')
-  const shown = items.filter(a => c === 'Alle' || a.cat === c).sort((x, y) => (pop.get(y.id) ?? 0) - (pop.get(x.id) ?? 0) || x.title.localeCompare(y.title))
+  const [c, setC] = useState('Alle'), [q, setQ] = useState('')
+  // Offenes oben, Gelesenes rutscht nach unten (Wunsch der Inhaberin 22.10.); innerhalb beliebteste zuerst
+  const shown = wikiHits(items.filter(a => c === 'Alle' || a.cat === c), q).sort((x, y) => q.trim() ? 0 : (pop.get(y.id) ?? 0) - (pop.get(x.id) ?? 0) || x.title.localeCompare(y.title))
+  const todo = shown.filter(a => !read.has(a.id)), have = shown.filter(a => read.has(a.id))
   const done = items.filter(a => read.has(a.id)).length
+  const row = (a: WikiArticle) => { const n = runs.get(a.id) ?? 0
+    return <Row key={a.id} icon={articleIcon(a)} title={a.title} sub={[catName(a.cat), t('{n} Min.', { n: a.minutes }), n ? t('{n}× durchgemacht', { n }) : ''].filter(Boolean).join(' · ')} onClick={() => open({ k: 'wiki', item: a })}
+      right={read.has(a.id) ? <span className="w-6 h-6 rounded-full bg-done text-white flex items-center justify-center shrink-0"><Check size={14} strokeWidth={3} /></span> : <Circle size={22} className="text-sage-200 shrink-0" />} /> }
   return (
     <div className="pb-10 px-4">
       <div className={`mt-2 rounded-[22px] p-4 ${TONE[look.tone].bg}`}>
@@ -671,10 +699,11 @@ function WikiArea({ k, open }: { k: string; open: (s: Sub) => void }) {
           <div className="min-w-0"><h1 className={`font-display text-[25px] leading-tight ${TONE[look.tone].fg}`}>{t(ar.name)}</h1><p className="text-[15px] text-ink/70">{t(ar.desc)}</p></div></div>
         <div className="mt-4 flex items-center gap-3"><span className="flex-1"><Bar value={done} total={items.length} /></span><span className="text-[14.5px] font-semibold tabular-nums">{t('{a} von {b} gelesen', { a: done, b: items.length })}</span></div>
       </div>
-      {cats.length > 1 && <div className="mt-4"><Chips items={['Alle', ...cats]} value={c} onChange={setC} label={x => x === 'Alle' ? t('Alle') : catName(x)} /></div>}
-      <div className="mt-3"><List>{shown.map(a => { const n = runs.get(a.id) ?? 0
-        return <Row key={a.id} icon={articleIcon(a)} title={a.title} sub={[catName(a.cat), t('{n} Min.', { n: a.minutes }), n ? t('{n}× durchgemacht', { n }) : ''].filter(Boolean).join(' · ')} onClick={() => open({ k: 'wiki', item: a })}
-          right={read.has(a.id) ? <span className="w-6 h-6 rounded-full bg-done text-white flex items-center justify-center shrink-0"><Check size={14} strokeWidth={3} /></span> : <Circle size={22} className="text-sage-200 shrink-0" />} /> })}</List></div>
+      <div className="mt-4"><WikiSearch value={q} onChange={setQ} placeholder={t('Hier suchen …')} /></div>
+      {cats.length > 1 && <div className="mt-3"><Chips items={['Alle', ...cats]} value={c} onChange={setC} label={x => x === 'Alle' ? t('Alle') : catName(x)} /></div>}
+      {todo.length > 0 && <><Label action={<span className="text-[13px] text-mute tabular-nums">{todo.length}</span>}>{t('Noch offen')}</Label><List>{todo.map(row)}</List></>}
+      {have.length > 0 && <><Label action={<span className="text-[13px] text-mute tabular-nums">{have.length}</span>}>{t('Gelesen und bestätigt')}</Label><List>{have.map(row)}</List></>}
+      {shown.length === 0 && <p className="mt-4 text-[15.5px] text-mute">{t('Nichts gefunden. Frag {name} oder schick eine Idee ans Büro.', { name: ASSISTANT })}</p>}
     </div>
   )
 }
@@ -696,6 +725,18 @@ function WikiCategory({ k, name, open }: { k: string; name: string; open: (s: Su
     </div>
   )
 }
+function wichtig(bs: WikiBlock[] | null): { show: WikiBlock[]; used: Set<WikiBlock> } | null {
+  if (!bs) return null
+  const q = bs.find(x => x.t === 'quote'); if (q) return { show: [q], used: new Set([q]) }
+  const h = bs.findIndex(x => x.t === 'h' && /^wichtig/i.test(x.text ?? ''))
+  if (h >= 0) { const show: WikiBlock[] = []
+    const used: WikiBlock[] = [bs[h]]
+    for (let i = h + 1; i < bs.length && show.length < 6 && ['p', 'ul', 'ol'].includes(bs[i].t); i++) {
+      used.push(bs[i]); if (!/^\W*\w{1,12}\s*(\.\.\.|…)\W*$/.test(bs[i].text ?? '')) show.push(bs[i]) } // „immer...“ als Einleitung fällt weg
+    if (show.length) return { show, used: new Set(used) } }
+  const p = bs.find(x => x.t === 'p' && /^(\*\*wichtig:?\*\*|wichtig:)\s*/i.test(x.text ?? ''))
+  return p ? { show: [{ ...p, text: p.text!.replace(/^(\*\*wichtig:?\*\*|wichtig:)\s*/i, '') }], used: new Set([p]) } : null
+}
 const ytId = (u: string) => u.match(/(?:youtu\.be\/|v=|embed\/|shorts\/)([\w-]{11})/)?.[1]
 // **fett**, *kursiv*, [Text](Link) aus dem Import als echte Auszeichnung
 function Rich({ text }: { text: string }) {
@@ -703,13 +744,13 @@ function Rich({ text }: { text: string }) {
   return <>{parts.map((p, i) => {
     if (p === '\n') return <br key={i} />
     if (p.startsWith('**') && p.endsWith('**')) return <strong key={i}>{p.slice(2, -2)}</strong>
-    const l = p.match(/^\[([^\]]+)\]\(([^)]+)\)$/); if (l) return <a key={i} href={l[2]} target="_blank" rel="noreferrer" className="text-sage-800 underline underline-offset-2">{l[1]}</a>
+    const l = p.match(/^\[([^\]]+)\]\(([^)]+)\)$/); if (l) return <a key={i} href={l[2]} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} className="underline underline-offset-2">{l[1]}</a>
     if (p.startsWith('*') && p.endsWith('*') && p.length > 2) return <em key={i}>{p.slice(1, -1)}</em>
     return <span key={i}>{p}</span>
   })}</>
 }
 function WikiDetail({ a }: { a: WikiArticle }) {
-  const { quizzes, lang, t, me } = useApp()
+  const { quizzes, attempts, lang, t, me } = useApp()
   const [tr8, setTr8] = useState<{ body: string; blocks: WikiBlock[] | null } | null | 'loading' | 'failed'>(null)
   const [orig, setOrig] = useState(false)
   useEffect(() => {
@@ -719,6 +760,9 @@ function WikiDetail({ a }: { a: WikiArticle }) {
   }, [a.id, lang]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (!a.fromNews && supabase && me.id) supabase.from('wiki_views').upsert({ article_id: a.id, employee_id: me.id }, { onConflict: 'article_id,employee_id,day', ignoreDuplicates: true }).then(() => {}) }, [a.id]) // eslint-disable-line react-hooks/exhaustive-deps
   const quiz = quizzes.find(q => a.fromNews ? q.newsId === a.id.slice(5) : q.articleId === a.id)
+  // Artikel mit Test gelten erst nach bestandenem Test als gelesen (Wunsch der Inhaberin 22.10.)
+  const quizPassed = !!quiz && attempts.some(x => x.quizId === quiz.id && x.employeeId === me.id && x.passed)
+  const quizRef = useRef<HTMLDivElement>(null)
   const [full, setFull] = useState<{ body: string; blocks: WikiBlock[] | null; title?: string; intro?: string } | null>(a.fromNews ? { body: a.body.join('\n\n'), blocks: null } : null)
   const [urls, setUrls] = useState<Record<string, string>>({})
   useEffect(() => {
@@ -744,7 +788,11 @@ function WikiDetail({ a }: { a: WikiArticle }) {
   const tickedRef = useRef(ticked)
   const setTicked = (v: Set<string> | ((x: Set<string>) => Set<string>)) => { const n = typeof v === 'function' ? v(tickedRef.current) : v; tickedRef.current = n; setTickedState(n) }
   const [busy, setBusy] = useState(false)
-  const blocks = shown?.blocks ?? null
+  // „Wichtig“-Banner oben (Vorlage der Inhaberin 22.10.): der erste Hinweis-Baustein, sonst der Abschnitt
+  // „Wichtige Facts …“ der importierten Protokolle oder ein Absatz, der mit „Wichtig“ beginnt. Er fehlt dann unten.
+  const allBlocks = shown?.blocks ?? null
+  const banner = useMemo(() => wichtig(allBlocks), [allBlocks])
+  const blocks = allBlocks && banner ? allBlocks.filter(x => !banner.used.has(x)) : allBlocks
   // Schritt-Modus (Wunsch der Inhaberin 21.10.): nummerierte Listen werden zu Schritten, sonst ab zwei Zwischentiteln
   // jeder Abschnitt ein Schritt. Aufzählungen werden dann zur Checkliste, Hinweise zur roten Regel.
   type Step = { key: string; title: string | null; body: WikiBlock[] | null; text: string | null; parts?: string[] }
@@ -844,19 +892,31 @@ function WikiDetail({ a }: { a: WikiArticle }) {
     </div>
   }
   const isRead = read.has(a.id)
+  const look = AREA_LOOK[areaOf(a.catKey, a.title)] ?? AREA_LOOK.studio, LookIcon = look.icon
   return (
     <article className="pb-4">
       <div className="px-5">
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <span className={`px-2.5 py-1 rounded-full text-[13px] font-semibold ${TONE[toneOf(a.cat)].bg} ${TONE[toneOf(a.cat)].fg}`}>{catName(a.cat)}</span>
-          <span className="px-2.5 py-1 rounded-full text-[13px] bg-white text-ink/75 inline-flex items-center gap-1"><Clock size={12} />{t('{n} Min.', { n: a.minutes })}</span>
+        {/* Kopf nach Vorlage der Inhaberin: Thema und Stand, Titel, Lesedauer, dann „Wichtig“ */}
+        <div className="mt-2 flex items-center justify-between gap-3">
+          <span className={`px-2.5 py-1 rounded-[8px] text-[12.5px] font-semibold uppercase tracking-[.04em] inline-flex items-center gap-1.5 ${TONE[look.tone].bg} ${TONE[look.tone].fg}`}><LookIcon size={13} />{catName(a.cat)}</span>
+          <span className="text-[13px] text-mute shrink-0">{t('aktualisiert {date}', { date: a.updated })}</span>
+        </div>
+        <h1 className="mt-3 text-[28px] font-medium tracking-tight leading-tight">{title}</h1>
+        {intro && <p className="mt-2 text-[17px] text-mute leading-snug">{intro}</p>}
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <span className="px-2.5 py-1 rounded-full text-[13px] font-semibold bg-white text-ink/80 inline-flex items-center gap-1"><Clock size={12} />{t('{n} Min. Lesedauer', { n: a.minutes })}</span>
+          {quiz && <span className={`px-2.5 py-1 rounded-full text-[13px] font-semibold inline-flex items-center gap-1 ${quizPassed ? `${TONE.done.bg} ${TONE.done.fg}` : `${TONE.duty.bg} ${TONE.duty.fg}`}`}>{quizPassed ? <Check size={12} /> : <GraduationCap size={12} />}{quizPassed ? t('Test bestanden') : t('mit Test')}</span>}
           {(a.mediaKind === 'video' || a.mediaKind === 'youtube' || blocks?.some(x => x.t === 'video')) && <span className={`px-2.5 py-1 rounded-full text-[13px] font-semibold ${TONE.learn.bg} ${TONE.learn.fg}`}>{t('mit Video')}</span>}
           {a.accessLevel !== 'alle' && <span className="px-2.5 py-1 rounded-full text-[13px] bg-white text-ink/70 inline-flex items-center gap-1"><Lock size={12} />{a.accessLevel === 'buero' ? t('Büro') : t('Filialleitung')}</span>}
           {timesDone > 0 && <span className={`px-2.5 py-1 rounded-full text-[13px] font-semibold ${TONE.done.bg} ${TONE.done.fg}`}>{t('{n}× durchgemacht', { n: timesDone })}</span>}
         </div>
-        <h1 className="mt-3 text-[28px] font-medium tracking-tight leading-tight">{title}</h1>
-        {intro && <p className="mt-2 text-[17px] text-mute leading-snug">{intro}</p>}
-        <p className="mt-2 text-[14px] text-mute">{t('aktualisiert {date}', { date: a.updated })}</p>
+        {(banner || (quiz && !quizPassed)) && <div className="mt-4 rounded-[20px] bg-[#232821] px-4 py-3.5">
+          <p className="flex items-center gap-2 text-[14px] font-semibold uppercase tracking-[.05em] text-[#F2A99C]"><AlertTriangle size={17} />{t('Wichtig')}</p>
+          {banner && <div className="mt-1.5 space-y-1.5 text-[16.5px] leading-snug text-white/90">{banner.show.map((x, i) => x.t === 'ul' || x.t === 'ol'
+            ? <ul key={i} className="space-y-1">{x.items?.map((y, j) => <li key={j} className="flex gap-2"><span className="mt-[9px] w-1.5 h-1.5 rounded-full bg-white/60 shrink-0" /><span><Rich text={y} /></span></li>)}</ul>
+            : <p key={i}><Rich text={x.text ?? ''} /></p>)}</div>}
+          {quiz && !quizPassed && <p className={`${banner ? 'mt-2 text-[14.5px] text-white/65' : 'mt-1.5 text-[16.5px] text-white/90'} leading-snug`}>{t('Gilt erst als gelesen, wenn du den Test am Ende bestanden hast.')}</p>}
+        </div>}
         {lang !== 'DE' && !a.fromNews && <p className="mt-2 text-[14.5px] text-mute">{tr8 === 'loading' ? t('Wird übersetzt …') : tr8 === 'failed' ? t('Übersetzung gerade nicht möglich, Original wird angezeigt.') : <button onClick={() => setOrig(!orig)} className="text-olive-700">{orig ? t('Übersetzung anzeigen') : t('Automatisch übersetzt · Original')}</button>}</p>}
         {yt ? <iframe className="mt-5 w-full aspect-video rounded-[18px]" src={`https://www.youtube-nocookie.com/embed/${yt}`} title={a.title} allow="encrypted-media; picture-in-picture" allowFullScreen />
           : a.mediaKind === 'video' && own ? <video className="mt-5 w-full rounded-[18px] bg-olive-700" src={own} controls playsInline />
@@ -872,14 +932,15 @@ function WikiDetail({ a }: { a: WikiArticle }) {
             {plan.steps.slice(f.from, f.to).map((x, j) => stepCard(x, f.from + j + 1))}
           </div> : f.t === 'check' ? checklist(f.items, 5000 + f.key, f.title) : block(f, blocks!.indexOf(f)))}
         </div>}
-        {quiz && full && <QuizRunner quiz={quiz} />}
+        {quiz && full && <div ref={quizRef} className="scroll-mt-4"><QuizRunner quiz={quiz} onPassed={reloadRuns} /></div>}
       </div>
       {/* Unten fest: bestätigen und Marc fragen (Vorlage der Inhaberin) */}
       {!a.fromNews && full && <div className="sticky bottom-0 mt-6 px-4 pt-3 pb-3 bg-gradient-to-t from-sage-50 via-sage-50 to-sage-50/0">
         <div className="grid grid-cols-2 gap-2">
           {isRead ? <div className={`h-12 rounded-[16px] flex items-center justify-center gap-2 font-semibold whitespace-nowrap ${TONE.done.bg} ${TONE.done.fg}`}><Check size={18} />{t('Bestätigt')}</div>
-            : <button disabled={busy} onClick={confirmRead} className="h-12 rounded-[16px] bg-olive-800 text-white font-semibold flex items-center justify-center gap-2 whitespace-nowrap disabled:opacity-60"><Check size={18} />{t('Gelesen & bestätigen')}</button>}
-          <button onClick={() => openNewBenniChat(t('Ich lese gerade „{title}“. Fass mir die wichtigsten Punkte kurz zusammen, danach habe ich eine Frage.', { title: a.title }))} className={`h-12 px-3 rounded-[16px] font-semibold flex items-center justify-center gap-2 whitespace-nowrap ${TONE.note.bg} ${TONE.note.fg}`}><MessageCircle size={18} />{t('Frage an Marc')}</button>
+            : quiz && !quizPassed ? <button onClick={() => quizRef.current?.scrollIntoView({ behavior: 'smooth' })} className="h-12 rounded-[16px] bg-olive-800 text-white font-semibold flex items-center justify-center gap-2 whitespace-nowrap"><GraduationCap size={18} />{t('Zum Test')}</button>
+            : <button disabled={busy} onClick={confirmRead} className="h-12 px-2 rounded-[16px] bg-olive-800 text-white text-[15.5px] font-semibold flex items-center justify-center gap-1.5 whitespace-nowrap disabled:opacity-60">{t('Gelesen & bestätigen')}</button>}
+          <button onClick={() => openNewBenniChat(t('Ich lese gerade „{title}“. Fass mir die wichtigsten Punkte kurz zusammen, danach habe ich eine Frage.', { title: a.title }))} className={`h-12 px-2 rounded-[16px] text-[15.5px] font-semibold flex items-center justify-center gap-1.5 whitespace-nowrap ${TONE.note.bg} ${TONE.note.fg}`}><MessageCircle size={17} />{t('Frage an Marc')}</button>
         </div>
       </div>}
     </article>
@@ -1144,13 +1205,13 @@ function StandbyPicker() {
 }
 
 function Profile({ s, open }: { s: Staff; open: (x: Sub) => void }) {
-  const { t, me } = useApp()
+  const { t, me, privateChats } = useApp()
   const [busy, setBusy] = useState(false)
   const write = async () => { setBusy(true); const { data, error } = await supabase!.rpc('start_chat', { p_people: [s.id], p_title: null }); setBusy(false); if (error || !data) toast(t('Das hat nicht geklappt'), 'error'); else open({ k: 'chat', id: data as string }) }
   return (
     <div className="px-4 pb-10">
       <ProfileHead s={s} photo={s.photo} />
-      {s.id !== me.id && <button disabled={busy} onClick={write} className="mt-3 w-full h-12 rounded-[16px] bg-olive-800 text-white font-semibold flex items-center justify-center gap-2 disabled:opacity-60"><MessageCircle size={18} />{t('Nachricht schreiben')}</button>}
+      {s.id !== me.id && privateChats && <button disabled={busy} onClick={write} className="mt-3 w-full h-12 rounded-[16px] bg-olive-800 text-white font-semibold flex items-center justify-center gap-2 disabled:opacity-60"><MessageCircle size={18} />{t('Nachricht schreiben')}</button>}
       <div className="px-1"><Label>{t('Persönliches')}</Label>{s.about ? <Card className="p-4"><p className="text-[17px] leading-relaxed whitespace-pre-wrap">{s.about}</p></Card> : <p className="text-[15.5px] text-mute">{t('Noch nichts eingetragen.')}</p>}
         <Label>{t('Skills')}</Label>{s.skills.length ? <div className="flex flex-wrap gap-2">{s.skills.map(k => <span key={k} className="px-3 h-8 rounded-full bg-white text-[14.5px] flex items-center">{k}</span>)}</div> : <p className="text-[15.5px] text-mute">{t('Noch keine Skills eingetragen.')}</p>}
         <Label>{t('Arbeitszeiten diese Woche')}</Label><WeekShifts id={s.id} />

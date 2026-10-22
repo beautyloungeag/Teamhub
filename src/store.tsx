@@ -9,7 +9,7 @@ export type { Lang }
 /* ---------- Typen ---------- */
 export type Staff = { id: string; first: string; last: string; branch: string; branch_id: string; role: string; skills: string[]; photo: string | null; app_role: string; active: boolean; email: string; phone?: string | null; appInstalled?: boolean; pushEnabled?: boolean; extra?: string[]; about?: string | null }
 export type News = { id: string; title: string; teaser: string; body: string; author: string; authorId: string | null; date: string; tag: string; mustRead: boolean; audience: string; audienceBranches: string[]; audienceGroups: string[]; audienceSkills: string[]; audiencePeople: string[]; publishAt: string; wikiCategory: string | null; image: string | null; orig: { title: string; teaser: string; body: string } | null }
-export type TaskItem = { id: string; title: string; time: string; group: string; prio: boolean; proof: boolean; articleId: string | null }
+export type TaskItem = { id: string; title: string; time: string; group: string; prio: boolean; proof: boolean; articleId: string | null; linkUrl: string | null }
 export type Template = { id: string; name: string; repeat: 'daily' | 'weekly' | 'monthly'; weekday: number | null; monthday: number | null; branchIds: string[]; items: TaskItem[]; active: boolean; proposed: boolean; sample: boolean }
 export type Done = { by: string; byId: string | null; at: string; photo: string | null }
 export type Ticket = { id: string; kind: 'Meldung' | 'Idee' | 'Learning'; title: string; body: string; branch: string; branchId: string; allStudios: boolean; status: 'Neu' | 'Zugewiesen' | 'In Arbeit' | 'Erledigt'; who: string; when: string; assignee: string | null; photo: string | null; mediaKind: 'photo' | 'video'; viaAI: boolean; mine: boolean; votes: number; voted: boolean; comments: Comment[] }
@@ -75,6 +75,8 @@ type Ctx = {
   polls: Poll[]; pollAnswers: Map<string, PollValue>; submitPoll: (pollId: string, answers: Record<string, PollValue>) => Promise<boolean>
   standby: { employee_id: string; day: string; note: string }[]; toggleStandby: (day: string) => Promise<void>
   demoData: boolean; setDemoData: (on: boolean) => Promise<void>
+  /** Einzel- und eigene Gruppenchats (Büro schaltet sie ein, app_settings chat_private) */
+  privateChats: boolean
   quizzes: Quiz[]; attempts: Attempt[]; submitQuiz: (quizId: string, answers: Record<string, number[] | string>) => Promise<QuizResult | null>
   wiki: WikiArticle[]; reloadWiki: () => Promise<void>; catEmojis: Record<string, string>; steps: Step[]; allSteps: Step[]; obDone: Set<string>; toggleStep: (id: string) => Promise<void>
   skills: string[]; setSkills: (s: string[]) => void
@@ -114,6 +116,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [pollAnswers, setPollAnswers] = useState<Map<string, PollValue>>(new Map())
   const [attempts, setAttempts] = useState<Attempt[]>([])
   const [demoData, setDemoState] = useState(true)
+  const [privateChats, setPrivateChats] = useState(false)
   const [allSteps, setAllSteps] = useState<Step[]>([])
   const steps = useMemo(() => allSteps.filter(x => !x.proposed), [allSteps])
   const [obDone, setObDone] = useState<Set<string>>(new Set())
@@ -171,6 +174,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     ])
     const demo = (fl.data as any)?.demo_data !== false
     setDemoState(demo)
+    setPrivateChats((fl.data as any)?.chat_private === true)
     const keep = (rows: any[] | null) => (rows ?? []).filter((r: any) => demo || !r.is_sample)
     const brs = (br.data ?? []) as Branch[]
     const bname = (id: string) => brs.find(b => b.id === id)?.name ?? id
@@ -198,7 +202,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const items = (ti.data ?? []) as any[]
     setTemplates(keep(tt.data).map((x: any) => ({
       id: x.id, name: tx(x, 'name', lang), repeat: x.repeat, weekday: x.weekday, monthday: x.monthday, branchIds: x.branch_ids ?? [],
-      items: items.filter(i => i.template_id === x.id).map(i => ({ id: i.id, title: tx(i, 'title', lang), time: i.due_time ? String(i.due_time).slice(0, 5) : '', group: tx(x, 'name', lang), prio: i.prio, proof: i.proof_photo, articleId: i.article_id ?? null })),
+      items: items.filter(i => i.template_id === x.id).map(i => ({ id: i.id, title: tx(i, 'title', lang), time: i.due_time ? String(i.due_time).slice(0, 5) : '', group: tx(x, 'name', lang), prio: i.prio, proof: i.proof_photo, articleId: i.article_id ?? null, linkUrl: i.link_url ?? null })),
       active: x.active, proposed: x.proposed, sample: x.is_sample,
     })))
     setCompletions(tc.data ?? [])
@@ -344,7 +348,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       await sb.from('tickets').update({ assignee: a || null, status }).eq('id', id); await reload()
     },
     setStatus: async (id, s) => { await sb.from('tickets').update({ status: s }).eq('id', id); await reload() },
-    events, joined, declined, waiting, registrations, standby, demoData, quizzes, attempts, polls, pollAnswers,
+    events, joined, declined, waiting, registrations, standby, demoData, privateChats, quizzes, attempts, polls, pollAnswers,
     submitPoll: async (pollId, answers) => {
       const rows = Object.entries(answers).filter(([, v]) => v !== '' && !(Array.isArray(v) && !v.length)).map(([question_id, value]) => ({ question_id, poll_id: pollId, employee_id: employee.id, value }))
       if (!rows.length) return false

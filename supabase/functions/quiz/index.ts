@@ -41,7 +41,7 @@ Deno.serve(async (req) => {
 
   const admin = createClient(url, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
   const [{ data: quiz }, { data: qs }] = await Promise.all([
-    admin.from('quizzes').select('pass_pct, news_id').eq('id', quizId).single(),
+    admin.from('quizzes').select('pass_pct, news_id, article_id').eq('id', quizId).single(),
     admin.from('quiz_questions').select('id, kind, prompt, options, correct, rubric').eq('quiz_id', quizId).order('sort'),
   ])
   if (!quiz || !qs?.length) return json({ ok: false, error: 'no_questions' }, 400)
@@ -69,6 +69,11 @@ Deno.serve(async (req) => {
   await admin.from('quiz_attempts').insert({ quiz_id: quizId, employee_id: me.id, score_pct: pct, passed, answers, results })
   if (passed && quiz.news_id) {
     await admin.from('news_reads').upsert({ news_id: quiz.news_id, employee_id: me.id, confirmed_at: new Date().toISOString() }, { onConflict: 'news_id,employee_id', ignoreDuplicates: false })
+  }
+  // Artikel im Wissen gilt erst mit bestandenem Test als gelesen (Wunsch der Inhaberin 22.10.)
+  if (passed && quiz.article_id) {
+    // Teilindex „einmal gelesen“: ein zweites Bestehen ergibt nur einen Duplikat-Fehler, der hier nicht zählt
+    await admin.from('wiki_runs').insert({ article_id: quiz.article_id, employee_id: me.id, kind: 'gelesen' })
   }
   return json({ ok: true, score_pct: pct, passed, pass_pct: quiz.pass_pct, correct: ok, total, results, feedback })
 })

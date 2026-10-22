@@ -2,6 +2,19 @@
 
 Interne Mitarbeiter-App (PWA + Desktop-Backoffice) der Beautylounge AG. Kundin: Renée Baumann. PM-Projekt: `projekt.aleksa.ai`, Key **BLTH** (`d4ee5d5c-4553-436c-bba7-137a03a2b704`). ⚠️ Das Repo `beautyloungeag/Teamhub` ist **öffentlich** — nie Personendaten committen.
 
+### Was wurde in dieser Session gemacht (2026-10-22) — dritte Feedback-Runde der Inhaberin
+
+Umgesetzt (lokal + Repo, Datenbank und Functions schon live; Oberfläche live erst nach dem nächsten Netlify-Deploy):
+- **Wissen · Bereich (Bild 08):** oben „Noch offen“, darunter „Gelesen und bestätigt“, Gelesenes rutscht also nach unten. Suchfeld im Bereich plus Knopf „Marc“ (öffnet einen neuen Marc-Chat mit dem Suchbegriff). Suche (auch auf der Übersicht) zeigt erst Titel-Treffer, dann **alle Artikel des passenden Themas oder Bereichs**, dann Treffer im Text (`wikiHits`).
+- **Artikel-Zeichen:** statt Buch das Zeichen des Hauptbereichs (`articleIcon` → `AREA_LOOK`), auch im Artikelkopf.
+- **Artikelkopf nach Renées Vorlage:** Thema + „aktualisiert“, Titel, Kurzfassung, Chip „{n} Min. Lesedauer“ (+ „mit Test“/„Test bestanden“, „mit Video“), dann dunkles **„Wichtig“-Banner**. Inhalt (`wichtig()` in Mobile.tsx): erster Hinweis-Baustein, sonst der Abschnitt „Wichtige Facts …“ der importierten Protokolle (Überschrift, die mit „Wichtig“ beginnt, + bis zu 6 Absätze), sonst ein Absatz „**Wichtig** …“. Was ins Banner wandert, fehlt unten. Keine importierten Artikel haben Hinweis-Bausteine; 42 von 178 haben einen Wichtig-Abschnitt/-Absatz.
+- **Gelesen erst nach bestandenem Test:** Trigger `wiki_read_needs_quiz` (Migration `0032`) sperrt „gelesen“ ohne bestandenen Test; die Function `quiz` (v5) trägt „gelesen“ beim Bestehen selbst ein. In der App heißt der Knopf dann „Zum Test“. ⚠️ Stand 22.10. hängt an **keinem** Wissensartikel ein Test (`quizzes.article_id` überall leer) — die Regel greift, sobald das Büro Tests anlegt. Ein voller Durchgang zählt nur bei Artikeln ohne Test als gelesen.
+- **Tests 3 bis 10 Fragen:** Quiz-Editor startet mit 3 leeren Fragen, speichert nur 3–10, „Frage hinzufügen“ endet bei 10. Marcs Kontrollfragen je Lektion 3–10 (Backoffice → Lernen; Function `assistant` v33 klemmt auf 3–10).
+- **Studio-Checklisten (Bild 12):** Erledigtes rutscht in der Liste nach unten, ganz erledigte Listen ans Ende.
+- **Anleitung je Checklistenpunkt:** Backoffice → Aufgaben → Checkliste: Ketten-Knopf je Punkt, dort Artikel aus dem Wissen suchen oder Link einfügen (z. B. Sonos-Video). Spalte `task_items.link_url` (neu) bzw. `article_id`. In der App steht unter dem Punkt „So geht es“ oder „Video ansehen“. Links im Artikeltext lösen in Checklisten kein Abhaken mehr aus.
+- **Chats zum Start nur feste Gruppen:** Studio-Raum + „Ganzes Team“. „Neuer Chat“ und „Nachricht schreiben“ im Profil sind weg; `start_chat` und `chat_can` sperren Einzel- und eigene Gruppenchats serverseitig. Einschalten bei Bedarf: `app_settings.chat_private = true` (kein Knopf im Backoffice).
+- Geprüft im Dev-Server mit dem Testkonto (Bilder Bereich, Artikel, Aufgaben mit kurzzeitigem Test-Link, Chats, Profil); Test-Lesemarke und Test-Link danach per ID entfernt. **Nicht** im Browser geprüft: der neue Link-Editor im Backoffice (nur Typprüfung).
+
 ### Was wurde in dieser Session gemacht (2026-10-21, Abschluss nachts)
 
 - Renées Antwort „Re: App Optik“ (zweite Runde + Ergänzung Zeit/Ferien/Mail) ist komplett umgesetzt, Details in den drei Nachträgen darunter. PDF `~/Downloads/TeamHub-Mitarbeiter-App-neuer-Stand.pdf` (32 Ansichten, 6 Seiten) und Antwortmail liegen bei Aleksa zum Versand.
