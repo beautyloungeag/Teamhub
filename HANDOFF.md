@@ -1,5 +1,9 @@
 # HANDOFF — Beautylounge TeamHub
 
+### 2026-10-23 — Scope and branch backup
+
+Owner clarified this engagement is one-time setup and handover on customer-owned accounts, with no hosting or ongoing support included. Planned TeamHub processing agreement must be limited to that work; Ella/Feleo platform agreement is separate. The native customer-app investigation remains a separate task. Close backs up this privacy branch only; no main merge or frontend release. The backend privacy release below is already live. Latest schema and rollout notes: `ARCHITECTURE.md`, `ROADMAP.md`, `PRIVACY.md`.
+
 ### 2026-10-22 — Privacy changes published
 
 On the owner's explicit approval, twelve-month assistant/team-chat retention is active hourly, with holds and physical file cleanup. `assistant` v34 now uses OpenAI `store:false` and private local context instead of provider-held response chains; `privacy-retention` v1 and two additive migrations are live. Real attachment-follow-up/RLS/deletion and scheduler-transport checks passed and disposable data was removed. Details and limits: `PRIVACY.md`. Source is on `codex/teamhub-privacy-20261022` in `teamhub-privacy`; no GitHub push or frontend deployment. Retell was explicitly excluded. The native customer app/HTTPS review is deferred by the owner to 23 October.
