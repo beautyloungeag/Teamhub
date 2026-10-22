@@ -369,9 +369,9 @@ function TodayChats({ go, open }: { go: (t: Tab) => void; open: (s: Sub) => void
 /* ---------- News ---------- */
 // Kategorien wie von der Inhaberin gewünscht; „Wichtig“ umfasst auch jede Pflicht-News
 export const NEWS_CATS = ['Wichtig', 'Schulung', 'Team', 'Salon']
-const newsCat = (n: News) => n.mustRead ? 'Wichtig' : NEWS_CATS.includes(n.tag) ? n.tag : n.tag === 'Studio' || n.tag === 'Marketing' ? 'Salon' : n.tag
+export const newsCat = (n: News) => n.mustRead ? 'Wichtig' : NEWS_CATS.includes(n.tag) ? n.tag : n.tag === 'Studio' || n.tag === 'Marketing' ? 'Salon' : n.tag
 // Ohne eigenes Bild: Foto aus den Studios, damit jede Karte gleich gross bleibt
-const newsPhoto = (n: News) => n.image ?? (newsCat(n) === 'Team' ? '/login-studio.webp' : newsCat(n) === 'Salon' ? '/hero-empfang.jpg' : '/hero-studio.jpg')
+export const newsPhoto = (n: News) => n.image ?? (newsCat(n) === 'Team' ? '/login-studio.webp' : newsCat(n) === 'Salon' ? '/hero-empfang.jpg' : '/hero-studio.jpg')
 const newsWhen = (iso: string, t: (s: string) => string) => {
   const d = new Date(iso), today = isoDay(), day = isoDay(d)
   const time = new Intl.DateTimeFormat(locale(), { timeZone: 'Europe/Zurich', hour: '2-digit', minute: '2-digit' }).format(d)
@@ -609,7 +609,7 @@ function useWikiRuns() {
   }, [me.id, quizzes.length]) // eslint-disable-line react-hooks/exhaustive-deps
   return v
 }
-const AREA_LOOK: Record<string, { tone: Tone; icon: typeof Home }> = {
+export const AREA_LOOK: Record<string, { tone: Tone; icon: typeof Home }> = {
   behandlung: { tone: 'learn', icon: Sparkles }, hygiene: { tone: 'duty', icon: ShieldAlert }, studio: { tone: 'note', icon: LayoutGrid },
   team: { tone: 'plum', icon: Users }, lernen: { tone: 'done', icon: GraduationCap },
 }

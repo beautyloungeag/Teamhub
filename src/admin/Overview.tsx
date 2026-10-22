@@ -1,12 +1,11 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { ArrowUpRight } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
 import { useApp, isoDay, addDays, appliesOn, fmtDate, fmtTime, zurichHour } from '../store'
 import { supabase } from '../lib/supabase'
 import { phorest, type TeamToday } from '../lib/phorest'
 import { loadPerf, type Perf } from '../Performance'
 import { useAudience } from './News'
-import { Seg, Section, Status, Empty, real, inBranch } from './kit'
-import { Donut, DonutParts, LineChart, Columns, BarList, STEPS } from './charts'
+import { Seg, Section, Status, Empty, real, inBranch, ToneTile, TONE_HEX } from './kit'
+import { Donut, DonutParts, LineChart, Columns, BarList } from './charts'
 
 // Übersicht: was heute zählt, mit Verläufen statt Zahlenkacheln. Jede Kennzahl führt auf ihre Seite.
 
@@ -98,17 +97,17 @@ export function Overview({ go, can }: { go: Go; can: (v: string) => boolean }) {
         {studios.length > 1 && <Seg value={scope} onChange={setScope} items={[...(office ? [['', 'Alle Studios'] as [string, string]] : []), ...studios.map(s => [s.id, s.name] as [string, string])]} />}
       </div>
 
-      {/* Kennzahlen: ohne Kacheln, jede führt auf ihre Seite */}
-      <div className="grid grid-cols-4 border-y border-line">
-        <Kpi onClick={can('tasks') ? () => go('tasks') : undefined} first label="Checklisten heute"
-          figure={t0 ? `${t0.done} von ${t0.total}` : '…'} visual={<Donut value={t0?.done ?? 0} total={t0?.total ?? 0} size={52} stroke={6} />}
-          meta={t0?.late ? <span className="text-alert">{t0.late} überfällig</span> : t0 && t0.total && t0.done === t0.total ? 'alles erledigt' : 'erledigt'} />
-        <Kpi onClick={can('news') ? () => go('news') : undefined} label="Pflicht-News bestätigt"
-          figure={must ? `${mustOk} von ${mustPeople.length}` : '–'} visual={<Donut value={mustOk} total={mustPeople.length} size={52} stroke={6} />}
-          meta={<span className="truncate block">{must?.title ?? 'keine Pflicht-News'}</span>} />
-        <Kpi onClick={can('tickets') ? () => go('tickets') : undefined} label="Offene Meldungen"
+      {/* Kennzahlen als farbige Kacheln wie auf der Startseite der App (22.10.), jede führt auf ihre Seite */}
+      <div className="grid grid-cols-4 gap-3">
+        <ToneTile tone="done" onClick={can('tasks') ? () => go('tasks') : undefined} label="Checklisten heute"
+          figure={t0 ? `${t0.done} von ${t0.total}` : '…'} value={t0?.done ?? 0} total={t0?.total ?? 0}
+          meta={t0?.late ? <span className="text-duty font-semibold">{t0.late} überfällig</span> : t0 && t0.total && t0.done === t0.total ? 'alles erledigt' : 'erledigt'} />
+        <ToneTile tone="duty" onClick={can('news') ? () => go('news') : undefined} label="Pflicht-News bestätigt"
+          figure={must ? `${mustOk} von ${mustPeople.length}` : '–'} value={mustOk} total={mustPeople.length}
+          meta={must?.title ?? 'keine Pflicht-News'} />
+        <ToneTile tone="note" onClick={can('tickets') ? () => go('tickets') : undefined} label="Offene Meldungen"
           figure={String(tNew + tWork)} meta={tNew + tWork ? `${tNew} neu · ${tWork} in Arbeit` : 'nichts offen'} />
-        <Kpi onClick={can('performance') ? () => go('performance') : undefined} label="Behandlungen · 7 Tage"
+        <ToneTile tone="learn" onClick={can('performance') ? () => go('performance') : undefined} label="Behandlungen · 7 Tage"
           figure={perf ? (span === '7' ? sumA : perf.reduce((s, p) => s + (p.series?.slice(-7).reduce((a, d) => a + d.treatments, 0) ?? 0), 0)).toLocaleString('de-CH') : '…'}
           meta={span === '7' && change !== null ? `${change > 0 ? '+' : ''}${change} % zur Vorwoche` : 'aus Phorest'} />
       </div>
@@ -133,10 +132,10 @@ export function Overview({ go, can }: { go: Go; can: (v: string) => boolean }) {
         </Section>
         <Section title="Meldungen" action={can('tickets') ? <button onClick={() => go('tickets')} className="text-[13px] text-olive-700">Alle ansehen</button> : undefined}>
           <div className="flex items-center gap-8">
-            <DonutParts size={128} stroke={13} parts={[{ value: tNew, color: '#B08A52' }, { value: tWork, color: STEPS[0] }, { value: tDone, color: STEPS[3] }]}>
+            <DonutParts size={128} stroke={13} parts={[{ value: tNew, color: TONE_HEX.note }, { value: tWork, color: TONE_HEX.learn }, { value: tDone, color: TONE_HEX.done }]}>
               <span className="font-display text-[26px] leading-none tabular-nums">{tks.length}</span><span className="text-[11.5px] text-mute mt-1">gesamt</span></DonutParts>
             <ul className="flex-1 space-y-2 text-[14px]">
-              {([['Neu', tNew, '#B08A52'], ['In Arbeit', tWork, STEPS[0]], ['Erledigt', tDone, STEPS[3]]] as const).map(([l, n, c]) => <li key={l} className="flex items-center gap-2.5"><span className="w-2.5 h-2.5 rounded-full" style={{ background: c }} /><span className="flex-1">{l}</span><span className="tabular-nums">{n}</span></li>)}
+              {([['Neu', tNew, TONE_HEX.note], ['In Arbeit', tWork, TONE_HEX.learn], ['Erledigt', tDone, TONE_HEX.done]] as const).map(([l, n, c]) => <li key={l} className="flex items-center gap-2.5"><span className="w-2.5 h-2.5 rounded-full" style={{ background: c }} /><span className="flex-1">{l}</span><span className="tabular-nums">{n}</span></li>)}
             </ul>
           </div>
           <ul className="mt-5 divide-y divide-line">{tks.filter(t => t.status !== 'Erledigt').slice(0, 3).map(t => <li key={t.id} className="py-2.5 flex items-center justify-between gap-3 text-[14px]"><span className="truncate">{t.title}</span><Status kind={t.status === 'Neu' ? 'open' : 'wait'}>{t.status}</Status></li>)}</ul>
@@ -164,11 +163,3 @@ export function Overview({ go, can }: { go: Go; can: (v: string) => boolean }) {
   )
 }
 
-function Kpi({ label, figure, meta, visual, onClick, first }: { label: string; figure: ReactNode; meta: ReactNode; visual?: ReactNode; onClick?: () => void; first?: boolean }) {
-  const body = <>
-    <span className="flex items-center justify-between gap-2"><span className="text-[13px] text-mute">{label}</span>{onClick && <ArrowUpRight size={15} className="text-sage-400 opacity-0 group-hover:opacity-100 transition" />}</span>
-    <span className="mt-2 flex items-center gap-4">{visual}<span className="min-w-0"><span className="block font-display text-[26px] leading-tight tabular-nums">{figure}</span><span className="block text-[12.5px] text-mute truncate">{meta}</span></span></span>
-  </>
-  const cls = `group text-left px-5 py-5 min-w-0 ${first ? '' : 'border-l border-line'}`
-  return onClick ? <button onClick={onClick} className={`${cls} hover:bg-sage-50 transition-colors`}>{body}</button> : <div className={cls}>{body}</div>
-}

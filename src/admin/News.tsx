@@ -8,7 +8,9 @@ import { BMark } from '../Logo'
 import { Avatar } from '../People'
 import { PollResults, usePollResults } from '../Poll'
 import { toast } from '../Toast'
-import { H, New, Th, Field, inpStone, btn, btn2, Err, retranslate, real, isTest, inBranch, Select, Seg, Modal, Chips, Back, Section, Status, Empty, DataRow } from './kit'
+import { H, New, Th, Field, inpStone, btn, btn2, Err, retranslate, real, isTest, inBranch, Select, Seg, Modal, Chips, Back, Section, Status, Empty, DataRow, Tag, ToneBar, TONE_HEX } from './kit'
+import { newsCat, newsPhoto } from '../Mobile'
+import { toneOf } from '../tones'
 import { Donut } from './charts'
 
 // Kategorien wie in der App (Inhaberin 21.10.)
@@ -41,9 +43,10 @@ export function NewsAdmin() {
       <table className="tbl w-full text-[14px] table-fixed"><thead><tr><Th>Titel</Th><th className="w-[220px] text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">Für</th><th className="w-[120px] text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">Datum</th><th className="w-[200px] text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">Gelesen</th><th className="w-10 border-b border-line" /></tr></thead>
         <tbody className="divide-y divide-line">{list.map(x => { const planned = new Date(x.publishAt) > new Date(), reach = reachOf(x).length, ok = x.mustRead ? okOf(x) : 0
           return <tr key={x.id} onClick={() => setOpen(x.id)} className="cursor-pointer hover:bg-sage-50/70">
-            <td className="px-4 py-3"><span className="block truncate">{x.title}</span><span className="block text-[12.5px] text-mute truncate">{x.author}{x.mustRead ? ' · Pflicht' : ''}{polls.some(p => p.newsId === x.id) ? ' · mit Umfrage' : ''}{planned ? ' · geplant' : ''}</span></td>
+            <td className="px-4 py-3"><span className="flex items-center gap-3.5 min-w-0"><img src={newsPhoto(x)} alt="" className={`w-16 h-11 rounded-[10px] object-cover bg-sage-100 shrink-0 ${x.image ? '' : 'saturate-[.85]'}`} />
+              <span className="min-w-0"><span className="flex items-center gap-2 min-w-0"><Tag tone={toneOf(newsCat(x), x.mustRead)}>{newsCat(x)}</Tag><span className="truncate">{x.title}</span></span><span className="block text-[12.5px] text-mute truncate mt-0.5">{x.author}{x.mustRead ? ' · Pflicht' : ''}{polls.some(p => p.newsId === x.id) ? ' · mit Umfrage' : ''}{planned ? ' · geplant' : ''}</span></span></span></td>
             <td className="px-4 text-mute truncate">{x.audience}</td><td className="px-4 text-mute">{x.date}</td>
-            <td className="px-4">{x.mustRead ? <span className="flex items-center gap-3"><span className="flex-1 h-1.5 rounded-full bg-line overflow-hidden"><span className={`block h-full rounded-full ${ok < reach ? 'bg-brass' : 'bg-olive-700'}`} style={{ width: `${reach ? ok / reach * 100 : 0}%` }} /></span><span className="text-[12.5px] text-mute tabular-nums w-12 text-right">{ok}/{reach}</span></span> : <span className="text-[13px] text-mute">ohne Bestätigung</span>}</td>
+            <td className="px-4">{x.mustRead ? <span className="flex items-center gap-3"><span className="flex-1"><ToneBar value={ok} total={reach} tone={ok < reach ? 'duty' : 'done'} /></span><span className="text-[12.5px] text-mute tabular-nums w-12 text-right">{ok}/{reach}</span></span> : <span className="text-[13px] text-mute">ohne Bestätigung</span>}</td>
             <td className="px-2 text-right text-mute"><ChevronRight size={15} className="inline" /></td></tr> })}</tbody></table>)}
     {compose && <Compose edit={compose === 'neu' ? null : compose} onClose={() => setCompose(null)} />}
   </>)
@@ -63,7 +66,7 @@ function NewsPage({ n, people, onBack, onEdit }: { n: News; people: Staff[]; onB
     <div className="max-w-[1000px]">
       <Back onClick={onBack}>News</Back>
       <div className="flex items-start justify-between gap-6">
-        <div className="min-w-0"><p className="text-[13px] text-mute">{n.author} · {n.date}{n.mustRead ? ' · Pflicht' : ''}</p><h1 className="text-[28px] leading-tight mt-1">{n.title}</h1></div>
+        <div className="min-w-0"><p className="text-[13px] text-mute flex items-center gap-2"><Tag tone={toneOf(newsCat(n), n.mustRead)}>{newsCat(n)}</Tag>{n.author} · {n.date}{n.mustRead ? ' · Pflicht' : ''}</p><h1 className="text-[28px] leading-tight mt-1">{n.title}</h1></div>
         {canEdit && <div className="flex items-center gap-2 shrink-0"><button onClick={del} title="Löschen" className="w-10 h-10 rounded-[10px] text-mute hover:text-alert hover:bg-sage-50 flex items-center justify-center"><Trash2 size={16} /></button><button onClick={onEdit} className={`${btn2} flex items-center gap-2`}><Pencil size={14} />Bearbeiten</button></div>}
       </div>
       <div className="grid grid-cols-[minmax(0,1fr)_300px] gap-12 mt-6">
@@ -72,7 +75,7 @@ function NewsPage({ n, people, onBack, onEdit }: { n: News; people: Staff[]; onB
           <DataRow label="Für" value={n.audience} />
           <DataRow label="Erreicht" value={`${people.length} ${people.length === 1 ? 'Person' : 'Personen'}`} />
           {n.wikiCategory && <DataRow label="Im Wissen" value={n.wikiCategory} />}
-          {n.mustRead && <div className="flex items-center gap-4 mt-5"><Donut value={ok} total={people.length} size={64} stroke={7} /><span className="text-[14px]"><span className="block font-medium tabular-nums">{ok} von {people.length}</span><span className="text-mute">haben bestätigt</span></span></div>}
+          {n.mustRead && <div className="flex items-center gap-4 mt-5"><Donut value={ok} total={people.length} size={64} stroke={7} tone={TONE_HEX[ok < people.length ? 'duty' : 'done']} /><span className="text-[14px]"><span className="block font-medium tabular-nums">{ok} von {people.length}</span><span className="text-mute">haben bestätigt</span></span></div>}
         </div>
       </div>
       {poll && <PollPanel key={poll.id} pollId={poll.id} anonymous={poll.anonymous} closed={!!poll.closesAt && new Date(poll.closesAt) < new Date()} title={n.title} reach={people.length} />}

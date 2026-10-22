@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase'
 import { notifyNow } from '../lib/push'
 import { Avatar } from '../People'
 import { toast } from '../Toast'
-import { H, New, Th, Field, inpStone, btn, btn2, Err, retranslate, real, inBranch, Select, Seg, Modal, Chips, Back, Section, Status, Empty, ReadOnly } from './kit'
+import { H, New, Th, Field, inpStone, btn, btn2, Err, retranslate, real, inBranch, Select, Seg, Modal, Chips, Back, Section, Status, Empty, ReadOnly, ToneTile } from './kit'
 import { Donut } from './charts'
 
 // Lernen: Fortschritt je Person, Lektionen (Marc geht sie mit Neuen durch) und Quiz.
@@ -65,12 +65,12 @@ function Progress() {
   const rows = people.map(p => ({ p, st: stats(p) }))
   const sum = (f: (x: typeof rows[number]['st']) => [number, number]) => rows.reduce((a, r) => { const [x, y] = f(r.st); return [a[0] + x, a[1] + y] }, [0, 0])
   const [obA, obB] = sum(st => [st.obDone, st.obTotal]), [mA, mB] = sum(st => [st.must.filter(x => x.ok).length, st.must.length]), [qA, qB] = sum(st => [st.quizzes.filter(x => x.passed).length, st.quizzes.length])
-  const bar = (a: number, b: number, tone = 'bg-olive-700') => <span className="flex items-center gap-3"><span className="flex-1 h-1.5 rounded-full bg-line overflow-hidden"><span className={`block h-full rounded-full ${tone}`} style={{ width: `${b ? a / b * 100 : 0}%` }} /></span><span className="text-[12.5px] text-mute tabular-nums w-10 text-right">{a}/{b}</span></span>
+  const bar = (a: number, b: number, tone = 'bg-learn') => <span className="flex items-center gap-3"><span className="flex-1 h-2 rounded-full bg-sage-100 overflow-hidden"><span className={`block h-full rounded-full ${tone}`} style={{ width: `${b ? a / b * 100 : 0}%` }} /></span><span className="text-[12.5px] text-mute tabular-nums w-10 text-right">{a}/{b}</span></span>
   return (<>
     <div className="flex flex-wrap items-center justify-between gap-6 mb-10">
-      <div className="flex items-center gap-10">
-        {([['Lektionen erledigt', obA, obB], ['Pflicht-News bestätigt', mA, mB], ['Quiz bestanden', qA, qB]] as const).map(([l, a, b]) =>
-          <span key={l} className="flex items-center gap-3"><Donut value={a} total={b} size={60} stroke={7} /><span><span className="block text-[13px] text-mute">{l}</span><span className="block font-display text-[20px] tabular-nums leading-tight">{a} von {b}</span></span></span>)}
+      <div className="grid grid-cols-3 gap-3 w-full">
+        {([['Lektionen erledigt', obA, obB, 'learn'], ['Pflicht-News bestätigt', mA, mB, 'duty'], ['Quiz bestanden', qA, qB, 'done']] as const).map(([l, a, b, tone]) =>
+          <ToneTile key={l} tone={tone} label={l} figure={`${a} von ${b}`} value={a} total={b} />)}
       </div>
       {studios.length > 1 && <Seg value={br} onChange={setBr} items={[['', 'Alle Studios'], ...studios.map(b => [b.id, b.name] as [string, string])]} />}
     </div>
@@ -79,7 +79,7 @@ function Progress() {
         return <tr key={p.id} onClick={() => setSel(p)} className="cursor-pointer hover:bg-sage-50/70">
           <td className="px-4 py-2.5"><span className="flex items-center gap-3 min-w-0"><Avatar s={p} photo={p.photo} size="w-8 h-8 text-[12px]" /><span className="min-w-0"><span className="block truncate">{p.first} {p.last}</span><span className="block text-[12.5px] text-mute truncate">{p.role} · {p.branch}</span></span></span></td>
           <td className="px-4">{st.loaded ? bar(st.obDone, st.obTotal) : null}</td>
-          <td className="px-4">{bar(mOk, st.must.length, mOk < st.must.length ? 'bg-brass' : 'bg-olive-700')}</td>
+          <td className="px-4">{bar(mOk, st.must.length, mOk < st.must.length ? 'bg-duty' : 'bg-done')}</td>
           <td className="px-4 text-[13px] tabular-nums">{st.quizzes.length ? `${qOk} von ${st.quizzes.length}` : <span className="text-mute">–</span>}</td>
           <td className="px-2 text-right text-mute"><ChevronRight size={15} className="inline" /></td>
         </tr> })}</tbody></table>
@@ -116,7 +116,7 @@ function Lessons({ onOpen }: { onOpen: (s: Step) => void }) {
           <td className="px-4 py-3"><span className="flex items-baseline gap-2 min-w-0"><span className="text-mute tabular-nums text-[13px] w-5 shrink-0">{i + 1}.</span><span className="truncate">{s.title}</span></span><span className="block text-[12.5px] text-mute pl-7">{s.minutes} Min.</span></td>
           <td className="px-4 text-ink/80 truncate">{wiki.find(a => a.id === s.articleId)?.title ?? <span className="text-mute">passender Artikel aus dem Wissen</span>}</td>
           <td className="px-4 text-mute truncate">{s.branchIds.length ? s.branchIds.map(id => branches.find(x => x.id === id)?.name).join(', ') : 'Alle Studios'}</td>
-          <td className="px-4"><span className="flex items-center gap-3"><span className="flex-1 h-1.5 rounded-full bg-line overflow-hidden"><span className="block h-full rounded-full bg-olive-700" style={{ width: `${b ? a / b * 100 : 0}%` }} /></span><span className="text-[12.5px] text-mute tabular-nums w-10 text-right">{a}/{b}</span></span></td>
+          <td className="px-4"><span className="flex items-center gap-3"><span className="flex-1 h-2 rounded-full bg-sage-100 overflow-hidden"><span className="block h-full rounded-full bg-done" style={{ width: `${b ? a / b * 100 : 0}%` }} /></span><span className="text-[12.5px] text-mute tabular-nums w-10 text-right">{a}/{b}</span></span></td>
           <td className="px-2 text-right text-mute">{ed ? <ChevronRight size={15} className="inline" /> : <Lock size={13} className="inline text-sage-400" aria-label="vom Büro" />}</td>
         </tr> })}</tbody></table>}
     {!office && <p className="mt-3"><ReadOnly>Lektionen mit Schloss kommen vom Büro und gelten für alle Studios. Eigene für dein Studio legst du oben rechts an.</ReadOnly></p>}
@@ -203,7 +203,7 @@ function Quizzes({ onOpen }: { onOpen: (id: string) => void }) {
         return <tr key={x.id} onClick={() => onOpen(x.id)} className="cursor-pointer hover:bg-sage-50/70">
           <td className="px-4 py-3"><span className="block truncate">{x.title || target(x).title}{x.sample && <span className="ml-2 text-xs text-mute">Beispiel</span>}</span><span className="block text-[12.5px] text-mute">bestanden ab {x.passPct} %</span></td>
           <td className="px-4 text-mute truncate">{target(x).kind} · {target(x).title}</td>
-          <td className="px-4"><span className="flex items-center gap-3"><span className="flex-1 h-1.5 rounded-full bg-line overflow-hidden"><span className="block h-full rounded-full bg-olive-700" style={{ width: `${ps.length ? pc / ps.length * 100 : 0}%` }} /></span><span className="text-[12.5px] text-mute tabular-nums w-10 text-right">{pc}/{ps.length}</span></span></td>
+          <td className="px-4"><span className="flex items-center gap-3"><span className="flex-1 h-2 rounded-full bg-sage-100 overflow-hidden"><span className="block h-full rounded-full bg-done" style={{ width: `${ps.length ? pc / ps.length * 100 : 0}%` }} /></span><span className="text-[12.5px] text-mute tabular-nums w-10 text-right">{pc}/{ps.length}</span></span></td>
           <td className="px-2 text-right text-mute"><ChevronRight size={15} className="inline" /></td>
         </tr> })}</tbody></table>
   )

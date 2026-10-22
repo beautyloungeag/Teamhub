@@ -1,14 +1,16 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { ArrowDown, ArrowUp, Bold, BookOpen, FileText, GripVertical, Heading2, Image as ImageIcon, Italic, Link2, List, ListOrdered, Plus, Quote, Search, Trash2, Type, Video, ChevronRight, Upload } from 'lucide-react'
+import { ArrowDown, ArrowUp, Bold, FileText, GripVertical, Heading2, Image as ImageIcon, Italic, Link2, List, ListOrdered, Plus, Quote, Search, Trash2, Type, Video, ChevronRight, Upload } from 'lucide-react'
 import { useApp, type WikiBlock } from '../store'
 import { supabase } from '../lib/supabase'
-import { emojiOf, catKey, EMOJI_CHOICES } from '../lib/wiki'
+import { emojiOf, catKey, EMOJI_CHOICES, AREAS, areaOf } from '../lib/wiki'
+import { AREA_LOOK } from '../Mobile'
 import { toast } from '../Toast'
-import { H, New, Th, Back, Section, Empty, Status, DataRow, Select, Seg, Modal, btn, btn2, inpStone, retranslate } from './kit'
+import { H, New, Th, Back, Section, Empty, Status, DataRow, Select, Seg, Modal, btn, btn2, inpStone, retranslate, IconBox, Tag } from './kit'
 
 // Wissen im Backoffice (nur Büro): gleiche Ansicht wie in der App, nur bearbeitbar.
-// Themen als Kacheln mit Emoji → Artikel eines Themas → Artikel, direkt im Aussehen der App bearbeitet.
+// Themen als Kacheln mit Emoji, gegliedert nach den fünf Hauptbereichen der App (22.10.) → Artikel eines Themas → Artikel,
+// direkt im Aussehen der App bearbeitet.
 // Inhalt sind Bausteine (wiki_articles.blocks): Text, Überschrift, Listen, Hinweis, Bild, Video, Datei.
 
 const LEVEL: Record<string, string> = { alle: 'Alle', filialleitung: 'Leitung und Büro', buero: 'Nur Büro' }
@@ -26,6 +28,8 @@ export function WikiAdmin() {
 function Home({ onCat, onOpen }: { onCat: (name: string) => void; onOpen: (id: string | null, cat: string) => void }) {
   const { wiki, catEmojis } = useApp()
   const own = wiki.filter(a => !a.fromNews)
+  // Jedes Thema steht in dem Hauptbereich, in den die meisten seiner Artikel fallen (gleiche Regel wie in der App)
+  const areaOfCat = (name: string) => { const n = new Map<string, number>(); own.filter(a => a.catKey === name).forEach(a => { const k = areaOf(a.catKey, a.title); n.set(k, (n.get(k) ?? 0) + 1) }); return [...n.entries()].sort((x, y) => y[1] - x[1])[0]?.[0] ?? 'studio' }
   const [q, setQ] = useState(''), [newTopic, setNewTopic] = useState(false)
   const cats = [...own.reduce((m, a) => { const c = m.get(a.catKey) ?? { name: a.catKey, n: 0, drafts: 0 }; c.n++; if (!a.published) c.drafts++; return m.set(a.catKey, c) }, new Map<string, { name: string; n: number; drafts: number }>()).values()]
     .sort((x, y) => y.n - x.n || x.name.localeCompare(y.name))
@@ -35,22 +39,30 @@ function Home({ onCat, onOpen }: { onCat: (name: string) => void; onOpen: (id: s
     <div className="h-10 mb-6 max-w-md rounded-[10px] bg-sage-50 px-3 flex items-center gap-2"><Search size={16} className="text-mute" /><input value={q} onChange={e => setQ(e.target.value)} placeholder="Artikel suchen" className="flex-1 outline-none text-[14px] bg-transparent" /></div>
     {q.length > 1 ? <Section title="Treffer" count={hits.length}>
       {hits.length === 0 ? <Empty>Kein Artikel gefunden.</Empty> : <ArticleTable items={hits} onOpen={a => onOpen(a.id, a.catKey)} showCat />}
-    </Section> : <Section title="Themen" count={cats.length}>
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-3">{cats.map(c => (
-        <button key={c.name} onClick={() => onCat(c.name)} className="group text-left rounded-[16px] bg-sage-50 hover:bg-sage-100 p-4 h-[120px] flex flex-col justify-between transition">
-          <span className="flex items-start justify-between"><span className="text-[28px] leading-none" aria-hidden="true">{emojiOf(c.name, catEmojis)}</span><ChevronRight size={16} className="text-sage-400 group-hover:text-ink transition" /></span>
-          <span className="min-w-0"><span className="block font-display text-[17px] leading-tight truncate">{cap(c.name)}</span>
-            <span className="block text-[12.5px] text-mute mt-0.5">{c.n === 1 ? '1 Artikel' : `${c.n} Artikel`}{c.drafts ? ` · ${c.drafts} Entwurf${c.drafts > 1 ? 'e' : ''}` : ''}</span></span>
-        </button>))}</div>
-    </Section>}
+    </Section> : <div className="space-y-10">{AREAS.map(ar => { const look = AREA_LOOK[ar.key], Icon = look.icon, mine = cats.filter(c => areaOfCat(c.name) === ar.key)
+      if (!mine.length) return null
+      const n = own.filter(a => areaOf(a.catKey, a.title) === ar.key).length
+      return <section key={ar.key}>
+        <div className="flex items-center gap-3.5 mb-3"><IconBox tone={look.tone}><Icon size={20} /></IconBox>
+          <div className="min-w-0"><h2 className="text-[20px] leading-tight">{ar.name}</h2><p className="text-[13px] text-mute">{ar.desc} · {n === 1 ? '1 Artikel' : `${n} Artikel`}</p></div></div>
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-3">{mine.map(c => (
+          <button key={c.name} onClick={() => onCat(c.name)} className="group text-left rounded-[20px] bg-sage-50 hover:bg-sage-100 p-4 h-[120px] flex flex-col justify-between transition">
+            <span className="flex items-start justify-between"><span className="text-[28px] leading-none" aria-hidden="true">{emojiOf(c.name, catEmojis)}</span><ChevronRight size={16} className="text-sage-400 group-hover:text-ink transition" /></span>
+            <span className="min-w-0"><span className="block font-display text-[17px] leading-tight truncate">{cap(c.name)}</span>
+              <span className="block text-[12.5px] text-mute mt-0.5">{c.n === 1 ? '1 Artikel' : `${c.n} Artikel`}{c.drafts ? ` · ${c.drafts} Entwurf${c.drafts > 1 ? 'e' : ''}` : ''}</span></span>
+          </button>))}</div>
+      </section> })}</div>}
     {newTopic && <NewTopic onClose={() => setNewTopic(false)} onDone={name => { setNewTopic(false); onOpen(null, name) }} />}
   </>)
 }
 
 function ArticleTable({ items, onOpen, showCat }: { items: ReturnType<typeof useApp>['wiki']; onOpen: (a: ReturnType<typeof useApp>['wiki'][number]) => void; showCat?: boolean }) {
+  const { quizzes } = useApp()
+  const tested = new Set(quizzes.map(q => q.articleId))
+  const icon = (a: ReturnType<typeof useApp>['wiki'][number]) => { const look = AREA_LOOK[areaOf(a.catKey, a.title)] ?? AREA_LOOK.studio, I = look.icon; return <IconBox tone={look.tone} size="w-8 h-8 rounded-[10px]"><I size={15} /></IconBox> }
   return <table className="tbl w-full text-[14px] table-fixed"><thead><tr><Th>Artikel</Th>{showCat && <th className="w-[160px] text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">Thema</th>}<th className="w-[190px] text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">Sichtbar für</th><th className="w-[130px] text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">Aktualisiert</th><th className="w-[130px] text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">Status</th><th className="w-10 border-b border-line" /></tr></thead>
     <tbody className="divide-y divide-line">{items.map(a => <tr key={a.id} onClick={() => onOpen(a)} className="cursor-pointer hover:bg-sage-50/70">
-      <td className="px-4 py-3"><span className="flex items-center gap-3 min-w-0"><span className="w-8 h-8 rounded-[10px] bg-sage-50 text-sage-800 flex items-center justify-center shrink-0">{a.mediaKind === 'video' || a.mediaKind === 'youtube' ? <Video size={15} /> : <BookOpen size={15} />}</span><span className="min-w-0"><span className="block truncate">{a.title}</span>{a.intro && <span className="block text-[12.5px] text-mute truncate">{a.intro}</span>}</span></span></td>
+      <td className="px-4 py-3"><span className="flex items-center gap-3 min-w-0">{icon(a)}<span className="min-w-0"><span className="flex items-center gap-2 min-w-0"><span className="truncate">{a.title}</span>{tested.has(a.id) && <Tag tone="duty">mit Test</Tag>}{(a.mediaKind === 'video' || a.mediaKind === 'youtube') && <Tag tone="learn">Video</Tag>}</span>{a.intro && <span className="block text-[12.5px] text-mute truncate">{a.intro}</span>}</span></span></td>
       {showCat && <td className="px-4 text-mute truncate">{cap(a.catKey)}</td>}
       <td className="px-4 text-ink/80 truncate">{LEVEL[a.accessLevel]}</td>
       <td className="px-4 text-mute">{a.updated}</td>

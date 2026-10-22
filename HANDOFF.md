@@ -2,6 +2,18 @@
 
 Interne Mitarbeiter-App (PWA + Desktop-Backoffice) der Beautylounge AG. Kundin: Renée Baumann. PM-Projekt: `projekt.aleksa.ai`, Key **BLTH** (`d4ee5d5c-4553-436c-bba7-137a03a2b704`). ⚠️ Das Repo `beautyloungeag/Teamhub` ist **öffentlich** — nie Personendaten committen.
 
+### Was wurde in dieser Session gemacht (2026-10-22, abends) — Backoffice an die Mitarbeiter-App angeglichen
+
+Das Backoffice hatte nur das Design System vom 19.10., nicht die Richtung B der App (Töne, Hauptbereiche, Bilder). Jetzt:
+- **Kit** (`src/admin/kit.tsx`): `ToneTile` (Kennzahl als farbige Kachel wie die Startseiten-Kacheln der App, mit Ring in der Tonfarbe), `IconBox`, `Tag`, `ToneBar`, `TONE_HEX`. `Status` in App-Farben (erledigt grün, überfällig rot, wartet Messing), `Bar` dicker in Grün/Messing, `Panel` 20 px rund. Der Canvas bleibt weiss (bewusst: Design System 19.10. für den Desktop), die Sprache ist die der App.
+- **Übersicht:** vier Kennzahlen als Kacheln (Checklisten grün, Pflicht-News rot, Meldungen Messing, Behandlungen blau). Meldungs-Ring in denselben Tönen.
+- **Wissen:** Themen-Kacheln gegliedert nach den fünf Hauptbereichen der App (Kopf mit Bereichs-Zeichen, Beschreibung, Artikelzahl). Ein Thema steht in dem Bereich, in den die meisten seiner Artikel fallen. Artikelzeilen mit Bereichs-Zeichen statt Buch, Etiketten „mit Test“ und „Video“.
+- **News:** Bild-Vorschau (gleiches Bild wie in der App, `newsPhoto`) und farbige Kategorie (Wichtig/Schulung/Team/Salon) je Zeile und auf der News-Seite; Lesestand als Balken rot/grün.
+- **Meldungen & Ideen:** Art mit Zeichen und Farbe wie in der App (Meldung rot, Idee Messing, Learning blau), neuer Filter **Learning** (vorher waren Learning-Beiträge nur unter „Alle“).
+- **Lernen:** Kennzahlen als Kacheln, Balken in Tonfarben.
+- Aus `Mobile.tsx` exportiert: `AREA_LOOK`, `newsCat`, `newsPhoto`.
+- Geprüft mit dem Büro-Konto info@aleksa.ai im Dev-Server (Übersicht, News, Wissen, Wissen · Thema, Lernen, Meldungen). Noch im alten Stil, weil ohne App-Gegenstück: Aufgaben, Aushilfe, Team, Einstellungen (nur über Kit-Status/-Balken angeglichen).
+
 ### Was wurde in dieser Session gemacht (2026-10-22) — dritte Feedback-Runde der Inhaberin
 
 Umgesetzt (lokal + Repo, Datenbank und Functions schon live; Oberfläche live erst nach dem nächsten Netlify-Deploy):

@@ -6,6 +6,8 @@ import { toast } from '../Toast'
 import { tr } from '../lib/i18n'
 import { supabase } from '../lib/supabase'
 import type { Staff } from '../store'
+import { TONE, type Tone } from '../tones'
+import { Donut } from './charts'
 
 // Bausteine des Backoffice: überall gleich aussehen und sich gleich verhalten (Design System Olive/Stein/Messing).
 
@@ -14,12 +16,12 @@ export const H = ({ children, action, info }: { children: ReactNode; action?: Re
 export const New = ({ children, onClick }: { children: ReactNode; onClick?: () => void }) =>
   <button onClick={onClick} className="h-10 px-4 rounded-[10px] bg-olive-700 hover:bg-olive-800 transition text-white text-[14px] flex items-center gap-1.5 shrink-0"><Plus size={16} />{children}</button>
 // Fläche für Formulare und Vorschläge: Stein ohne Rahmen
-export const Panel = ({ children, className = '' }: { children: ReactNode; className?: string }) => <div className={`rounded-[16px] bg-sage-50 ${className}`}>{children}</div>
+export const Panel = ({ children, className = '' }: { children: ReactNode; className?: string }) => <div className={`rounded-[20px] bg-sage-50 ${className}`}>{children}</div>
 // Seitenspalte neben einer Tabelle: keine Box, nur Linie
 export const Side = ({ children }: { children: ReactNode }) => <div className="border-l border-line pl-6 self-start min-w-0">{children}</div>
 export const Sec = ({ children, action }: { children: ReactNode; action?: ReactNode }) => <div className="flex items-baseline justify-between mb-2"><p className="rubric text-ink/70">{children}</p>{action}</div>
 export const Th = ({ children }: { children?: ReactNode }) => <th className="text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">{children}</th>
-export const Bar = ({ p, tone = 'olive' }: { p: number; tone?: 'olive' | 'brass' }) => <div className="h-1 w-full rounded-full bg-line overflow-hidden"><div className={`h-full rounded-full ${tone === 'olive' ? 'bg-olive-700' : 'bg-brass'}`} style={{ width: Math.min(100, p) + '%' }} /></div>
+export const Bar = ({ p, tone = 'olive' }: { p: number; tone?: 'olive' | 'brass' }) => <div className="h-2 w-full rounded-full bg-sage-100 overflow-hidden"><div className={`h-full rounded-full ${tone === 'olive' ? 'bg-done' : 'bg-note'}`} style={{ width: Math.min(100, p) + '%' }} /></div>
 export const Field = ({ label, children }: { label: string; children: ReactNode }) => <label className="block"><span className="block text-xs text-mute mb-1">{label}</span>{children}</label>
 export const inp = 'w-full h-10 rounded-[10px] border border-transparent focus:border-sage-400 px-3 text-[14px] bg-white outline-none transition'
 export const inpStone = 'w-full h-10 rounded-[10px] border border-transparent focus:border-sage-400 px-3 text-[14px] bg-sage-50 outline-none transition'
@@ -164,7 +166,8 @@ export const Empty = ({ children, action }: { children: ReactNode; action?: Reac
 type StatusKind = 'done' | 'open' | 'late' | 'wait' | 'no' | 'none' | 'yes'
 export function Status({ kind, children }: { kind: StatusKind; children: ReactNode }) {
   const I = { done: CheckCircle2, yes: CheckCircle2, open: Circle, late: AlertCircle, wait: Hourglass, no: XCircle, none: CircleDashed }[kind]
-  const tone = { done: 'text-mute', yes: 'text-ok', open: 'text-ink/80', late: 'text-alert', wait: 'text-brass', no: 'text-mute', none: 'text-mute' }[kind]
+  // Farben wie in der App: erledigt grün, überfällig rot, wartet Messing
+  const tone = { done: 'text-done', yes: 'text-done', open: 'text-ink/80', late: 'text-duty', wait: 'text-note', no: 'text-mute', none: 'text-mute' }[kind]
   return <span className={`inline-flex items-center gap-1.5 text-[13px] whitespace-nowrap ${tone}`}><I size={14} strokeWidth={2} className="shrink-0" />{children}</span>
 }
 
@@ -194,3 +197,32 @@ export const ReadOnly = ({ children }: { children: ReactNode }) => <span classNa
 /** Zeile, die man anklicken kann: Hover-Fläche und Pfeil am Ende. */
 export const RowLink = ({ onClick, children, className = '' }: { onClick: () => void; children: ReactNode; className?: string }) =>
   <button type="button" onClick={onClick} className={`group w-full text-left flex items-center gap-4 px-3 -mx-3 rounded-[10px] hover:bg-sage-50 transition-colors ${className}`}>{children}<ChevronRight size={16} className="text-sage-400 group-hover:text-ink shrink-0 transition-colors" /></button>
+
+/* ---------- Gleiche Sprache wie die Mitarbeiter-App (Richtung B, 21./22.10.) ---------- */
+// Farben der Töne als Hex für Ringe und Linien (Werte aus index.css)
+export const TONE_HEX: Record<Tone, string> = { duty: '#93392B', note: '#7E5A22', learn: '#35566A', studio: '#3E4D36', done: '#3D6B38', plum: '#5E4468' }
+
+/** Kennzahl als farbige Kachel wie „Checkliste / Pflicht offen / Wissen gelesen“ auf der Startseite der App. */
+export function ToneTile({ tone, label, figure, meta, value, total, onClick }: { tone: Tone; label: string; figure: ReactNode; meta?: ReactNode; value?: number; total?: number; onClick?: () => void }) {
+  const body = <>
+    <span className={`text-[13.5px] font-semibold ${TONE[tone].fg}`}>{label}</span>
+    <span className="mt-2.5 flex items-center gap-3.5">
+      {total !== undefined && <Donut value={value ?? 0} total={total} size={50} stroke={6} tone={TONE_HEX[tone]} />}
+      <span className="min-w-0"><span className="block font-display text-[26px] leading-tight tabular-nums text-ink whitespace-nowrap">{figure}</span>{meta && <span className="block text-[12.5px] text-ink/65 truncate">{meta}</span>}</span>
+    </span>
+  </>
+  const cls = `text-left rounded-[20px] p-5 min-w-0 flex flex-col ${TONE[tone].bg}`
+  return onClick ? <button onClick={onClick} className={`${cls} hover:brightness-[.98] transition`}>{body}</button> : <div className={cls}>{body}</div>
+}
+
+/** Zeichen in getönter Fläche (Hauptbereiche im Wissen, Arten von Meldungen). */
+export const IconBox = ({ tone, children, size = 'w-11 h-11 rounded-[13px]' }: { tone: Tone; children: ReactNode; size?: string }) =>
+  <span className={`${size} flex items-center justify-center shrink-0 ${TONE[tone].bg} ${TONE[tone].fg}`}>{children}</span>
+
+/** Kleines farbiges Etikett wie in der App (Kategorie, Art). */
+export const Tag = ({ tone, children }: { tone: Tone; children: ReactNode }) =>
+  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[12px] font-semibold whitespace-nowrap ${TONE[tone].bg} ${TONE[tone].fg}`}>{children}</span>
+
+/** Fortschritt als runder Balken in einer Tonfarbe. */
+export const ToneBar = ({ value, total, tone = 'done' }: { value: number; total: number; tone?: Tone }) =>
+  <div className="h-2 w-full rounded-full bg-sage-100 overflow-hidden"><div className={`h-full rounded-full transition-all ${TONE[tone].solid}`} style={{ width: (total ? Math.min(100, value / total * 100) : 0) + '%' }} /></div>
