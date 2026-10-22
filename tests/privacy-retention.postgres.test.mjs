@@ -7,6 +7,11 @@ const sql=(input,db=database)=>execFileSync('docker',['exec','-i','beautylounge-
 test('Postgres: private context RLS, retention holds, recent messages and file cleanup queue',()=>{
   sql(`drop database if exists ${database}; create database ${database};`,'postgres')
   sql(`
+    do $$ begin
+      if not exists(select 1 from pg_roles where rolname='anon') then create role anon; end if;
+      if not exists(select 1 from pg_roles where rolname='authenticated') then create role authenticated; end if;
+      if not exists(select 1 from pg_roles where rolname='service_role') then create role service_role bypassrls; end if;
+    end $$;
     create schema storage;
     create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);
     create table storage.objects(bucket_id text,name text,created_at timestamptz default now());

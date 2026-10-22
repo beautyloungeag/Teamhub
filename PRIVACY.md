@@ -6,7 +6,7 @@ The assistant now explicitly sends `store:false` to the Responses API, Chat Comp
 
 Conversation context, including submitted files and tool results, is stored in the private `assistant-context` bucket in this project's Zurich region. It is bound to employee/chat/model/current role and branch. The bucket is not public. Cross-employee access is denied by RLS; snapshots are immutable per reply, with a fresh path. Superseded snapshots are removed after successfully saving the replacement message. A failed save is cleaned up; remaining orphans are handled by retention.
 
-Context is limited to twelve turns and 48 MiB and is reused for at most 25 days. The cache cleanup limit is 30 days. If a complete current turn is too large or cannot be stored, the answer is still delivered and the user is told to attach the file again for follow-up questions. Existing textual history is preserved; old files held only in pre-change OpenAI response state are not retrospectively imported. Switching model or authorization scope starts from local text history.
+Context is limited to twelve turns and 48 MiB; a snapshot is reused only when the previous response is less than 25 days old. Snapshots older than 30 days are cleaned up. Active chats can carry bounded content into a newer snapshot, so this is not a 30-day content-deletion guarantee measured from the original upload. If a complete current turn is too large or cannot be stored, the answer is still delivered and the user is told to attach the file again for follow-up questions. Existing textual history is preserved; old files held only in pre-change OpenAI response state are not retrospectively imported. Switching model or authorization scope starts from local text history.
 
 This disables additional provider response storage, not OpenAI's independent abuse-monitoring logs. No claim of account-level Zero Data Retention, disabled training opt-in or EU-only processing was verified.
 
@@ -34,3 +34,14 @@ The owner approved activation for TeamHub; Retell is explicitly outside this rel
 - Security advisors identify the new private service tables only as `rls_enabled_no_policy` (INFO), which is intentional. This is not a clean bill of health for unrelated pre-existing project findings.
 
 Source branch: `codex/teamhub-privacy-20261022`, separate `teamhub-privacy` worktree. No GitHub push. Do not deploy an older assistant source over v34. Private operator backups remain outside the repository.
+
+To repeat the isolated SQL checks, start an empty local container (no production database connection):
+
+```sh
+docker run -d --name beautylounge-privacy-qa -e POSTGRES_PASSWORD=privacy-qa-local-only public.ecr.aws/supabase/postgres:17.6.1.106
+# Wait until docker exec beautylounge-privacy-qa pg_isready -U postgres reports ready.
+node --test tests/privacy-context.test.ts tests/privacy-retention.postgres.test.mjs
+docker rm -f beautylounge-privacy-qa
+```
+
+The test recreates only its named `privacy_teamhub_qa` database inside that container.
