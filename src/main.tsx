@@ -18,7 +18,12 @@ import './lib/push'
 import './lib/errors'
 
 // Visual viewport follows the iPhone keyboard; only the mobile shell uses this value.
-const updateViewport = () => document.documentElement.style.setProperty('--app-height', `${window.visualViewport?.height ?? window.innerHeight}px`)
+const updateViewport = () => {
+  const viewport = window.visualViewport
+  // Pinch zoom changes the visual viewport too; it must not resize the app layout.
+  const height = viewport && Math.abs(viewport.scale - 1) < 0.01 ? viewport.height : window.innerHeight
+  document.documentElement.style.setProperty('--app-height', `${height}px`)
+}
 updateViewport()
 window.visualViewport?.addEventListener('resize', updateViewport)
 window.addEventListener('orientationchange', updateViewport)

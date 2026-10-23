@@ -162,7 +162,7 @@ function Shell({ onLogout, onSwitch }: { onLogout: () => void; onSwitch?: () => 
   const nav: [Tab, string, typeof Home][] = [['home', 'Heute', Home], ['tasks', 'Aufgaben', ListChecks], ['ai', 'Chats', MessageCircle], ['wiki', 'Wissen', BookOpen], ['menu', 'Menü', LayoutGrid]]
   const full = !loading && (sub?.k === 'marc' || sub?.k === 'chat')
   return (
-    <div className="flex-1 min-h-0 flex">
+    <div className="app-mobile-root w-full min-w-0 flex-1 min-h-0 flex">
       {/* Desktop: Navigation als Seitenleiste wie im Backoffice, zuklappbar */}
       <div className="hidden md:flex">
         <SideNav
@@ -173,9 +173,9 @@ function Shell({ onLogout, onSwitch }: { onLogout: () => void; onSwitch?: () => 
       </div>
       <div className="relative flex-1 min-w-0 flex flex-col">
         {/* Marc und Team-Chats füllen die ganze Fläche und scrollen selbst (Eingabe unten) */}
-        <div ref={scroller} className={`flex-1 no-scrollbar bg-sage-50 ${full ? 'overflow-hidden' : 'overflow-y-auto'}`}>
+        <div ref={scroller} className={`app-content-scroll min-w-0 w-full flex-1 no-scrollbar bg-sage-50 ${full ? 'overflow-hidden' : 'overflow-y-auto'}`}>
           {full ? screen : (
-          <div className="w-full md:mx-auto md:max-w-[760px]">
+          <div className="app-page min-w-0 w-full md:mx-auto md:max-w-[760px]">
             <div className="app-top-space md:h-8" />
             {sub && <div className="px-3 pb-1 flex items-center justify-between">
               <button onClick={back} className="h-11 px-1 flex items-center gap-0.5 text-sage-800 text-[17px]"><ChevronLeft size={22} />{t('Zurück')}</button>
@@ -283,13 +283,13 @@ function Today({ open, go }: { open: (s: Sub) => void; go: (t: Tab) => void }) {
       </div>
       {/* Postfach und Zeiterfassung direkt erreichbar (Inhaberin 21.10.) */}
       <div className="mt-2.5 grid grid-cols-2 gap-2.5">
-        <button onClick={() => open({ k: 'inbox' })} className="rounded-[18px] bg-white p-3 flex items-center gap-2.5 text-left min-w-0">
+        <button onClick={() => open({ k: 'inbox' })} className="home-quick-action rounded-[18px] bg-white p-3 flex items-center gap-2.5 text-left min-w-0">
           <span className={`w-9 h-9 rounded-[11px] flex items-center justify-center shrink-0 ${TONE.studio.bg} ${TONE.studio.fg}`}><Mail size={18} /></span>
-          <span className="min-w-0"><span className="block text-[15.5px] font-semibold whitespace-nowrap">{t('Posteingang')}</span><span className={`block text-[13.5px] ${mailUnread ? 'text-duty font-semibold' : 'text-mute'}`}>{mailUnread ? t('{n} ungelesen', { n: mailUnread }) : t('Firmen-Mails')}</span></span>
+          <span className="min-w-0"><span className="block text-[15.5px] font-semibold leading-tight">{t('Posteingang')}</span><span className={`block text-[13.5px] ${mailUnread ? 'text-duty font-semibold' : 'text-mute'}`}>{mailUnread ? t('{n} ungelesen', { n: mailUnread }) : t('Firmen-Mails')}</span></span>
         </button>
-        <button onClick={() => open({ k: 'time' })} className="rounded-[18px] bg-white p-3 flex items-center gap-2.5 text-left min-w-0">
+        <button onClick={() => open({ k: 'time' })} className="home-quick-action rounded-[18px] bg-white p-3 flex items-center gap-2.5 text-left min-w-0">
           <span className={`w-9 h-9 rounded-[11px] flex items-center justify-center shrink-0 ${TONE.learn.bg} ${TONE.learn.fg}`}><Clock size={18} /></span>
-          <span className="min-w-0"><span className="block text-[15.5px] font-semibold whitespace-nowrap">{t('Zeit & Ferien')}</span><span className="block text-[13.5px] text-mute">{t('Stempeln, Ferien')}</span></span>
+          <span className="min-w-0"><span className="block text-[15.5px] font-semibold leading-tight">{t('Zeit & Ferien')}</span><span className="block text-[13.5px] text-mute">{t('Stempeln, Ferien')}</span></span>
         </button>
       </div>
 

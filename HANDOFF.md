@@ -1,5 +1,10 @@
 # HANDOFF — Beautylounge TeamHub
 
+### 2026-10-23 — Mobile frame correction after owner device feedback
+
+Owner confirms Home Screen installation but reports lateral viewport movement. Fixed/bounded mobile html/body/root and app frame, independent vertical panes, contained horizontal scroll areas, shrinking flex/page widths, narrow quick-action cards and 16px inputs; pinch zoom no longer resizes the app height. Login keeps its own scroll pane for the keyboard. 320/375/430px browser measurements show zero document/page lateral overflow; vertical scroll and fixed navigation checked, signed-out login bounded. See `MOBILE-PUSH.md`. Physical iPhone retest still required; no backend/account/invitation changes.
+
+
 ### 2026-10-23 — Home Screen app and chat push
 
 Owner requested an iPhone-oriented employee app with OS notifications, especially group chats. Added a three-step DE/EN/FR setup, stable manifest identity, safe-area/keyboard handling, account-bound service-worker display, badges and chat deep links. New durable per-device chat delivery, immediate Vault-authenticated wake-up plus minute retry, membership/read checks, expired-device cleanup and multi-device readiness. Existing private-chat setting and confidential concerns remain unchanged. Tests/SQL/375px browser/actual empty-worker transport verified; **physical iPhone installation/locked-screen receipt/tap acceptance is still pending**. Do not claim real iOS delivery has been tested. See `MOBILE-PUSH.md`. No new users or invitations.

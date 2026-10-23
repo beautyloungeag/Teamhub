@@ -32,8 +32,8 @@ function useDesktop() {
 
 // Anmeldung: am Handy randlos, am Desktop als Karte mit Studio-Bild links.
 const LoginFrame = ({ children }: { children: React.ReactNode }) => (
-  <div className="min-h-[100dvh] flex items-center justify-center md:p-6">
-    <div className="w-full h-[100dvh] md:h-[680px] md:max-w-[1000px] md:grid md:grid-cols-2 md:grid-rows-[100%] bg-paper md:rounded-[16px] md:shadow-[0_24px_60px_-30px_rgba(29,34,28,.35)] overflow-hidden">
+  <div className="teamhub-login-frame min-h-[100dvh] flex items-center justify-center md:p-6">
+    <div className="teamhub-login-panel w-full h-[100dvh] md:h-[680px] md:max-w-[1000px] md:grid md:grid-cols-2 md:grid-rows-[100%] bg-paper md:rounded-[16px] md:shadow-[0_24px_60px_-30px_rgba(29,34,28,.35)] overflow-hidden">
       {/* Studio-Bild: Nagelplätze in der Lounge (Foto von Beautylounge, 19.10.) */}
       <img src="/login-studio.webp" alt="" className="hidden md:block w-full h-full min-h-0 object-cover" />
       <div className="relative h-full flex flex-col">{children}</div>
