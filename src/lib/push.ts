@@ -64,7 +64,10 @@ export async function enablePush(employeeId: string): Promise<PushState> {
   const perm = await Notification.requestPermission()
   if (perm !== 'granted') return perm === 'denied' ? 'denied' : 'off'
   const reg = await navigator.serviceWorker.register('/sw.js')
-  await navigator.serviceWorker.ready
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('push_worker_not_ready')), 15000)
+    navigator.serviceWorker.ready.then(() => { clearTimeout(timer); resolve() }, () => { clearTimeout(timer); reject(new Error('push_worker_not_ready')) })
+  })
   let sub = await reg.pushManager.getSubscription()
   const subscribe = () => reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64(VAPID) })
   if (!sub) sub = await subscribe()

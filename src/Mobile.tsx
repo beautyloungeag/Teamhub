@@ -1411,13 +1411,15 @@ function Connections() {
 function usePush() {
   const { me } = useApp()
   const [st, setSt] = useState<PushState | null>(null)
-  const refresh = () => pushState().then(setSt)
+  const pending = useRef(0)
+  const refresh = () => { const request = ++pending.current; return pushState().then(state => { if (request === pending.current) setSt(state) }) }
   useEffect(() => {
     void refresh()
     const visible = () => { if (document.visibilityState === 'visible') void refresh() }
     document.addEventListener('visibilitychange', visible)
     window.addEventListener('th-push-state', visible)
-    return () => { document.removeEventListener('visibilitychange', visible); window.removeEventListener('th-push-state', visible) }
+    navigator.serviceWorker?.addEventListener('controllerchange', visible)
+    return () => { pending.current++; document.removeEventListener('visibilitychange', visible); window.removeEventListener('th-push-state', visible); navigator.serviceWorker?.removeEventListener('controllerchange', visible) }
   }, [me.id])
   return [st, refresh] as const
 }
