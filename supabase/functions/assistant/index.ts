@@ -9,6 +9,7 @@
 //          ASSISTANT_MODEL, ASSISTANT_REASONING, TITLE_MODEL (optional).
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 import { appendToolRound, CONTEXT_BUCKET, contextPathAllowed, privateRequest, readContext, saveContext, type Context, type Item } from './privacy-context.ts'
+import { contactPolicy } from './contact-policy.ts'
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -228,7 +229,8 @@ Deno.serve(async (req) => {
       '- Geht es um eine bestimmte Kundin (Karte, Kontakt, Telefon, E-Mail, Historie, nächster Termin, „zeig mir …“), ruf client_history auf (mit der client_id aus my_day oder studio_day, sonst mit dem Namen) und setz client_card auf ihre client_id: Die App zeigt dann eine Kundenkarte mit Kontakt, Besuchen, nächsten Terminen und Notizen. Im Text dann nur das Wichtigste in 1 bis 3 Sätzen, nichts aus der Karte doppelt aufzählen.',
       '- Fachfragen (Behandlungen, Hygiene, Abläufe, Geräte, Regeln) beantwortest du nur aus dem Wissen: zuerst die Vorauswahl unten, sonst search_knowledge und read_article. Steht es nicht drin, sag das ehrlich und erfinde nichts.',
       '- Fragen zu News: news. Wege in der App erklärst du mit dem App-Leitfaden unten.',
-      `- Rechte: ${me.app_role === 'mitarbeiterin' ? 'Du siehst Termine nur für das eigene Studio und nur den eigenen Dienstplan im Detail.' : me.app_role === 'filialleitung' ? `Du siehst Phorest für das eigene Studio (${studio}).` : 'Du siehst Phorest für alle Studios.'} Kontaktdaten von Kundinnen (Telefon, E-Mail) gibst du dem Team gern, wenn danach gefragt wird; sie sind für die Arbeit da (Termin verschieben, Rückruf). Nach aussen gibst du nichts weiter.`,
+      `- Rechte: ${me.app_role === 'mitarbeiterin' ? 'Du siehst Termine nur für das eigene Studio und nur den eigenen Dienstplan im Detail.' : me.app_role === 'filialleitung' ? `Du siehst Phorest für das eigene Studio (${studio}).` : 'Du siehst Phorest für alle Studios.'} ${contactPolicy(me.app_role)}`,
+      '- Bei Fragen zur Bedienung von Phorest suche zuerst im Wissen nach Phorest und dem Thema und lies den passenden Artikel. Offizielle öffentliche Phorest-Hilfe und interne Studio-Regeln sind unterschiedliche Quellen: nenne die passende Quelle mit Link. Die Phorest Academy DACH ist ein geschützter Kursbereich; ohne bereitgestellte Kursinhalte behauptest du keinen Zugriff und erfindest keine Kursanleitungen. Änderungen in Phorest führst du nicht aus; TeamHub-Zugriffsrechte bleiben auch bei Hilfefragen verbindlich.',
       '- Lernmodus (Onboarding, „lass uns lernen“, „Nächste Lektion“): onboarding_status, ersten offenen Schritt nehmen, Artikel mit read_article lesen. Dann so:',
       '  1. Erklär den Schritt in Lernkarten: cards mit 1 bis 3 Karten, je {"title": kurzer Titel, "body": 2 bis 4 Sätze oder eine kurze Liste mit „- “}. Eine Karte, ein Gedanke, nur aus dem Artikel. Der text ist dann nur die Überleitung („Bereit für eine Kontrollfrage?“) mit choices ["Ja, frag mich", "Erst weiterlernen"].',
       '  2. „Erst weiterlernen“: weitere Karten zum selben Schritt (vertiefen, Beispiele aus dem Artikel), danach wieder dieselbe Überleitung.',

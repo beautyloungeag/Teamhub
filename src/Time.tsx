@@ -172,6 +172,8 @@ function Connect({ o, onDone }: { o: Overview; onDone: () => void }) {
           : <>
             <input type="email" autoComplete="username" value={email} onChange={e => setEmail(e.target.value)} className="mt-4 w-full h-12 rounded-[14px] bg-sage-50 px-4 text-[16px] outline-none" />
             <input type="password" autoComplete="current-password" value={pw} onChange={e => setPw(e.target.value)} onKeyDown={e => e.key === 'Enter' && pw && go()} placeholder={t('Timebutler-Passwort')} className="mt-2 w-full h-12 rounded-[14px] bg-sage-50 px-4 text-[16px] outline-none placeholder:text-mute" />
+            <a href="https://app.timebutler.com/do?ha=pwd&ac=3" target="_blank" rel="noreferrer" className="inline-block mt-3 text-[14px] text-olive-800 underline underline-offset-4">{t('Passwort vergessen?')}</a>
+            <p className="mt-2 text-[13.5px] text-mute leading-snug">{t('Du meldest dich bei Timebutler mit Microsoft an? Richte zuerst in Timebutler ein eigenes Passwort ein. Falls das für dein Konto nicht möglich ist, hilft eure Timebutler-Administration.')}</p>
           </>}
         {o.known === false && !mfa && email.toLowerCase() === me.email.toLowerCase() && <p className="mt-2 text-[14px] text-note">{t('Zu deiner Firmen-Mail gibt es kein Timebutler-Konto. Nutze die Mail, mit der du dich in Timebutler anmeldest.')}</p>}
         {err && <p role="alert" className="mt-2 text-[14.5px] text-duty">{err}</p>}

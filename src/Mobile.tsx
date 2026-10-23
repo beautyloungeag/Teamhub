@@ -15,6 +15,7 @@ import { Terminbuch, EventCalendar } from './Calendar'
 import { TONE, toneOf, type Tone } from './tones'
 import { tr, locale } from './lib/i18n'
 import { emojiOf, AREAS, areaOf } from './lib/wiki'
+import { wikiProgress } from './lib/wiki-progress'
 import { ChatHub, ChatRoom, useChatUnread, loadChatSummaries } from './Chats'
 import { TimeView } from './Time'
 import { Inbox, MailRead, useMailUnread, type MailItem } from './Mail'
@@ -354,7 +355,7 @@ function TodayChats({ go, open }: { go: (t: Tab) => void; open: (s: Sub) => void
   return <>
     <Label action={<button onClick={() => go('ai')} className="text-[14.5px] text-sage-800">{t('Alle Chats')}</button>}>{t('Chats')}</Label>
     <List>
-      {recent.length === 0 && <button onClick={() => go('ai')} className="w-full px-4 py-3.5 flex items-center gap-3 text-left"><span className="w-10 h-10 rounded-full bg-studio-50 text-studio flex items-center justify-center shrink-0"><MessageCircle size={18} /></span><span className="flex-1 text-[16px] text-ink/80">{t('Schreib deinem Studio oder einer Kollegin.')}</span><ChevronRight size={18} className="text-sage-400" /></button>}
+      {recent.length === 0 && <button onClick={() => go('ai')} className="w-full px-4 py-3.5 flex items-center gap-3 text-left"><span className="w-10 h-10 rounded-full bg-studio-50 text-studio flex items-center justify-center shrink-0"><MessageCircle size={18} /></span><span className="flex-1 text-[16px] text-ink/80">{t('Schreib deinem Studio oder dem ganzen Team.')}</span><ChevronRight size={18} className="text-sage-400" /></button>}
       {recent.map(x => { const who = staff.find(s => s.id === x.last!.sender_id), other = staff.find(s => s.id === x.members.find(m => m !== me.id))
         return <button key={x.room.id} onClick={() => { go('ai'); open({ k: 'chat', id: x.room.id }) }} className="w-full px-4 py-3 flex items-center gap-3 text-left">
           {who ? <Avatar s={who} photo={who.photo} size="w-10 h-10" /> : <span className="w-10 h-10 rounded-full bg-studio-50" />}
@@ -592,22 +593,18 @@ function usePopular() {
 }
 // Eigener Fortschritt im Wissen: „gelesen & bestätigt“ oder ein Durchgang gemacht (Tabelle wiki_runs).
 // Artikel mit Test gelten erst nach bestandenem Test als gelesen (Wunsch der Inhaberin 22.10.), das trägt der Test ein.
-type Runs = { read: Set<string>; runs: Map<string, number> }
-let runsCache: Runs | null = null
 const reloadRuns = () => window.dispatchEvent(new Event('th-wiki-runs'))
 function useWikiRuns() {
-  const { me, quizzes } = useApp()
-  const tested = new Set(quizzes.map(q => q.articleId).filter(Boolean))
-  const [v, setV] = useState<Runs>(runsCache ?? { read: new Set(), runs: new Map() })
+  const { me, quizzes, attempts } = useApp()
+  const [v, setV] = useState<{ employeeId: string; rows: { article_id: string; kind: string }[] }>({ employeeId: '', rows: [] })
   useEffect(() => {
+    let active = true
     const load = () => { supabase?.from('wiki_runs').select('article_id, kind').eq('employee_id', me.id).then(({ data }) => {
-      const read = new Set<string>(), runs = new Map<string, number>()
-      for (const r of (data ?? []) as { article_id: string; kind: string }[]) { if (r.kind === 'gelesen' || !tested.has(r.article_id)) read.add(r.article_id); if (r.kind === 'durchgang') runs.set(r.article_id, (runs.get(r.article_id) ?? 0) + 1) }
-      runsCache = { read, runs }; setV(runsCache)
+      if (active) setV({ employeeId: me.id, rows: data ?? [] })
     }) }
-    load(); window.addEventListener('th-wiki-runs', load); return () => window.removeEventListener('th-wiki-runs', load)
-  }, [me.id, quizzes.length]) // eslint-disable-line react-hooks/exhaustive-deps
-  return v
+    load(); window.addEventListener('th-wiki-runs', load); return () => { active = false; window.removeEventListener('th-wiki-runs', load) }
+  }, [me.id])
+  return useMemo(() => wikiProgress(v.employeeId === me.id ? v.rows : [], quizzes, attempts, me.id), [v, quizzes, attempts, me.id])
 }
 export const AREA_LOOK: Record<string, { tone: Tone; icon: typeof Home }> = {
   behandlung: { tone: 'learn', icon: Sparkles }, hygiene: { tone: 'duty', icon: ShieldAlert }, studio: { tone: 'note', icon: LayoutGrid },

@@ -10,6 +10,7 @@
 //   request    {absenceTypeId, startDate, endDate, halfDay?, comments?}   Ferien/Abwesenheit beantragen
 //   withdraw   {id}                                 eigenen Antrag zurückziehen (offen) oder Stornierung anfragen
 import { createClient } from 'jsr:@supabase/supabase-js@2'
+import { clockResult } from './clock-result.ts'
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -113,7 +114,7 @@ Deno.serve(async (req) => {
       const command = String(body.command ?? '')
       if (!['start', 'pause', 'resume', 'stop'].includes(command)) return json({ ok: false, error: 'bad_command' }, 400)
       const r = await api(tok, 'time-clock/' + command, { method: 'POST' })
-      return json({ ok: r.status === 200, status: r.status, clock: r.status === 200 ? r.body : (await api(tok, 'time-clock/status')).body, error: r.status === 200 ? null : (r.body as { message?: string })?.message ?? null })
+      return json(await clockResult(r.status, r.body, async () => (await api(tok, 'time-clock/status')).body))
     }
     if (action === 'request') {
       const iso = (x: unknown) => /^\d{4}-\d{2}-\d{2}$/.test(String(x)) ? String(x) : null

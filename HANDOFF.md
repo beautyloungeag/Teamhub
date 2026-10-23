@@ -1,5 +1,9 @@
 # HANDOFF — Beautylounge TeamHub
 
+### 2026-10-23 — Pilot preparation implemented, frontend not published
+
+Demo mode off, copied demo identities neutralized/unmapped and then deactivated. Three article quizzes linked and tested through the real backend; browser confirmed pass→read. Fixed old read markers counting after a new quiz and shared progress cache. Assistant v35 enforces the requested contact policy and uses a new public Phorest help source; Academy access still pending. Borrowed mailbox passed real connect/list/encryption/disconnect and SMTP auth with full temporary cleanup, no send/read-state mutation. Timebutler's seven read routes verified with owner-provided token; v7 fixes successful 204 stop handling, no actual work/leave records changed. Eight automated tests, build and Deno checks pass; lint has warnings. Five sample checklists are hidden, real start lists needed. Scope, evidence and remaining personal-login verification: `PILOT-PREP.md`. Customer handles Netlify upgrade; no frontend deploy or main merge here.
+
 ### 2026-10-23 — Scope and branch backup
 
 Owner clarified this engagement is one-time setup and handover on customer-owned accounts, with no hosting or ongoing support included. Planned TeamHub processing agreement must be limited to that work; Ella/Feleo platform agreement is separate. The native customer-app investigation remains a separate task. Close backs up this privacy branch only; no main merge or frontend release. The backend privacy release below is already live. Latest schema and rollout notes: `ARCHITECTURE.md`, `ROADMAP.md`, `PRIVACY.md`.
