@@ -6,6 +6,7 @@
 // Sperre: ohne Secret RESEND_API_KEY oder ohne app_settings.mail_enabled = true geht nichts raus.
 // Secrets: RESEND_API_KEY, MAIL_FROM (optional), NOTIFY_SECRET, APP_URL (optional)
 import { createClient } from 'jsr:@supabase/supabase-js@2'
+import { mailScopes } from './scopes.ts'
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -57,19 +58,19 @@ Deno.serve(async (req) => {
   }
   const key = Deno.env.get('RESEND_API_KEY') ?? ''
   const from = Deno.env.get('MAIL_FROM') ?? 'TeamHub Beautylounge <teamhub@teamhub.beautylounge.ch>'
-  const appUrl = Deno.env.get('APP_URL') ?? ''
+  const appUrl = Deno.env.get('APP_URL') || 'https://teamhub.beautylounge.ch'
   const { data: settings } = await admin.from('app_settings').select('key, value')
   const S = Object.fromEntries((settings ?? []).map((r: any) => [r.key, r.value]))
-  const enabled = S.mail_enabled === true
+  const { enabled, facilityEnabled, eventEnabled } = mailScopes(S)
 
   if (body.action === 'status') {
     const { data: log } = await admin.from('mail_log').select('at, kind, recipient, subject, status, error').order('at', { ascending: false }).limit(20)
-    return json({ ok: true, keySet: !!key, enabled, from, log: log ?? [] })
+    return json({ ok: true, keySet: !!key, enabled, facilityEnabled, eventEnabled, from, log: log ?? [] })
   }
   // Vorschau ohne Versand: so sähe eine Facility-Mail aus
   if (body.action === 'preview') {
-    const m = facilityMail({ id: 'vorschau', title: 'Wachsgerät in Kabine 3 defekt', body: 'Das Gerät wird nicht mehr warm. Bitte vor Freitag prüfen.', created_by_name: me?.first_name ?? 'Mitarbeiterin', created_at: new Date().toISOString(), branch_id: 'basel-1' }, 'Basel 1', 'facility@beispiel.ch', null, appUrl)
-    return json({ ok: true, subject: m.subject, html: m.html })
+    const m = facilityMail({ id: 'vorschau', title: 'Wachsgerät in Kabine 3 defekt', body: 'Vorschau einer Reparaturmeldung. Diese Nachricht wird nicht versendet.', created_by_name: me?.first_name ?? 'Mitarbeiterin', created_at: new Date().toISOString(), branch_id: 'basel-1' }, 'Basel 1', String(S.facility_email ?? ''), null, appUrl)
+    return json({ ok: true, to: m.to, subject: m.subject, html: m.html, facilityEnabled, eventEnabled })
   }
   // Testversand nur an die angemeldete Büro-Person selbst (unabhängig vom Schalter, braucht aber den Schlüssel):
   //   test_facility: ihre jüngste eigene Meldung als Facility-Mail (mit echtem Foto-Link)
@@ -96,18 +97,18 @@ Deno.serve(async (req) => {
     await admin.from('mail_log').insert({ kind: 'test', ref: m.ref, recipient: m.to, subject: m.subject, status: r.ok ? 'gesendet' : 'fehler', error: r.error ?? null, provider_id: r.id ?? null })
     return json({ ok: r.ok, error: r.error ?? null, to: m.to })
   }
-  if (!key || !enabled) return json({ ok: true, skipped: !key ? 'no_key' : 'disabled', sent: 0 })
+  if (!key || (!facilityEnabled && !eventEnabled)) return json({ ok: true, skipped: !key ? 'no_key' : 'disabled', sent: 0 })
 
   const out: Mail[] = []
   // Beim Einschalten nichts Altes nachschicken: Meldungen > 24 h und Events > 48 h ohne Versand gelten als übersprungen
   const now0 = Date.now()
-  await admin.from('tickets').update({ mail_status: 'uebersprungen', mailed_at: new Date().toISOString() }).is('mail_status', null).lt('created_at', new Date(now0 - 864e5).toISOString())
-  await admin.from('events').update({ invite_mailed_at: new Date().toISOString() }).is('invite_mailed_at', null).lt('created_at', new Date(now0 - 2 * 864e5).toISOString())
+  if (facilityEnabled) await admin.from('tickets').update({ mail_status: 'uebersprungen', mailed_at: new Date().toISOString() }).eq('kind', 'Meldung').eq('is_sample', false).is('mail_status', null).lt('created_at', new Date(now0 - 864e5).toISOString())
+  if (eventEnabled) await admin.from('events').update({ invite_mailed_at: new Date().toISOString() }).is('invite_mailed_at', null).lt('created_at', new Date(now0 - 2 * 864e5).toISOString())
   const { data: branches } = await admin.from('branches').select('id, name, facility_email')
   const bmap = new Map((branches ?? []).map((b: any) => [b.id, b]))
 
   // 1) Facility-Meldungen (nur Art „Meldung“; Ideen gehen ans Büro im Backoffice)
-  const { data: tickets } = await admin.from('tickets').select('id, title, body, branch_id, created_by_name, created_at, photo_path').eq('kind', 'Meldung').is('mail_status', null).eq('is_sample', false).limit(20)
+  const { data: tickets } = facilityEnabled ? await admin.from('tickets').select('id, title, body, branch_id, created_by_name, created_at, photo_path').eq('kind', 'Meldung').is('mail_status', null).eq('is_sample', false).limit(20) : { data: [] }
   for (const t of tickets ?? []) {
     const b: any = bmap.get(t.branch_id)
     const to = (b?.facility_email || S.facility_email || '').trim()
@@ -118,9 +119,9 @@ Deno.serve(async (req) => {
   }
 
   // 2) Einladungen zu neuen Events (nur künftige)
-  const { data: staff } = await admin.from('employees').select('id, email, first_name, branch_id, extra_branch_ids, skills, lang').eq('active', true)
+  const { data: staff } = eventEnabled ? await admin.from('employees').select('id, email, first_name, branch_id, extra_branch_ids, skills, lang').eq('active', true) : { data: [] }
   const inB = (e: any, br: string[]) => br.length === 0 || br.includes(e.branch_id) || (e.extra_branch_ids ?? []).some((x: string) => br.includes(x))
-  const { data: evs } = await admin.from('events').select('*').is('invite_mailed_at', null).eq('is_sample', false).limit(10)
+  const { data: evs } = eventEnabled ? await admin.from('events').select('*').is('invite_mailed_at', null).eq('is_sample', false).limit(10) : { data: [] }
   for (const e of evs ?? []) {
     if (new Date(e.starts_at) < new Date()) { await admin.from('events').update({ invite_mailed_at: new Date().toISOString() }).eq('id', e.id); continue }
     for (const p of (staff ?? []).filter((x) => inB(x, e.audience_branches ?? []) && ((e.audience_skills ?? []).length === 0 || (x.skills ?? []).some((s: string) => e.audience_skills.includes(s)))))
@@ -130,7 +131,7 @@ Deno.serve(async (req) => {
   // 3) Erinnerungen an Angemeldete
   const days = Number(S.event_reminder_days ?? 2)
   const until = new Date(Date.now() + days * 864e5).toISOString()
-  const { data: regs } = await admin.from('event_registrations').select('event_id, employee_id, events!inner(*), employees!inner(id, email, first_name, lang, active)').is('reminded_at', null).eq('coming', true).gt('events.starts_at', new Date().toISOString()).lte('events.starts_at', until).limit(100)
+  const { data: regs } = eventEnabled ? await admin.from('event_registrations').select('event_id, employee_id, events!inner(*), employees!inner(id, email, first_name, lang, active)').is('reminded_at', null).eq('coming', true).gt('events.starts_at', new Date().toISOString()).lte('events.starts_at', until).limit(100) : { data: [] }
   for (const r of regs ?? []) {
     const e: any = Array.isArray(r.events) ? r.events[0] : r.events, p: any = Array.isArray(r.employees) ? r.employees[0] : r.employees
     if (p?.active) out.push({ ...eventMail('erinnerung', e, p, appUrl), ref: `${r.event_id}:${r.employee_id}` })
@@ -156,7 +157,7 @@ function facilityMail(t: any, studio: string, to: string, photo: string | null, 
   const subject = `Facility · ${studio}: ${t.title}`
   return {
     kind: 'facility', ref: t.id, to, subject,
-    html: layout(t.title, rows, t.body, appUrl ? { label: 'Im TeamHub ansehen', url: `${appUrl}/?open=tickets` } : undefined, 'TeamHub · Beautylounge · Meldung aus der Mitarbeiter-App. Bitte nicht auf diese Mail antworten, Status im TeamHub setzen.'),
+    html: layout(t.title, rows, t.body, appUrl ? { label: 'Im TeamHub ansehen', url: `${appUrl}/?open=ticket:${encodeURIComponent(t.id)}` } : undefined, 'TeamHub · Beautylounge · Meldung aus der Mitarbeiter-App. Bitte nicht auf diese Mail antworten, Status im TeamHub setzen.'),
     text: `${subject}\nStudio: ${studio}\nGemeldet von: ${t.created_by_name}\nZeit: ${at}\n\n${t.body}${photo ? `\n\nFoto: ${photo}` : ''}`,
   }
 }

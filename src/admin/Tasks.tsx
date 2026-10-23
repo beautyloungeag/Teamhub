@@ -190,10 +190,11 @@ function Lists({ onOpen }: { onOpen: (id: string) => void }) {
   const proposals = templates.filter(t => t.proposed)
   const approve = async () => { if (confirm('Vorschläge freigeben? Die Beispielvorlagen aus dem Prototyp werden dabei abgeschaltet.')) { await supabase!.rpc('approve_wiki_proposals', { p_kind: 'tasks' }); await reload(); retranslate() } }
   return (<>
-    {office && proposals.length > 0 && <div className="mb-8 pb-6 border-b border-line flex items-center gap-6">
-      <div className="flex-1"><p className="text-[15px] font-medium">{proposals.length} Vorschläge aus dem alten Wiki</p><p className="text-[13px] text-mute mt-0.5">{proposals.map(t => t.name).join(', ')}</p></div>
-      <button onClick={() => onOpen(proposals[0].id)} className={btn2}>Ansehen</button><button onClick={approve} className={btn}>Alle freigeben</button></div>}
-    {visible.length === 0 ? <Empty>Noch keine Checklisten.</Empty> :
+    {office && proposals.length > 0 && <div className="mb-8 pb-6 border-b border-line">
+      <div className="flex items-center gap-6 mb-3"><div className="flex-1"><p className="text-[15px] font-medium">{proposals.length} Vorlagen zur Durchsicht</p><p className="text-[13px] text-mute mt-0.5">Aus den vorhandenen Wiki-Protokollen. Noch nicht als tägliche Aufgaben aktiv.</p></div><button onClick={approve} className={btn}>Nach Prüfung alle freigeben</button></div>
+      <div className="divide-y divide-line">{proposals.map(t => <button key={t.id} onClick={() => onOpen(t.id)} className="w-full py-3 flex items-center gap-4 text-left hover:text-olive-700"><span className="flex-1 text-[14px]">{t.name}</span><span className="text-[13px] text-mute">{when(t)} · {t.items.length} Punkte</span><span className="text-[13px]">Ansehen</span><ChevronRight size={15} /></button>)}</div>
+    </div>}
+    {visible.length === 0 ? <Empty>{proposals.length ? 'Noch keine freigegebenen Checklisten.' : 'Noch keine Checklisten.'}</Empty> :
     <table className="tbl w-full text-[14px] table-fixed"><thead><tr><Th>Checkliste</Th><th className="w-[220px] text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">Gilt für</th><th className="w-[200px] text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">Wann</th><th className="w-[90px] text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">Punkte</th><th className="w-[130px] text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">Stand</th><th className="w-10 border-b border-line" /></tr></thead>
       <tbody className="divide-y divide-line">{visible.map(t => { const u = until(t)
         return <tr key={t.id} onClick={() => onOpen(t.id)} className="cursor-pointer hover:bg-sage-50/70">
@@ -244,7 +245,13 @@ function ChecklistPage({ id, onBack }: { id: string | 'neu'; onBack: () => void 
     if (results.some(r => r.error)) { setErr('Nicht alle Punkte liessen sich speichern.'); return }
     toast('Checkliste gespeichert'); setDirty(false); await reload(); retranslate(); if (!t) onBack()
   }
-  const toggleActive = async () => { if (!t) return; await supabase!.from('task_templates').update({ active: !t.active }).eq('id', t.id); toast(t.active ? 'Ausgeschaltet' : 'Eingeschaltet'); await reload() }
+  const toggleActive = async () => {
+    if (!t) return
+    if (t.proposed && !t.active && !confirm('Diese Vorlage nach Prüfung freigeben und als Checkliste aktivieren?')) return
+    const { error } = await supabase!.from('task_templates').update({ active: !t.active, ...(!t.active && t.proposed ? { proposed: false } : {}) }).eq('id', t.id)
+    if (error) { toast('Die Checkliste konnte nicht umgestellt werden.', 'error'); return }
+    toast(t.active ? 'Ausgeschaltet' : 'Eingeschaltet'); await reload()
+  }
   const remove = async () => { if (!t || !confirm(`Checkliste „${t.name}“ löschen? Die Nachweise der vergangenen Tage gehen mit verloren. Ausschalten behält sie.`)) return
     const { error } = await supabase!.from('task_templates').delete().eq('id', t.id); if (error) { toast('Löschen hat nicht geklappt', 'error'); return } await reload(); toast('Gelöscht'); onBack() }
   const label = 'w-[150px] shrink-0 text-[13.5px] text-mute pt-2'
@@ -255,7 +262,7 @@ function ChecklistPage({ id, onBack }: { id: string | 'neu'; onBack: () => void 
         {canEdit ? <input value={name} onChange={e => touch(setName)(e.target.value)} placeholder="Name der Checkliste, z. B. Öffnung" className="flex-1 font-display text-[28px] leading-tight outline-none bg-transparent placeholder:text-sage-400" />
           : <h1 className="text-[28px] leading-tight">{t?.name}</h1>}
         <div className="flex items-center gap-2 shrink-0 pt-1">
-          {t && canEdit && <button onClick={toggleActive} className={btn2}>{t.active ? 'Ausschalten' : 'Einschalten'}</button>}
+          {t && canEdit && <button onClick={toggleActive} className={btn2}>{t.active ? 'Ausschalten' : t.proposed ? 'Freigeben & einschalten' : 'Einschalten'}</button>}
           {canEdit && <button disabled={busy || !dirty} onClick={save} className={btn}>{t ? 'Speichern' : 'Anlegen'}</button>}
         </div>
       </div>

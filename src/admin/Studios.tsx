@@ -84,7 +84,7 @@ export function DemoSwitch() {
 /* ---------- E-Mail-Versand (Facility, Einladungen, Erinnerungen) ---------- */
 type MailLog = { at: string; kind: string; recipient: string; subject: string; status: string; error: string | null }
 export function MailSettings() {
-  const [st, setSt] = useState<{ keySet: boolean; enabled: boolean; from: string; log: MailLog[] } | null>(null)
+  const [st, setSt] = useState<{ keySet: boolean; enabled: boolean; facilityEnabled?: boolean; eventEnabled?: boolean; from: string; log: MailLog[] } | null>(null)
   const [central, setCentral] = useState(''), [days, setDays] = useState(2), [msg, setMsg] = useState(''), [preview, setPreview] = useState<string | null>(null)
   const load = async () => {
     const { data } = await supabase!.functions.invoke('mailer', { body: { action: 'status' } })
@@ -96,12 +96,18 @@ export function MailSettings() {
   const put = (key: string, value: unknown) => supabase!.from('app_settings').upsert({ key, value, updated_at: new Date().toISOString() })
   const toggle = async () => {
     if (!st) return
-    if (!st.enabled && !confirm('E-Mail-Versand einschalten? Ab dann gehen echte Mails an Facility und Mitarbeiterinnen (Einladungen, Erinnerungen).')) return
+    if (!st.enabled && !confirm('E-Mail-Versand einschalten? Die aktivierten Versandarten verschicken ab dann echte Nachrichten.')) return
     await put('mail_enabled', !st.enabled); await load()
   }
   const save = async () => {
     const [a, b] = await Promise.all([put('facility_email', central.trim()), put('event_reminder_days', Math.max(1, Math.min(14, days)))])
     setMsg(a.error || b.error ? 'Speichern hat nicht geklappt.' : 'Gespeichert.'); setTimeout(() => setMsg(''), 2500)
+  }
+  const setScope = async (key: string, value: boolean) => {
+    if (key === 'event_mail_enabled' && value && !confirm('Schulungs-Einladungen und Erinnerungen an Mitarbeiterinnen einschalten?')) return
+    const { error } = await put(key, value)
+    if (error) { setMsg('Speichern hat nicht geklappt.'); return }
+    await load()
   }
   const showPreview = async () => { const { data } = await supabase!.functions.invoke('mailer', { body: { action: 'preview' } }); setPreview(data?.html ?? null) }
   if (!st) return null
@@ -112,6 +118,11 @@ export function MailSettings() {
           <p className="text-[14px] mt-3 inline-flex items-center gap-2"><span className={`w-[7px] h-[7px] rounded-full ${st.keySet && st.enabled ? 'bg-ok' : 'bg-sage-400'}`} />{!st.keySet ? 'Kein Resend-Schlüssel, es geht nichts raus' : st.enabled ? `Eingeschaltet · Absender ${st.from}` : 'Ausgeschaltet, es geht nichts raus'}</p></div>
         <button disabled={!st.keySet} onClick={toggle} className={`${st.enabled ? btn2 : btn} shrink-0 disabled:opacity-40`}>{st.enabled ? 'Ausschalten' : 'Einschalten'}</button>
       </div>
+      {st.enabled && <div className="mt-4 space-y-3 text-[14px]">
+        <label className="flex items-center gap-3"><input type="checkbox" checked={st.facilityEnabled ?? st.enabled} onChange={e => setScope('facility_mail_enabled', e.target.checked)} />Facility-Meldungen weiterleiten</label>
+        <p className="ml-6 text-[13px] text-mute">Schäden und Reparaturen bleiben unter „Meldungen & Ideen“ sichtbar. Ideen und Learning-Beiträge werden nicht an Facility verschickt.</p>
+        <label className="flex items-center gap-3"><input type="checkbox" checked={st.eventEnabled ?? st.enabled} onChange={e => setScope('event_mail_enabled', e.target.checked)} />Schulungs-Einladungen und Erinnerungen verschicken</label>
+      </div>}
       <div className="mt-4 grid grid-cols-[1fr_180px_auto] gap-3 items-end">
         <Field label="Zentrale Facility-Adresse (für Studios ohne eigene)"><input value={central} onChange={e => setCentral(e.target.value)} placeholder="facility@beautylounge.ch" className={`${inp} !bg-sage-50`} /></Field>
         <Field label="Erinnerung vor Schulung (Tage)"><input type="number" min={1} max={14} value={days} onChange={e => setDays(Number(e.target.value))} className={`${inp} !bg-sage-50`} /></Field>

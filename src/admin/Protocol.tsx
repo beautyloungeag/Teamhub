@@ -33,7 +33,7 @@ const FIELD: Record<string, string> = {
   metric: 'Kennzahl', target: 'Ziel', created_by: 'Angelegt von', author_id: 'Verfasst von', done_by: 'Erledigt von', employee_id: 'Person', scope: 'Art des Ziels', photo_path: 'Foto', via_ai: 'Über Marc', kind_: '', starts_on: 'Von', ends_on: 'Bis', phorest_branch_id: 'Phorest', facility_email: 'Facility-Mail', intro: 'Kurzfassung', media_kind: 'Medien', media_url: 'Datei',
 }
 const HIDE = new Set(['is_sample', 'created_by_name', 'author_name', 'done_by_name', 'news_id', 'poll_id', 'template_id', 'item_id', 'event_id', 'phorest_staff_id', 'audience_people_count'])
-const SETTING: Record<string, string> = { demo_data: 'Beispielinhalte', mail_enabled: 'E-Mail-Versand', facility_email: 'zentrale Facility-Adresse', event_reminder_days: 'Erinnerung vor Schulungen', learn_questions: 'Kontrollfragen je Lektion', learn_min_correct: 'Kontrollfragen zum Bestehen', audit_days: 'Aufbewahrung Protokoll' }
+const SETTING: Record<string, string> = { demo_data: 'Beispielinhalte', mail_enabled: 'E-Mail-Versand', facility_mail_enabled: 'Facility-Weiterleitung', event_mail_enabled: 'Schulungs-Einladungen und Erinnerungen', facility_email: 'zentrale Facility-Adresse', event_reminder_days: 'Erinnerung vor Schulungen', learn_questions: 'Kontrollfragen je Lektion', learn_min_correct: 'Kontrollfragen zum Bestehen', audit_days: 'Aufbewahrung Protokoll' }
 
 const q = (s: string | null) => s ? `„${s}“` : ''
 /** Wer steht vorne? Beim Nachrücken die Person, die nachrückt (ausgelöst hat es die Absage einer anderen). */

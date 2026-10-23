@@ -1,5 +1,9 @@
 # HANDOFF — Beautylounge TeamHub
 
+### 2026-10-23 — Confirmed customer settings applied; users deferred
+
+Facility-only forwarding enabled to the customer-confirmed central recipient; reports stay in the dashboard. Mailer v8 adds independent Facility/event scopes; event invitations and reminders remain off. Live preview/empty queue and rollback-based RLS visibility checks passed, no test mail sent. Five existing wiki checklist drafts are individually reviewable, not automatically approved. Academy course overviews verified with shared access and linked by audience; own learner login required, no video/progress import. Leadership guide RLS checked. No users created or invited. Ten tests, Deno check, build and browser checks passed. Implementation and limitations: `FACILITY-ACADEMY.md`.
+
 ### 2026-10-23 — Frontend published, invitations explicitly withheld
 
 Owner authorized production publication after customer confirmation of the Netlify upgrade. Personal plan and available credits verified read-only, auto recharge disabled. Privacy/pilot branch fast-forwarded into main; production source `20ce4ee`, Netlify deployment `6adb5d317990bb9d8a78ffcd` published successfully. Public `https://teamhub.beautylounge.ch` serves JS `index-BQ228ITC.js` and CSS `index-BAwSR3V_.css`, byte-identical to the tested build. Eight tests/build passed and public sign-in page checked. No invitations, login-code emails or customer messages sent, no new backend/configuration changes in this release. Pilot people and Facility recipient were supplied in customer correspondence; keep personal details outside this public repo. Academy account access still needs inspection; customer wants to review checklist templates. The Railway token issue is separate from this frontend release. Detailed release receipt is in the private team workspace Beauty assets.
