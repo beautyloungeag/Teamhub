@@ -78,9 +78,29 @@ input[type=checkbox]{accent-color:#495940}
   .teamhub-app-shell .overflow-x-auto{overscroll-behavior-x:contain}
   .teamhub-app-shell img,.teamhub-app-shell video,.teamhub-app-shell iframe{max-width:100%}
   .teamhub-app-shell input,.teamhub-app-shell textarea,.teamhub-app-shell select{min-width:0}
-  .teamhub-login-frame{height:var(--app-height,100dvh);min-height:0;width:100%;max-width:100%;overflow-x:hidden;overflow-y:auto;overscroll-behavior:none;align-items:flex-start}
+  .teamhub-login-frame{width:100%;max-width:100%;align-items:flex-start}
   .teamhub-login-panel{min-width:0;max-width:100%;flex-shrink:0}
   input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not([type=file]),textarea,select{font-size:16px}
 }
 
 @media(max-width:359px){.home-quick-action{flex-direction:column;align-items:flex-start;gap:8px}}
+
+/* Login is a native document flow, not the fixed authenticated app canvas.
+   Its layout must not depend on the keyboard-adjusted --app-height. */
+@media(max-width:767px){
+  html.teamhub-login-mode{height:auto;min-height:100%;overflow-x:hidden;overflow-y:auto;overscroll-behavior-x:none}
+  html.teamhub-login-mode body{position:static;inset:auto;height:auto;min-height:100%;overflow-x:hidden;overflow-y:auto;background:#fff}
+  html.teamhub-login-mode #root{position:static;inset:auto;height:auto;min-height:100%;overflow:visible}
+  .teamhub-login-frame{display:block;height:auto;min-height:100svh;overflow:visible}
+  .teamhub-login-panel{height:auto;min-height:0;overflow:visible}
+  .teamhub-login{display:block;min-height:0;padding:max(12px,env(safe-area-inset-top)) max(20px,env(safe-area-inset-right)) max(24px,env(safe-area-inset-bottom)) max(20px,env(safe-area-inset-left))}
+  .login-content{display:block;padding:0;text-align:left}
+  .login-brand-row{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .login-logo{width:132px;max-width:50%;height:auto;flex-shrink:1}
+  .login-languages{position:static;flex-shrink:0}
+  .login-kicker{display:none}
+  .login-intro{margin-top:16px}
+  .login-intro-code{display:none}
+  .login-form{display:flex;flex-direction:column;gap:12px;margin-top:16px;max-width:100%;overflow-wrap:anywhere}
+  .login-form>*{margin:0}
+}

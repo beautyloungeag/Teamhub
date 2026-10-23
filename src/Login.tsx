@@ -21,11 +21,12 @@ export default function Login({ notice }: { notice?: string }) {
   // Hinweis auch zeigen, wenn die Seite schon offen war (z. B. Zugang nach dem Code deaktiviert)
   useEffect(() => { if (notice) setErr(notice) }, [notice])
 
+  const dismissKeyboard = () => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur() }
   const send = async () => {
     const e = email.trim().toLowerCase()
     if (!/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/.test(e)) { setErr('Bitte gib deine E-Mail-Adresse ein.'); return }
     if (!supabase) { setErr('Die Verbindung zum Server ist nicht eingerichtet.'); return }
-    setBusy(true); setErr('')
+    dismissKeyboard(); setBusy(true); setErr('')
     const { error } = await supabase.auth.signInWithOtp({ email: e, options: { shouldCreateUser: false, emailRedirectTo: window.location.origin } })
     setBusy(false)
     if (error) {
@@ -42,41 +43,38 @@ export default function Login({ notice }: { notice?: string }) {
     if (!supabase) return
     const token = code.replace(/\D/g, '')
     if (token.length < 6) { setErr('Bitte gib den Code aus der E-Mail ein.'); return }
-    setBusy(true); setErr('')
+    dismissKeyboard(); setBusy(true); setErr('')
     const { error } = await supabase.auth.verifyOtp({ email, token, type: 'email' })
     setBusy(false)
     if (error) setErr('Der Code stimmt nicht oder ist abgelaufen.')
   }
 
   return (
-    <div className="flex-1 flex flex-col min-h-0">
-      {/* Am Handy oben das Studio (Empfang, Foto von Beautylounge); am Desktop steht das Bild links im Rahmen */}
-      <div className="md:hidden relative h-[40dvh] shrink-0 overflow-hidden rounded-b-[28px]">
-        <img src="/hero-empfang.jpg" alt="" className="absolute inset-0 w-full h-full object-cover object-[50%_30%]" />
-        <div className="absolute inset-0 bg-gradient-to-b from-ink/25 via-transparent to-transparent" />
-      </div>
-      <div className="absolute top-4 right-4 md:top-6 md:right-8 z-10 flex gap-1 text-xs rounded-full bg-white/85 md:bg-transparent p-1 backdrop-blur-sm">
-        {(['DE', 'EN', 'FR'] as Lang[]).map(l => <button key={l} onClick={() => setLang(l)} className={`px-2.5 py-1 rounded-full ${lang === l ? 'bg-olive-700 text-white' : 'text-mute'}`}>{l}</button>)}
-      </div>
-      <div className="flex-1 flex flex-col items-center text-center px-7 md:px-10 pt-8 md:pt-24 pb-10 md:pb-8">
-        <Logo className="w-44 text-olive-800" />
-        <p className="mt-4 rubric text-olive-700">TeamHub</p>
-        <p className="mt-4 text-[15px] text-mute text-balance">{t('Melde dich mit deiner E-Mail-Adresse an.')}</p>
-        <div className="mt-auto md:mt-10 w-full max-w-[360px] space-y-4 text-left">
+    <div className="teamhub-login flex-1 flex flex-col min-w-0">
+      <div className="login-content flex-1 flex flex-col items-center text-center px-7 md:px-10 pt-8 md:pt-24 pb-10 md:pb-8">
+        <div className="login-brand-row">
+          <Logo className="login-logo w-44 text-olive-800" />
+          <div className="login-languages absolute top-4 right-4 md:top-6 md:right-8 z-10 flex gap-1 text-xs rounded-full bg-white/85 md:bg-transparent p-1 backdrop-blur-sm">
+            {(['DE', 'EN', 'FR'] as Lang[]).map(l => <button key={l} onClick={() => setLang(l)} className={`px-2.5 py-1 rounded-full ${lang === l ? 'bg-olive-700 text-white' : 'text-mute'}`}>{l}</button>)}
+          </div>
+        </div>
+        <p className="login-kicker mt-4 rubric text-olive-700">TeamHub</p>
+        <p className={`login-intro mt-4 text-[15px] text-mute text-balance ${step === 'code' ? 'login-intro-code' : ''}`}>{t('Melde dich mit deiner E-Mail-Adresse an.')}</p>
+        <div className="login-form mt-5 md:mt-10 w-full max-w-[360px] space-y-4 text-left">
         {step === 'mail' ? <>
           <label className="block"><span className="block text-sm text-mute mb-2">{t('E-Mail')}</span>
-            <input type="email" inputMode="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()}
+            <input type="email" inputMode="email" autoComplete="email" autoCapitalize="none" autoCorrect="off" spellCheck={false} value={email} onChange={e => setEmail(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()}
               placeholder={t('vorname@beautylounge.ch')} className="w-full h-12 rounded-[10px] bg-sage-50 px-4 text-[15px] outline-none placeholder:text-mute" /></label>
           <button disabled={busy} onClick={send} className="w-full h-12 rounded-[10px] font-medium bg-olive-700 text-white disabled:opacity-60">{busy ? '…' : t('Anmeldecode senden')}</button>
           <p className="text-xs text-mute text-center">{t('Kein Passwort. Du bekommst einen Code per E-Mail.')}</p>
-          <button onClick={() => { const e = email.trim().toLowerCase(); if (!e) { setErr('Bitte gib zuerst deine E-Mail-Adresse ein.'); return } setEmail(e); setErr(''); setStep('code') }} className="w-full text-sm text-mute">{t('Ich habe schon einen Code')}</button>
+          <button onClick={() => { const e = email.trim().toLowerCase(); if (!e) { setErr('Bitte gib zuerst deine E-Mail-Adresse ein.'); return } dismissKeyboard(); setEmail(e); setErr(''); setStep('code') }} className="w-full text-sm text-mute">{t('Ich habe schon einen Code')}</button>
         </> : <>
           <p className="text-[15px]">{sentA}<span className="font-medium">{email}</span>{sentB}</p>
           <label className="block"><span className="block text-sm text-mute mb-2">{t('Code')}</span>
             <input inputMode="numeric" autoComplete="one-time-code" maxLength={8} value={code} onChange={e => setCode(e.target.value)} onKeyDown={e => e.key === 'Enter' && verify()}
               className="w-full h-12 rounded-[10px] bg-sage-50 px-4 text-lg tracking-[0.4em] outline-none" /></label>
           <button disabled={busy} onClick={verify} className="w-full h-12 rounded-[10px] font-medium bg-olive-700 text-white disabled:opacity-60">{busy ? '…' : t('Anmelden')}</button>
-          <button onClick={() => { setStep('mail'); setCode(''); setErr('') }} className="w-full text-sm text-mute">{t('Andere E-Mail verwenden')}</button>
+          <button onClick={() => { dismissKeyboard(); setStep('mail'); setCode(''); setErr('') }} className="w-full text-sm text-mute">{t('Andere E-Mail verwenden')}</button>
         </>}
         {err && <p role="alert" className="text-sm text-center text-alert">{t(err)}</p>}
         </div>

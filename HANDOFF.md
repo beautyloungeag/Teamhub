@@ -1,5 +1,9 @@
 # HANDOFF — Beautylounge TeamHub
 
+### 2026-10-23 — iPhone keyboard login correction
+
+Owner's physical PWA screenshot exposed a regression in the earlier frame lock: the login form disappeared when the keyboard opened. The signed-out login now uses normal document scrolling instead of the fixed authenticated app canvas or keyboard-derived app height. Compact mobile branding/language row and form start near the top; no mobile hero or bottom-pinned form. Both mail and code steps use 16px fields, long email text wraps, and submitting/changing steps dismisses the keyboard. Desktop card and authenticated app frame remain intact. Build and real Chrome layout/focus/scroll checks passed at 320×300, 393×760 with a 360px visible crop, 430×760 and desktop 1000×760, including a simulated 59px top safe area, code entry and local validation. These are keyboard geometry simulations, not an iPhone keyboard test; owner must fully reopen the installed app and retest. No accounts/invitations/backend changes.
+
 ### 2026-10-23 — Mobile frame correction after owner device feedback
 
 Owner confirms Home Screen installation but reports lateral viewport movement. Fixed/bounded mobile html/body/root and app frame, independent vertical panes, contained horizontal scroll areas, shrinking flex/page widths, narrow quick-action cards and 16px inputs; pinch zoom no longer resizes the app height. Login keeps its own scroll pane for the keyboard. 320/375/430px browser measurements show zero document/page lateral overflow; vertical scroll and fixed navigation checked, signed-out login bounded. See `MOBILE-PUSH.md`. Physical iPhone retest still required; no backend/account/invitation changes.

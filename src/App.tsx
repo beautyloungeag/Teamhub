@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useState } from 'react'
 import { AppProvider } from './store'
 import { AuthProvider, useAuth } from './lib/auth'
 import Mobile from './Mobile'
@@ -31,15 +31,20 @@ function useDesktop() {
 }
 
 // Anmeldung: am Handy randlos, am Desktop als Karte mit Studio-Bild links.
-const LoginFrame = ({ children }: { children: React.ReactNode }) => (
-  <div className="teamhub-login-frame min-h-[100dvh] flex items-center justify-center md:p-6">
-    <div className="teamhub-login-panel w-full h-[100dvh] md:h-[680px] md:max-w-[1000px] md:grid md:grid-cols-2 md:grid-rows-[100%] bg-paper md:rounded-[16px] md:shadow-[0_24px_60px_-30px_rgba(29,34,28,.35)] overflow-hidden">
-      {/* Studio-Bild: Nagelplätze in der Lounge (Foto von Beautylounge, 19.10.) */}
+function LoginFrame({ children }: { children: React.ReactNode }) {
+  // iOS must be allowed to scroll/pan the document to the focused login field.
+  // Keep the authenticated app's fixed canvas separate from this form.
+  useLayoutEffect(() => {
+    document.documentElement.classList.add('teamhub-login-mode')
+    return () => document.documentElement.classList.remove('teamhub-login-mode')
+  }, [])
+  return <div className="teamhub-login-frame min-h-[100dvh] flex items-center justify-center md:p-6">
+    <div className="teamhub-login-panel w-full md:h-[680px] md:max-w-[1000px] md:grid md:grid-cols-2 md:grid-rows-[100%] bg-paper md:rounded-[16px] md:shadow-[0_24px_60px_-30px_rgba(29,34,28,.35)] md:overflow-hidden">
       <img src="/login-studio.webp" alt="" className="hidden md:block w-full h-full min-h-0 object-cover" />
-      <div className="relative h-full flex flex-col">{children}</div>
+      <div className="relative md:h-full flex flex-col">{children}</div>
     </div>
   </div>
-)
+}
 
 function Gate() {
   const { ready, employee, orphan, offline, retry, signOut } = useAuth()
