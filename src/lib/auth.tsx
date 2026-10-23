@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from './supabase'
-import { disablePush } from './push'
+import { disablePush, syncPushAccount } from './push'
 
 export type AppRole = 'mitarbeiterin' | 'filialleitung' | 'buero'
 export type Employee = {
@@ -47,6 +47,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!supabase) { setReady(true); return }
     let alive = true
     const apply = async (s: Session | null) => {
+      syncPushAccount(s?.user.id ?? null)
       const e = s ? await loadEmployee() : null
       if (!alive) return
       setSession(s); setReady(true)

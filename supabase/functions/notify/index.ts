@@ -11,7 +11,8 @@
 //   - von der Warteliste nachgerückt
 // Dazu auf Knopfdruck: remind_event (alle ohne Antwort zu einem Termin), remind_poll (alle ohne Antwort zu einer Umfrage)
 // Secrets: VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT, NOTIFY_SECRET
-import { createClient } from 'jsr:@supabase/supabase-js@2'
+import { createClient } from 'jsr:@supabase/supabase-js@2.117.2'
+import { deliverChatPush, allowedPushEndpoint } from './chat-push.ts'
 import webpush from 'npm:web-push@3.6.7'
 
 const cors = {
@@ -36,7 +37,8 @@ Deno.serve(async (req) => {
   const url = Deno.env.get('SUPABASE_URL')!
   const admin = createClient(url, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
   // Aufruf durch den Cron (Geheimnis) oder durch eine angemeldete Person (nur „jetzt prüfen“)
-  const secretOk = req.headers.get('x-notify-secret') === Deno.env.get('NOTIFY_SECRET')
+  if (req.method !== 'POST') return json({ ok: false, error: 'method_not_allowed' }, 405)
+  const secretOk = !!Deno.env.get('NOTIFY_SECRET') && req.headers.get('x-notify-secret') === Deno.env.get('NOTIFY_SECRET')
   if (!secretOk) {
     const user = createClient(url, Deno.env.get('SUPABASE_ANON_KEY')!, { global: { headers: { Authorization: req.headers.get('Authorization') ?? '' } } })
     const { data: me } = await user.rpc('current_employee')
@@ -44,6 +46,11 @@ Deno.serve(async (req) => {
   }
   const body = await req.json().catch(() => ({}))
   webpush.setVapidDetails(Deno.env.get('VAPID_SUBJECT') ?? 'mailto:info@aleksa.ai', Deno.env.get('VAPID_PUBLIC_KEY')!, Deno.env.get('VAPID_PRIVATE_KEY')!)
+
+  if (body.action === 'chat_push') {
+    try { return json({ ok: true, ...await deliverChatPush(admin, (sub, payload, opts) => webpush.sendNotification(sub, payload, opts)) }) }
+    catch { return json({ ok: false, error: 'chat_push_failed' }, 500) }
+  }
 
   const { data: emps } = await admin.from('employees').select('id, first_name, branch_id, extra_branch_ids, skills, app_role, lang, job_title, notify_prefs').eq('active', true)
   const staff = emps ?? []
@@ -75,14 +82,14 @@ Deno.serve(async (req) => {
   if (body.action === 'remind_event') {
     const user = createClient(url, Deno.env.get('SUPABASE_ANON_KEY')!, { global: { headers: { Authorization: req.headers.get('Authorization') ?? '' } } })
     const { data: me } = await user.rpc('current_employee')
-    const { data: ev } = await admin.from('events').select('id, title, starts_at, audience_branches, audience_skills, created_by').eq('id', String(body.event_id ?? '')).maybeSingle()
+    const { data: ev } = await admin.from('events').select('id, title, starts_at, audience_branches, audience_skills, audience_people, created_by').eq('id', String(body.event_id ?? '')).maybeSingle()
     if (!me?.id || !ev) return json({ ok: false, error: 'not_found' }, 404)
     const mine = [me.branch_id, ...(me.extra_branch_ids ?? [])]
     const allowed = me.app_role === 'buero' || (me.app_role === 'filialleitung' && (ev.created_by === me.id || (ev.audience_branches ?? []).some((b: string) => mine.includes(b)) || !(ev.audience_branches ?? []).length))
     if (!allowed) return json({ ok: false, error: 'forbidden' }, 403)
     const { data: regs } = await admin.from('event_registrations').select('employee_id').eq('event_id', ev.id)
     const answered = new Set((regs ?? []).map((r: any) => r.employee_id))
-    const ids = staff.filter((e) => e.branch_id !== 'buero' && !answered.has(e.id) && inBranches(e, ev.audience_branches ?? [])
+    const ids = staff.filter((e) => e.branch_id !== 'buero' && !answered.has(e.id) && inBranches(e, ev.audience_branches ?? []) && (!(ev.audience_people ?? []).length || ev.audience_people.includes(e.id))
       && ((ev.audience_skills ?? []).length === 0 || (e.skills ?? []).some((k: string) => ev.audience_skills.includes(k)))
       && (me.app_role === 'buero' || mine.some((b) => e.branch_id === b || (e.extra_branch_ids ?? []).includes(b)))).map((e) => e.id)
       // Einzelne Personen: nur wer davon wirklich noch offen ist
@@ -121,11 +128,11 @@ Deno.serve(async (req) => {
     add(await sendByLang(admin, staff, ids, (l) => ({ title: n.must_read ? fill(L[l].must, { t: n.title }) : n.title, body: n.teaser || L[l].newsFallback, url: `/?open=news:${n.id}`, tag: `news-${n.id}` })))
   }
   // 2) Neue Schulungen und Events
-  const { data: evs } = await admin.from('events').select('id, title, kind, starts_at, place, audience_branches, audience_skills').is('notified_at', null).limit(20)
+  const { data: evs } = await admin.from('events').select('id, title, kind, starts_at, place, audience_branches, audience_skills, audience_people').is('notified_at', null).limit(20)
   for (const e of evs ?? []) {
     await admin.from('events').update({ notified_at: now }).eq('id', e.id)
     if (new Date(e.starts_at) < new Date()) continue
-    const ids = staff.filter((x) => inBranches(x, e.audience_branches ?? []) && ((e.audience_skills ?? []).length === 0 || (x.skills ?? []).some((s: string) => e.audience_skills.includes(s)))).map((x) => x.id)
+    const ids = staff.filter((x) => inBranches(x, e.audience_branches ?? []) && (!(e.audience_people ?? []).length || e.audience_people.includes(x.id)) && ((e.audience_skills ?? []).length === 0 || (x.skills ?? []).some((s: string) => e.audience_skills.includes(s)))).map((x) => x.id)
     add(await sendByLang(admin, staff, ids, (l) => {
       const when = new Intl.DateTimeFormat(LOC[l], { timeZone: 'Europe/Zurich', weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(e.starts_at))
       return { title: fill(L[l].ev, { k: e.kind, t: e.title }), body: `${when}${e.place ? ' · ' + e.place : ''} · ${L[l].join}`, url: '/?open=events', tag: `event-${e.id}` }
@@ -190,7 +197,7 @@ Deno.serve(async (req) => {
     add(await sendByLang(admin, staff, [boss.id], (l) => ({ title: fill(L[l].sbYes, { n: who?.first_name ?? '' }), body: `${bName(x.branch_id)} · ${sbWhen(x, l)}`, url: '/?open=standby', tag: `standby-${x.id}` })))
   }
   // 9) Anmeldeschluss erreicht: Zusammenfassung an die Person, die den Termin angelegt hat
-  const { data: evsum } = await admin.from('events').select('id, title, starts_at, register_until, audience_branches, audience_skills, created_by').is('summary_notified_at', null).gt('starts_at', now).limit(30)
+  const { data: evsum } = await admin.from('events').select('id, title, starts_at, register_until, audience_branches, audience_skills, audience_people, created_by').is('summary_notified_at', null).gt('starts_at', now).limit(30)
   for (const e of evsum ?? []) {
     const due = e.register_until ? new Date(e.register_until) : new Date(new Date(e.starts_at).getTime() - 864e5)
     if (due > new Date()) continue
@@ -200,7 +207,7 @@ Deno.serve(async (req) => {
     const { data: regs } = await admin.from('event_registrations').select('employee_id, coming, waitlist').eq('event_id', e.id)
     const yes = (regs ?? []).filter((r: any) => r.coming && !r.waitlist).length, no = (regs ?? []).filter((r: any) => !r.coming).length
     const answered = new Set((regs ?? []).map((r: any) => r.employee_id))
-    const open = staff.filter((x) => x.branch_id !== 'buero' && !answered.has(x.id) && inBranches(x, e.audience_branches ?? []) && ((e.audience_skills ?? []).length === 0 || (x.skills ?? []).some((k: string) => e.audience_skills.includes(k)))).length
+    const open = staff.filter((x) => x.branch_id !== 'buero' && !answered.has(x.id) && inBranches(x, e.audience_branches ?? []) && (!(e.audience_people ?? []).length || e.audience_people.includes(x.id)) && ((e.audience_skills ?? []).length === 0 || (x.skills ?? []).some((k: string) => e.audience_skills.includes(k)))).length
     add(await sendByLang(admin, staff, [boss.id], (l) => ({ title: fill(L[l].evSum, { t: e.title }), body: fill(L[l].evSumBody, { a: String(yes), b: String(no), c: String(open) }), url: '/?open=events', tag: `event-${e.id}` })))
   }
   // 10) Von der Warteliste nachgerückt
@@ -256,10 +263,11 @@ async function sendByLang(admin: any, staff: any[], ids: string[], make: (l: Lan
 async function send(admin: any, employeeIds: string[], msg: Msg) {
   let sent = 0, failed = 0, removed = 0
   if (!employeeIds.length) return { sent, failed, removed }
-  const { data: subs } = await admin.from('push_subscriptions').select('endpoint, p256dh, auth').in('employee_id', employeeIds)
+  const { data: subs } = await admin.from('push_subscriptions').select('endpoint, p256dh, auth, employee_id').in('employee_id', employeeIds)
   await Promise.all((subs ?? []).map(async (s: any) => {
     try {
-      await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, JSON.stringify(msg), { TTL: 60 * 60 * 24 })
+      if (!allowedPushEndpoint(s.endpoint)) { failed++; return }
+      await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, JSON.stringify({ ...msg, employeeId: s.employee_id }), { TTL: 60 * 60 * 24, urgency: 'high', timeout: 5000 })
       sent++
     } catch (e: any) {
       // 404/410: Gerät hat das Abo verworfen → aufräumen

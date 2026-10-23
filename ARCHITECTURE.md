@@ -11,3 +11,7 @@ Exact verification, scope and limits: `PRIVACY.md`. No frontend deployment in th
 ## Pilot feature extension (23 October 2026)
 
 Five additive migrations `20261023135138`–`20261023140714` separate training visibility from audience registration, enforce confidential tickets/files/audit, and add service-only Phorest event outbox/link ledgers plus claim/finish functions. `phorest-events` is the only new calendar writer, using existing provider credentials and Vault-authenticated minute transport. General `phorest`, Academy links and customer bookings remain unchanged. Operational contract: `PILOT-FEATURES.md`.
+
+## Mobile push (23 October 2026)
+
+`20261023142539_mobile_push_delivery.sql` adds service-only per-message/device chat deliveries, private permission/unread helpers, claims/acks/validity checks and immediate Vault-authenticated notification wake-up. The minute retry is independent of the app being open. Server-owned clocks and immutable member identities protect read/routing semantics. Subscription readiness is aggregated across devices; employee deactivation revokes subscriptions. `notify/chat-push.ts` delivers only current eligible rows; the service worker binds display to the current account. No native binary or iPhone delivery acceptance is claimed. Scope and acceptance: `MOBILE-PUSH.md`.

@@ -95,13 +95,14 @@ function NotifySettings() {
     const { error } = await supabase!.rpc('set_notify_prefs', { p: next })
     if (error) { toast('Speichern hat nicht geklappt', 'error'); setPrefs(prefs) }
   }
-  const pushText: Record<PushState, string> = { on: 'An auf diesem Gerät', off: 'Aus auf diesem Gerät', denied: 'Im Browser blockiert. In den Website-Einstellungen erlauben.', unsupported: 'Dieser Browser kann keine Mitteilungen.', 'needs-install': 'Am iPhone nur als App auf dem Home-Bildschirm.' }
+  const pushText: Record<PushState, string> = { on: 'An auf diesem Gerät', off: 'Aus auf diesem Gerät', denied: 'Im Browser blockiert. In den Website-Einstellungen erlauben.', unsupported: 'Dieser Browser kann keine Mitteilungen.', 'needs-install': 'Am iPhone nur als App auf dem Home-Bildschirm.', error: 'Status nicht erreichbar. Verbindung prüfen und erneut versuchen.' }
   return <div className="max-w-[720px]">
     <div className="flex items-start justify-between gap-6 pb-5 border-b border-line">
       <div><p className="font-medium text-[15px]">Mitteilungen an diesem Gerät</p><p className="text-[13px] text-mute mt-1 inline-flex items-center gap-2"><span className={`w-[7px] h-[7px] rounded-full ${push === 'on' ? 'bg-ok' : 'bg-sage-400'}`} />{push ? pushText[push] : '…'}</p></div>
       <div className="flex gap-2 shrink-0">
-        {push === 'on' && <button onClick={async () => { await testPush(); toast('Probe gesendet') }} className={btn2}>Probe</button>}
-        {(push === 'on' || push === 'off') && <button disabled={busy} onClick={async () => { setBusy(true); if (push === 'on') { await disablePush(); setPush('off') } else setPush(await enablePush(me.id)); setBusy(false) }} className={push === 'on' ? btn2 : btn}>{push === 'on' ? 'Ausschalten' : 'Einschalten'}</button>}
+        {push === 'on' && <button onClick={async () => { try { toast(await testPush() ? 'Probe versendet. Bitte Empfang prüfen.' : 'Probe konnte nicht versendet werden.') } catch { toast('Probe konnte nicht versendet werden.', 'error') } }} className={btn2}>Probe</button>}
+        {push === 'error' && <button onClick={() => pushState().then(setPush)} className={btn2}>Erneut prüfen</button>}
+        {(push === 'on' || push === 'off') && <button disabled={busy} onClick={async () => { setBusy(true); try { if (push === 'on') { await disablePush(); setPush('off') } else setPush(await enablePush(me.id)) } catch { setPush('error'); toast('Einrichtung fehlgeschlagen. Bitte neu laden und erneut versuchen.', 'error') } finally { setBusy(false) } }} className={push === 'on' ? btn2 : btn}>{push === 'on' ? 'Ausschalten' : 'Einschalten'}</button>}
       </div>
     </div>
     <p className="rubric text-ink/70 mt-6 mb-1">Als {role === 'buero' ? 'Büro' : 'Filialleitung'} möchte ich erfahren</p>

@@ -46,6 +46,7 @@ function Gate() {
   const desktop = useDesktop()
   // Direktlink: ?open=… zeigt die App, ?bo=… das Backoffice
   const [mode, setMode] = useState<'app' | 'office' | null>(() => startParams.has('open') ? 'app' : startParams.has('bo') ? 'office' : null)
+  useEffect(() => { const open = () => setMode('app'); window.addEventListener('th-open-app', open); return () => window.removeEventListener('th-open-app', open) }, [])
   if (!ready) return <div className="min-h-full flex items-center justify-center text-mute">…</div>
   if (!employee && offline) return (
     <div className="min-h-full flex flex-col items-center justify-center gap-3 p-6 text-center">
@@ -65,7 +66,7 @@ function Gate() {
   return (
     <>
       {/* Beide bleiben gemountet, damit der gemeinsame Zustand beim Umschalten erhalten bleibt */}
-      <div className={view === 'app' ? 'relative w-full h-[100dvh] bg-paper flex flex-col overflow-hidden' : 'hidden'}>
+      <div className={view === 'app' ? 'teamhub-app-shell relative w-full h-[100dvh] bg-paper flex flex-col overflow-hidden' : 'hidden'}>
         <Mobile onSwitch={office ? () => setMode('office') : undefined} />
       </div>
       {office && <div className={view === 'office' ? 'w-full h-[100dvh]' : 'hidden'}><Backoffice onSwitch={() => setMode('app')} /></div>}

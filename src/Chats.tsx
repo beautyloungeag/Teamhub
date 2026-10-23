@@ -5,6 +5,7 @@ import { useApp, type Staff } from './store'
 import { Avatar } from './People'
 import { BMark } from './Logo'
 import { locale } from './lib/i18n'
+import { refreshChatBadge } from './lib/push'
 import { toast } from './Toast'
 
 // Team-Chats (Wunsch der Inhaberin 20./21.10.): ein Raum je Studio, einer fürs ganze Team, Direkt- und Gruppenchats.
@@ -40,10 +41,13 @@ export function useChatUnread() {
   useEffect(() => {
     if (!me.id) return
     let live = true
-    const tick = () => loadChatSummaries(me.id).then(s => { if (live) setN(s.filter(x => x.unread).length) })
-    tick(); const iv = setInterval(tick, 60000)
+    const tick = () => { void refreshChatBadge(); return loadChatSummaries(me.id).then(s => { if (live) setN(s.filter(x => x.unread).length) }) }
+    tick(); const iv = setInterval(tick, 30000)
+    const visible = () => { if (document.visibilityState === 'visible') tick() }
+    document.addEventListener('visibilitychange', visible)
+    const ch = supabase?.channel(`chat-unread-${me.id}`).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages' }, () => { tick(); window.dispatchEvent(new Event('th-chat-change')) }).subscribe()
     const on = () => tick(); window.addEventListener('th-chat-read', on)
-    return () => { live = false; clearInterval(iv); window.removeEventListener('th-chat-read', on) }
+    return () => { live = false; clearInterval(iv); window.removeEventListener('th-chat-read', on); document.removeEventListener('visibilitychange', visible); if (ch) supabase?.removeChannel(ch) }
   }, [me.id])
   return n
 }
@@ -68,7 +72,13 @@ export function ChatHub({ onOpenMarc, onOpenRoom }: { onOpenMarc: () => void; on
   const [list, setList] = useState<ChatSummary[] | null>(null)
   const [picking, setPicking] = useState(false)
   const bname = (id: string) => branches.find(b => b.id === id)?.name ?? id
-  useEffect(() => { loadChatSummaries(me.id).then(setList) }, [me.id])
+  useEffect(() => {
+    let live = true
+    const load = () => loadChatSummaries(me.id).then(rows => { if (live) setList(rows) })
+    const visible = () => { if (document.visibilityState === 'visible') void load() }
+    void load(); window.addEventListener('th-chat-change', load); window.addEventListener('th-chat-read', load); document.addEventListener('visibilitychange', visible)
+    return () => { live = false; window.removeEventListener('th-chat-change', load); window.removeEventListener('th-chat-read', load); document.removeEventListener('visibilitychange', visible) }
+  }, [me.id])
   // Studio-Räume erst, eigene zuerst; danach nach letzter Nachricht
   const sorted = useMemo(() => [...(list ?? [])].filter(x => privateChats || x.room.kind === 'studio' || x.room.kind === 'team').sort((a, b) => {
     const rank = (x: ChatSummary) => x.room.kind === 'studio' && x.room.branch_id === me.branch_id ? 0 : x.room.kind === 'team' ? 1 : 2
@@ -139,22 +149,38 @@ function PeoplePicker({ onClose, onStart }: { onClose: () => void; onStart: (ids
 
 export function ChatRoom({ id, onBack }: { id: string; onBack: () => void }) {
   const { me, staff, branches, t } = useApp()
+  const [roomReady, setRoomReady] = useState(false)
   const [room, setRoom] = useState<Room | null>(null), [members, setMembers] = useState<string[]>([])
   const [msgs, setMsgs] = useState<Msg[] | null>(null)
   const [text, setText] = useState(''), [busy, setBusy] = useState(false)
-  const end = useRef<HTMLDivElement>(null)
-  const markRead = () => supabase?.from('chat_members').upsert({ room_id: id, employee_id: me.id, last_read_at: new Date().toISOString() }).then(() => window.dispatchEvent(new Event('th-chat-read')))
+  const end = useRef<HTMLDivElement>(null), roomRoot = useRef<HTMLDivElement>(null)
+  const markRead = () => { if (document.visibilityState !== 'visible' || !roomRoot.current?.getClientRects().length) return; return supabase?.from('chat_members').upsert({ room_id: id, employee_id: me.id, last_read_at: new Date().toISOString() }).then(({ error }) => { if (!error) window.dispatchEvent(new Event('th-chat-read')) }) }
   useEffect(() => {
     if (!supabase) return
-    supabase.from('chat_rooms').select('id, kind, branch_id, title, last_message_at').eq('id', id).maybeSingle().then(({ data }) => setRoom(data as Room | null))
+    setRoomReady(false); setRoom(null)
+    supabase.from('chat_rooms').select('id, kind, branch_id, title, last_message_at').eq('id', id).maybeSingle().then(({ data }) => { setRoom(data as Room | null); setRoomReady(true) })
     supabase.from('chat_members').select('employee_id').eq('room_id', id).then(({ data }) => setMembers((data ?? []).map(x => x.employee_id)))
-    supabase.from('chat_messages').select('id, room_id, sender_id, body, created_at').eq('room_id', id).order('created_at', { ascending: false }).limit(200)
-      .then(({ data }) => { setMsgs(((data ?? []) as Msg[]).reverse()); markRead() })
+    let live = true, loading = false
+    const load = async () => {
+      if (loading) return
+      loading = true
+      try {
+        const { data, error } = await supabase!.from('chat_messages').select('id, room_id, sender_id, body, created_at').eq('room_id', id).order('created_at', { ascending: false }).limit(200)
+        if (!live || error) return
+        setMsgs(current => [...new Map([...(current ?? []), ...((data ?? []) as Msg[])].map(m => [m.id, m])).values()].sort((a, b) => a.created_at.localeCompare(b.created_at)).slice(-200))
+        markRead()
+      } finally { loading = false }
+    }
+    setMsgs(null); void load()
     const ch = supabase.channel('chat-' + id).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages', filter: `room_id=eq.${id}` }, p => {
       const m = p.new as Msg
       setMsgs(x => x && !x.some(y => y.id === m.id) ? [...x, m] : x); markRead()
     }).subscribe()
-    return () => { supabase!.removeChannel(ch) }
+    const visible = () => { if (document.visibilityState === 'visible') void load() }
+    const observer = new IntersectionObserver(entries => { if (entries.some(e => e.isIntersecting)) void load() })
+    if (roomRoot.current) observer.observe(roomRoot.current)
+    document.addEventListener('visibilitychange', visible)
+    return () => { live = false; observer.disconnect(); document.removeEventListener('visibilitychange', visible); supabase!.removeChannel(ch) }
   }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { end.current?.scrollIntoView({ block: 'end' }) }, [msgs?.length])
   const send = async () => {
@@ -168,9 +194,10 @@ export function ChatRoom({ id, onBack }: { id: string; onBack: () => void }) {
   const name = room ? roomName(room, members, staff, me.id, t, b => branches.find(x => x.id === b)?.name ?? b) : ''
   const sub = room?.kind === 'team' ? t('Alle Studios') : room?.kind === 'studio' ? t('Alle im Studio') : members.length > 2 ? t('{n} Personen', { n: members.length }) : ''
   const day = (iso: string) => new Intl.DateTimeFormat(locale(), { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date(iso))
+  if (roomReady && !room) return <div className="chat-app-header px-5"><button onClick={onBack} className="h-11 text-olive-700">{t('Zurück zu den Chats')}</button><p className="mt-4 text-[16px] text-mute">{t('Dieser Chat ist nicht mehr verfügbar oder gerade nicht erreichbar.')}</p></div>
   return (
-    <div className="h-full flex flex-col">
-      <div className="shrink-0 pt-11 md:pt-3 pb-2 px-3 flex items-center gap-2 bg-paper border-b border-line">
+    <div ref={roomRoot} className="h-full flex flex-col">
+      <div className="chat-app-header shrink-0 md:pt-3 pb-2 px-3 flex items-center gap-2 bg-paper border-b border-line">
         <button onClick={onBack} className="h-11 px-1 flex items-center gap-0.5 text-sage-800 text-[17px]"><ChevronLeft size={22} />{t('Chats')}</button>
         <div className="flex-1 min-w-0 text-center pr-16"><p className="text-[17px] font-semibold truncate">{name}</p>{sub && <p className="text-[13px] text-mute">{sub}</p>}</div>
       </div>

@@ -1,6 +1,8 @@
 {
   "name": "TeamHub · Beautylounge",
   "short_name": "TeamHub",
+  "id": "/",
+  "description": "News, Wissen, Aufgaben und Team-Chats für das Beautylounge-Team",
   "lang": "de-CH",
   "start_url": "/",
   "scope": "/",

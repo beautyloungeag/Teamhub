@@ -59,3 +59,10 @@ input[type=checkbox]{accent-color:#495940}
 @keyframes twinkle{0%,100%{opacity:0;transform:scale(.5) rotate(0)}50%{opacity:.95;transform:scale(1) rotate(18deg)}}
 .sparkle{animation:twinkle 2.6s ease-in-out infinite;opacity:0}
 @media (prefers-reduced-motion:reduce){.sparkle{animation:none;opacity:.7}}
+
+/* Installed iPhone app: keep controls outside the notch/home indicator and keyboard. */
+.app-top-space{height:max(20px,env(safe-area-inset-top))}
+.app-bottom-nav{padding-bottom:max(10px,env(safe-area-inset-bottom))}
+.chat-app-header{padding-top:max(12px,env(safe-area-inset-top))}
+@media(max-width:767px){.teamhub-app-shell{height:var(--app-height,100dvh);padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right)}}
+@media(min-width:768px){.app-top-space{height:32px}}

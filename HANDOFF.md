@@ -1,5 +1,10 @@
 # HANDOFF — Beautylounge TeamHub
 
+### 2026-10-23 — Home Screen app and chat push
+
+Owner requested an iPhone-oriented employee app with OS notifications, especially group chats. Added a three-step DE/EN/FR setup, stable manifest identity, safe-area/keyboard handling, account-bound service-worker display, badges and chat deep links. New durable per-device chat delivery, immediate Vault-authenticated wake-up plus minute retry, membership/read checks, expired-device cleanup and multi-device readiness. Existing private-chat setting and confidential concerns remain unchanged. Tests/SQL/375px browser/actual empty-worker transport verified; **physical iPhone installation/locked-screen receipt/tap acceptance is still pending**. Do not claim real iOS delivery has been tested. See `MOBILE-PUSH.md`. No new users or invitations.
+
+
 ### 2026-10-23 — Missing pilot features completed
 
 All trainings visible independently of registration; individual audience assignment, employee list view, confidential author/office-only concerns including files/audit, and a separate Phorest internal-calendar writer. Owner explicitly authorized event writes; the general Phorest reader stays read-only. Event-level opt-in, confirmed participants only, durable intent/outbox, collision/manual-edit protection and minute scheduler. Real Phorest create/retry/time-update/cancel and automatic transport passed; QA removed. No users created/invited. Full verification, controls and limits: `PILOT-FEATURES.md`.

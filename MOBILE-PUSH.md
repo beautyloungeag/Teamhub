@@ -1,0 +1,31 @@
+# Employee app installation and push — 23 October 2026
+
+TeamHub uses a Home Screen web app (PWA), not a newly distributed native binary. iPhone/iPad Web Push requires iOS/iPadOS 16.4+, Home Screen installation in app mode, and the person's notification permission. Apple controls banners, sound, Lock Screen, Focus and delivery timing. No app-store/developer-account purchase is involved.
+
+## Employee setup
+
+Menu → App & notifications and the mobile Home card open the three-step setup. iPhone and Android instructions can be selected explicitly. iPhone instructions include Safari's More/Share menu, Add to Home Screen and the current Open as Web App switch, followed by launching the new icon and signing in. Permission is requested only by tapping Allow notifications, before other asynchronous work. The guide includes a test notification and a locked-phone/group-message checklist. DE/EN/FR are available.
+
+A browser permission alone is not shown as “on”: the device must be successfully linked to the current employee in Supabase and acknowledged by the service worker. Database/worker failures are visible and do not leave a permanently busy or falsely enabled button. The worker's account binding is cleared before logout, notifications are closed, browser subscription removed and badges cleared. Delayed pushes for a different/unbound account display only a generic app hint. Device identity writes are serialized and stale account checks cannot rebind an old identity. Multiple devices aggregate readiness correctly; deactivation revokes all employee subscriptions.
+
+The manifest has a stable ID. The worker caches only the public shell/assets, not Supabase data. Mobile safe areas and the visual viewport keep navigation and chat controls clear of device cutouts and the keyboard. Full iOS keyboard/safe-area behavior still needs the physical-device acceptance below.
+
+## Chat notification delivery
+
+Every new message queues one delivery per currently registered recipient device. Team/studio/direct/group permissions mirror `chat_can`, including extra studios, active employees and the existing private-chat flag. Private chats remain disabled. Authors are excluded. Already-read, deleted, revoked and expired messages are suppressed; authority is checked again immediately before sending. Historical messages are not backfilled when a device signs up.
+
+A database trigger wakes `notify` using existing Vault-held headers, after commit. The new `chat_push` action processes the durable service-only queue. Per-device claims and acknowledgements prevent normal concurrent duplicates; failures back off, expired endpoints are removed, and a minute cron retries a lost wake-up. Leases expire after three minutes, max eight attempts, 24-hour transport TTL and seven-day delivery-log cleanup. Delivery remains at-least-once under an ambiguous provider response; stable per-message notification tags mitigate repeated displays. Push cannot guarantee an OS-visible alert or exact delivery time.
+
+Payloads include the permitted room, sender first name, a bounded preview, recipient identity, unread-chat badge count and `/?open=chat:<id>`. The service worker always displays a visible notification as Safari requires. Tapping focuses an existing app or opens it cold; warm desktop office views switch back to the employee app. External click URLs are rejected. Badges refresh on chat activity/read/foreground. Chat list updates live; returning from background reloads missed messages. A hidden/background chat does not mark incoming messages read. Server clocks own message/read timestamps, and a read-marker update cannot move a membership into another room.
+
+Only browser push-provider endpoints (Apple/Google/Mozilla/Windows) are accepted, preventing the subscription table from becoming an arbitrary HTTP destination. Endpoint/key material and the delivery ledger are inaccessible to other employees. Existing notification topics remain available; event push/reminder targeting now respects individual audience assignments. Confidential personal concerns remain excluded from external previews/dispatch, and event email invitations remain switched off.
+
+## Verification and acceptance
+
+- 27 automated tests, including subscription registration failures, logout despite network errors, provider URL restrictions, current-room authorization, retry/removal behavior, Swiss calendar/privacy regressions, worker display/badge/cold/warm click behavior and cross-account redaction.
+- Real rollback-only database tests: studio/private recipients, author exclusion, badges/read markers, membership/clock protection, queue grants, exclusive claims, retry backoff, stale acknowledgements, permission revocation, multi-device readiness and deactivation. No new identities; fake endpoints never committed or contacted.
+- Actual authenticated worker and scheduled transport return HTTP 200 with an empty queue; signed-out calls return 403. VAPID setup loads successfully. No actual device subscriptions existed at this verification point, so this is not proof of Apple/Google delivery.
+- Real browser checks at a 375px child viewport for setup, navigation and iPhone/Android instructions. This is a responsive browser check, not a real iPhone test. Build, Deno and translation checks pass; the repository retains existing lint warnings.
+- Physical iPhone acceptance remains required: install from Safari, launch the icon, allow notifications, receive a test with the app closed/phone locked, tap a new group notification into the correct chat, verify unread badge clears, then verify logout stops personal previews. Banner/sound/Focus settings are checked on that device. The owner must confirm this before claiming native-device acceptance for the pilot.
+
+Official sources: https://webkit.org/blog/13878/web-push-for-web-apps-on-ios-and-ipados/ ; https://developer.apple.com/documentation/usernotifications/sending-web-push-notifications-in-web-apps-and-browsers ; https://support.apple.com/en-eg/guide/iphone/iphea86e5236/ios ; https://supabase.com/docs/guides/database/webhooks.

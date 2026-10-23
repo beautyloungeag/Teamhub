@@ -3,7 +3,7 @@ import { motion } from 'motion/react'
 import {
   Home, ListChecks, BookOpen, LayoutGrid, Sparkles, ChevronLeft, ChevronRight, Check, Camera, MapPin, Users,
   Search, Lightbulb, AlertTriangle, CalendarDays, Send, Newspaper, Plane, Play, Video,
-  ArrowUp, ArrowUpRight, LogOut, Phone, ArrowBigUp, GraduationCap, Link2, Lock, FileText, Smartphone, Share, PlusSquare, MoreVertical, ExternalLink, Monitor,
+  ArrowUp, ArrowUpRight, LogOut, Phone, ArrowBigUp, GraduationCap, Link2, Lock, FileText, Smartphone, ExternalLink, Monitor,
   TrendingUp, MessageCircle, Clock, Share2, Circle, ShieldAlert, Mail,
 } from 'lucide-react'
 import { useAuth } from './lib/auth'
@@ -107,6 +107,7 @@ function Shell({ onLogout, onSwitch }: { onLogout: () => void; onSwitch?: () => 
     const o = new URL(u, location.origin).searchParams.get('open') ?? ''
     if (o.startsWith('news:')) { const n = newsRef.current.find(x => x.id === o.slice(5)); if (n) open({ k: 'news', item: n }); else { setPendingNews(o.slice(5)); reload() } }
     else if (o.startsWith('ticket:')) { reload(); open({ k: 'ticket', id: o.slice(7) }) }
+    else if (o.startsWith('chat:')) { go('ai'); open({ k: 'chat', id: o.slice(5) }) }
     else if (o.startsWith('events')) open({ k: 'events' }); else if (o === 'tickets') open({ k: 'tickets' })
     else if (o === 'todos') { tasksView = 'me'; reloadTodos(); go('tasks') }
     else if (o === 'standby') { reloadStandby(); go('home') }
@@ -123,7 +124,7 @@ function Shell({ onLogout, onSwitch }: { onLogout: () => void; onSwitch?: () => 
   useEffect(() => {
     reportDevice()
     if (location.search.includes('open=') && !loading) { openUrl(location.href); history.replaceState(null, '', '/') }
-    const onMsg = (e: MessageEvent) => { if (e.data?.type === 'open') openUrl(e.data.url) }
+    const onMsg = (e: MessageEvent) => { if (e.data?.type === 'open') { window.dispatchEvent(new Event('th-open-app')); openUrl(e.data.url) } }
     navigator.serviceWorker?.addEventListener('message', onMsg)
     return () => navigator.serviceWorker?.removeEventListener('message', onMsg)
   }, [loading]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -175,7 +176,7 @@ function Shell({ onLogout, onSwitch }: { onLogout: () => void; onSwitch?: () => 
         <div ref={scroller} className={`flex-1 no-scrollbar bg-sage-50 ${full ? 'overflow-hidden' : 'overflow-y-auto'}`}>
           {full ? screen : (
           <div className="w-full md:mx-auto md:max-w-[760px]">
-            <div className="h-11 md:h-8" />
+            <div className="app-top-space md:h-8" />
             {sub && <div className="px-3 pb-1 flex items-center justify-between">
               <button onClick={back} className="h-11 px-1 flex items-center gap-0.5 text-sage-800 text-[17px]"><ChevronLeft size={22} />{t('Zurück')}</button>
               {/* Schnell zurück zur Startseite (Renée 20.10.) */}
@@ -187,7 +188,7 @@ function Shell({ onLogout, onSwitch }: { onLogout: () => void; onSwitch?: () => 
               </motion.div>}
           </div>)}
         </div>
-        <nav className="md:hidden shrink-0 bg-white border-t border-line px-3 pb-7 pt-2 grid grid-cols-5 items-end">
+        <nav className="app-bottom-nav md:hidden shrink-0 bg-white border-t border-line px-3 pt-2 grid grid-cols-5 items-end">
           {nav.map(([x, label, Icon]) => {
             const on = tab === x && (!sub || x === 'ai' && (sub.k === 'marc' || sub.k === 'chat'))
             return (
@@ -973,6 +974,7 @@ function MenuView({ open, onLogout }: { open: (s: Sub) => void; onLogout: () => 
     ['Learning', t('Videos und Tipps aus den Studios'), GraduationCap, { k: 'tickets', learning: true }],
     ['Posteingang', mailUnread ? t('{n} ungelesen', { n: mailUnread }) : t('Deine Firmen-Mails'), Mail, { k: 'inbox' }],
     ['Zeit & Ferien', t('Stempeluhr, Ferien, Arbeitszeit'), Plane, { k: 'time' }],
+    ['App & Mitteilungen', t('Auf deinem Handy einrichten'), Smartphone, { k: 'install' }],
   ]
   return (
     <div className="pb-10"><Title>{t('Menü')}</Title>
@@ -1407,75 +1409,90 @@ function Connections() {
 
 /* ---------- Startklar: Homescreen + Mitteilungen (BLTH-27) ---------- */
 function usePush() {
+  const { me } = useApp()
   const [st, setSt] = useState<PushState | null>(null)
   const refresh = () => pushState().then(setSt)
-  useEffect(() => { refresh() }, [])
+  useEffect(() => {
+    void refresh()
+    const visible = () => { if (document.visibilityState === 'visible') void refresh() }
+    document.addEventListener('visibilitychange', visible)
+    window.addEventListener('th-push-state', visible)
+    return () => { document.removeEventListener('visibilitychange', visible); window.removeEventListener('th-push-state', visible) }
+  }, [me.id])
   return [st, refresh] as const
 }
 function ReadyCard({ open }: { open: (s: Sub) => void }) {
-  const { t } = useApp()
+  const { me, t } = useApp()
   const [st] = usePush()
-  const [hide, setHide] = useState(() => { try { return localStorage.getItem('th-ready-hide') === '1' } catch { return false } })
-  if (hide || st === null || matchMedia('(min-width: 768px)').matches || (isStandalone() && (st === 'on' || st === 'unsupported'))) return null
-  const label = !isStandalone() ? t('Auf den Home-Bildschirm legen') : t('Mitteilungen einschalten')
-  return (
-    <div className="mt-3 rounded-[16px] bg-white px-4 py-3.5 flex gap-3 items-center">
-      <button onClick={() => open({ k: 'install' })} className="flex-1 text-left text-[17px] text-olive-700 font-medium">{label}</button>
-      <button onClick={() => { setHide(true); try { localStorage.setItem('th-ready-hide', '1') } catch { /* privat */ } }} className="text-[14.5px] text-mute">{t('Später')}</button>
-    </div>
-  )
+  const key = `th-ready-later-${me.id}`
+  const [hide, setHide] = useState(() => { try { return sessionStorage.getItem(key) === '1' } catch { return false } })
+  if (hide || st === null || matchMedia('(min-width: 768px)').matches || (isStandalone() && st === 'on')) return null
+  return <div className="mt-3 rounded-[16px] bg-white px-4 py-3.5 flex gap-3 items-center">
+    <Smartphone size={20} className="text-olive-700 shrink-0" />
+    <button onClick={() => open({ k: 'install' })} className="flex-1 text-left"><span className="block text-[17px] text-olive-700 font-medium">{t('TeamHub als App einrichten')}</span><span className="block text-[13px] text-mute mt-0.5">{t('Mit eigenem Symbol und Mitteilungen auf deinem Handy')}</span></button>
+    <button onClick={() => { setHide(true); try { sessionStorage.setItem(key, '1') } catch { /* private mode */ } }} className="text-[14.5px] text-mute">{t('Später')}</button>
+  </div>
 }
 function PushToggle() {
   const { me, t } = useApp()
   const [st, refresh] = usePush()
   const [busy, setBusy] = useState(false), [msg, setMsg] = useState('')
   const info: Record<PushState, string> = {
-    on: t('Eingeschaltet. Du bekommst Pflicht-News, neue Schulungen und den Stand deiner Meldungen.'),
-    off: t('Aus. Schalte sie ein, dann meldet sich TeamHub bei wichtigen News.'),
-    denied: t('Blockiert. Erlaube Mitteilungen für TeamHub in den Einstellungen deines Handys oder Browsers.'),
-    unsupported: t('Dieser Browser kann keine Mitteilungen. Alles Wichtige siehst du trotzdem auf „Heute“.'),
-    'needs-install': t('Auf dem iPhone gehen Mitteilungen erst, wenn TeamHub auf dem Home-Bildschirm liegt.'),
+    on: t('Eingeschaltet auf diesem Gerät. Neue Chatnachrichten, News, Aufgaben und Schulungen können dich jetzt erreichen.'),
+    off: t('Erlaube Mitteilungen, damit neue Nachrichten auch bei geschlossener App auf deinem Handy erscheinen.'),
+    denied: t('Mitteilungen sind blockiert. Öffne auf dem iPhone Einstellungen → Mitteilungen → TeamHub und erlaube sie dort.'),
+    unsupported: isIOS() ? t('Für Mitteilungen brauchst du iOS 16.4 oder neuer und TeamHub auf dem Home-Bildschirm.') : t('Dieser Browser unterstützt keine Push-Mitteilungen. Nutze einen aktuellen Browser auf deinem Handy.'),
+    'needs-install': t('Öffne TeamHub zuerst über das Symbol auf deinem Home-Bildschirm. Dort kannst du Mitteilungen erlauben.'),
+    error: t('Der Mitteilungsstatus konnte nicht geprüft werden. Prüfe die Verbindung und versuche es erneut.'),
   }
-  if (!st) return <Card className="p-4 text-[15.5px] text-mute">…</Card>
-  return (
-    <Card className="p-4">
-      <p className="text-[15.5px]">{info[st]}</p>
-      <div className="mt-3 flex gap-2">
-        {st === 'off' && <button disabled={busy} onClick={async () => { setBusy(true); const r = await enablePush(me.id); setBusy(false); refresh(); if (r === 'on') toast(t('Mitteilungen eingeschaltet')); if (r === 'denied') setMsg(t('Du hast Mitteilungen abgelehnt.')) }} className="h-10 px-4 rounded-full bg-olive-700 text-white text-[15.5px] disabled:opacity-60">{t('Einschalten')}</button>}
-        {st === 'on' && <><button disabled={busy} onClick={async () => { setBusy(true); const ok = await testPush(); setBusy(false); setMsg(ok ? t('Probe-Mitteilung ist unterwegs.') : t('Konnte keine Probe senden.')) }} className="h-10 px-4 rounded-full bg-white border border-sage-200 text-[15.5px]">{t('Probe senden')}</button>
-          <button onClick={async () => { await disablePush(); refresh(); toast(t('Mitteilungen ausgeschaltet')) }} className="h-10 px-4 rounded-full text-[15.5px] text-mute">{t('Ausschalten')}</button></>}
-      </div>
-      {msg && <p className="mt-2 text-[14.5px] text-mute">{msg}</p>}
-    </Card>
-  )
+  const enable = async () => {
+    setBusy(true); setMsg('')
+    try { const next = await enablePush(me.id); await refresh(); if (next === 'on') toast(t('Mitteilungen eingeschaltet')); else if (next === 'denied') setMsg(t('Du hast Mitteilungen abgelehnt.')) }
+    catch { setMsg(t('Mitteilungen konnten nicht eingerichtet werden. Lade die App neu und versuche es noch einmal.')); await refresh() }
+    finally { setBusy(false) }
+  }
+  return <Card className="p-4">
+    <p className="text-[15.5px] leading-relaxed">{st ? info[st] : t('Wird geprüft …')}</p>
+    <div className="mt-3 flex flex-wrap gap-2">
+      {st === 'off' && <button disabled={busy} onClick={enable} className="h-11 px-4 rounded-full bg-olive-700 text-white text-[15.5px] disabled:opacity-60">{busy ? t('Wird eingerichtet …') : t('Mitteilungen erlauben')}</button>}
+      {st === 'error' && <button disabled={busy} onClick={() => refresh()} className="h-11 px-4 rounded-full bg-olive-700 text-white text-[15.5px]">{t('Erneut prüfen')}</button>}
+      {st === 'on' && <>
+        <button disabled={busy} onClick={async () => { setBusy(true); try { setMsg(await testPush() ? t('Probe versendet. Prüfe, ob die Mitteilung auf deinem Handy erscheint.') : t('Die Probe konnte nicht versendet werden. Bitte erneut versuchen.')) } catch { setMsg(t('Die Probe konnte nicht versendet werden. Bitte erneut versuchen.')) } finally { setBusy(false) } }} className="h-11 px-4 rounded-full bg-olive-700 text-white text-[15.5px] disabled:opacity-60">{t('Probe-Mitteilung senden')}</button>
+        <button disabled={busy} onClick={async () => { setBusy(true); try { await disablePush(); toast(t('Mitteilungen ausgeschaltet')) } catch { setMsg(t('Die Abmeldung konnte nicht vollständig bestätigt werden. Bitte erneut prüfen.')) } finally { await refresh(); setBusy(false) } }} className="h-11 px-4 rounded-full text-[15.5px] text-mute">{t('Ausschalten')}</button>
+      </>}
+    </div>
+    {msg && <p role="status" className="mt-3 text-[14.5px] text-mute leading-relaxed">{msg}</p>}
+  </Card>
 }
 function Install() {
   const { t } = useApp()
   const [st, refresh] = usePush()
-  const standalone = isStandalone(), ios = isIOS(), android = isAndroid()
-  const Step = ({ n, icon, children }: { n: number; icon: ReactNode; children: ReactNode }) => (
-    <div className="flex gap-3 items-start px-4 py-3.5"><span className="w-7 h-7 rounded-full bg-sage-50 text-sage-800 text-[14.5px] font-medium flex items-center justify-center shrink-0">{n}</span><span className="flex-1 text-[17px]">{children}</span><span className="text-sage-800">{icon}</span></div>
-  )
-  return (
-    <div className="pb-10"><Title sub={t('In zwei Minuten erledigt')}>{t('TeamHub aufs Handy')}</Title>
-      <div className="px-5 space-y-3">
-        <Card className="p-4 flex items-center gap-3"><span className={`w-8 h-8 rounded-full flex items-center justify-center ${standalone ? 'bg-sage-600 text-white' : 'bg-sage-50 text-sage-800'}`}>{standalone ? <Check size={15} /> : 1}</span><span className="flex-1 text-[17px]">{standalone ? t('Liegt auf dem Home-Bildschirm') : t('Auf den Home-Bildschirm legen')}</span></Card>
-        {!standalone && <List>
-          {ios ? <>
-            <Step n={1} icon={<Share size={18} />}><Rich text={t('In Safari unten auf **Teilen** tippen')} /></Step>
-            <Step n={2} icon={<PlusSquare size={18} />}><Rich text={t('**Zum Home-Bildschirm** wählen, dann **Hinzufügen**')} /></Step>
-            <Step n={3} icon={<Smartphone size={18} />}>{t('TeamHub über das neue Symbol öffnen und hier Mitteilungen einschalten')}</Step>
-          </> : android ? <>
-            {canPromptInstall() && <div className="p-4"><Btn onClick={async () => { await promptInstall(); refresh() }}>{t('App installieren')}</Btn></div>}
-            <Step n={1} icon={<MoreVertical size={18} />}><Rich text={t('In Chrome oben rechts auf das **Menü** tippen')} /></Step>
-            <Step n={2} icon={<PlusSquare size={18} />}><Rich text={t('**App installieren** bzw. **Zum Startbildschirm hinzufügen**')} /></Step>
-            <Step n={3} icon={<Smartphone size={18} />}>{t('TeamHub über das neue Symbol öffnen')}</Step>
-          </> : <Step n={1} icon={<Smartphone size={18} />}>{t('Öffne diese Seite auf deinem Handy: iPhone mit Safari, Android mit Chrome.')}</Step>}
-        </List>}
-        <Card className="p-4 flex items-center gap-3"><span className={`w-8 h-8 rounded-full flex items-center justify-center ${st === 'on' ? 'bg-sage-600 text-white' : 'bg-sage-50 text-sage-800'}`}>{st === 'on' ? <Check size={15} /> : 2}</span><span className="flex-1 text-[17px]">{t('Mitteilungen einschalten')}</span></Card>
-        <PushToggle />
-        <p className="text-[13px] text-mute px-1">{t('Ohne Mitteilungen geht nichts verloren: Pflicht-News und Aufgaben stehen immer auf „Heute“. Deine Respo sieht im Backoffice, wer startklar ist.')}</p>
-      </div>
+  const standalone = isStandalone()
+  const [platform, setPlatform] = useState<'iphone' | 'android'>(() => isAndroid() ? 'android' : 'iphone')
+  return <div className="pb-10"><Title sub={t('Drei Schritte bis zur ersten Mitteilung')}>{t('TeamHub auf deinem Handy')}</Title>
+    <div className="px-5 space-y-4">
+      <Card className="p-4 flex gap-3 items-center"><img src="/icon-192.png" alt="" className="w-14 h-14 rounded-[14px]" /><div><p className="text-[18px] font-medium">TeamHub</p><p className="text-[14px] text-mute mt-0.5">{t('Dein Team immer dabei')}</p></div></Card>
+      <section><h2 className="mb-2 text-[17px] font-medium flex gap-2 items-center"><span className="w-7 h-7 rounded-full bg-olive-700 text-white text-[14px] flex items-center justify-center">{standalone ? <Check size={15} /> : 1}</span>{t('App auf dem Home-Bildschirm')}</h2>
+      {!standalone && <div className="mb-2 inline-flex rounded-full bg-white p-1">{(['iphone', 'android'] as const).map(p => <button key={p} onClick={() => setPlatform(p)} className={`h-10 px-4 rounded-full text-[14px] ${platform === p ? 'bg-olive-700 text-white' : 'text-mute'}`}>{p === 'iphone' ? 'iPhone' : 'Android'}</button>)}</div>}
+      {standalone ? <Card className="p-4 text-[15.5px] text-olive-700">{t('Erledigt. Du hast TeamHub als App geöffnet.')}</Card> : <Card className="p-4 space-y-3 text-[15.5px] leading-relaxed">
+        {platform === 'iphone' ? <>
+          <p><Rich text={t('Öffne diese Seite in **Safari**. Tippe auf **Teilen**, je nach Safari-Ansicht zuerst im **Mehr-Menü**.')} /></p>
+          <p><Rich text={t('Wähle **Zum Home-Bildschirm**. Wenn angezeigt, lass **Als Web-App öffnen** eingeschaltet und tippe auf **Hinzufügen**.')} /></p>
+          <p><Rich text={t('Öffne TeamHub danach über das **neue Symbol** auf deinem Home-Bildschirm und melde dich an.')} /></p>
+        </> : <>
+          {canPromptInstall() && <Btn onClick={async () => { await promptInstall(); await refresh() }}>{t('App installieren')}</Btn>}
+          <p><Rich text={t('Öffne in **Chrome** das Menü und wähle **App installieren** oder **Zum Startbildschirm hinzufügen**.')} /></p>
+          <p>{t('TeamHub über das neue Symbol öffnen')}</p>
+        </>}
+        {platform === 'iphone' && <p className="text-[13px] text-mute">{t('Fehlt der Eintrag? Scrolle im Teilen-Menü nach unten zu „Aktionen bearbeiten“.')}</p>}
+      </Card>}</section>
+      <section><h2 className="mb-2 text-[17px] font-medium flex gap-2 items-center"><span className="w-7 h-7 rounded-full bg-olive-700 text-white text-[14px] flex items-center justify-center">{st === 'on' ? <Check size={15} /> : 2}</span>{t('Mitteilungen erlauben')}</h2><PushToggle /></section>
+      <section><h2 className="mb-2 text-[17px] font-medium flex gap-2 items-center"><span className="w-7 h-7 rounded-full bg-sage-100 text-olive-700 text-[14px] flex items-center justify-center">3</span>{t('Einmal auf deinem Handy testen')}</h2><Card className="p-4 text-[15.5px] leading-relaxed space-y-2">
+        <p>{t('Sende eine Probe-Mitteilung. Öffne sie durch Antippen – TeamHub startet direkt.')}</p>
+        <p>{t('Teste danach mit einer Kollegin eine neue Gruppennachricht, während dein Handy gesperrt ist. Antippen öffnet den passenden Chat.')}</p>
+        <p className="text-[13px] text-mute">{t('Keine Einblendung? Prüfe Banner und Sperrbildschirm unter Einstellungen → Mitteilungen → TeamHub sowie deinen Fokus-Modus.')}</p>
+      </Card></section>
+      <p className="text-[13px] text-mute px-1">{t('Apple entscheidet anhand deiner Mitteilungs- und Fokus-Einstellungen, ob Banner, Ton und Hinweise auf dem Sperrbildschirm erscheinen.')}</p>
     </div>
-  )
+  </div>
 }

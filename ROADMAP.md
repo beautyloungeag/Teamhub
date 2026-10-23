@@ -1,5 +1,8 @@
 # Privacy follow-up – 2026-10-23
 
+- Mobile push: implementation and desktop/375px/database/worker checks completed. Real iPhone install → permission → locked-screen delivery → chat tap → badge/logout acceptance still required before a device-level pilot promise. See `MOBILE-PUSH.md`.
+
+
 - Latest pilot feature completion: all-training visibility/assigned registration, full upcoming list, confidential concerns, opted-in Phorest internal-calendar sync including changes/cancellations. Live backend tested; see `PILOT-FEATURES.md`. Earlier pending-frontend notes below are historical. No invitation release.
 
 
