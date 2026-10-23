@@ -1,5 +1,9 @@
 # HANDOFF — Beautylounge TeamHub
 
+### 2026-10-23 — Browser favicon refresh
+
+Owner still sees the old lightning icon in the browser. Production `/favicon.svg` already matches the Beautylounge B, but the unchanged URL can retain an old browser favicon. HTML now uses a new B SVG URL plus a 32px PNG fallback, and `/favicon.ico` contains the same existing B at 16/32/48px for conventional discovery. Existing app/Home Screen icons and logo geometry are unchanged. Build and published asset checks verify the release; previously open tabs may need to be closed and reopened.
+
 ### 2026-10-23 — iPhone keyboard login correction
 
 Owner's physical PWA screenshot exposed a regression in the earlier frame lock: the login form disappeared when the keyboard opened. The signed-out login now uses normal document scrolling instead of the fixed authenticated app canvas or keyboard-derived app height. Compact mobile branding/language row and form start near the top; no mobile hero or bottom-pinned form. Both mail and code steps use 16px fields, long email text wraps, and submitting/changing steps dismisses the keyboard. Desktop card and authenticated app frame remain intact. Build and real Chrome layout/focus/scroll checks passed at 320×300, 393×760 with a 360px visible crop, 430×760 and desktop 1000×760, including a simulated 59px top safe area, code entry and local validation. These are keyboard geometry simulations, not an iPhone keyboard test; owner must fully reopen the installed app and retest. No accounts/invitations/backend changes.
