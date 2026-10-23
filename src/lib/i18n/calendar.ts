@@ -56,4 +56,9 @@ export default {
   'Leider ausgebucht.': ['Sorry, fully booked.', 'Désolé, complet.'],
   'Die Anmeldefrist ist vorbei.': ['The registration deadline has passed.', "Le délai d'inscription est dépassé."],
   'Das hat nicht geklappt.': ["That didn't work.", "Cela n'a pas fonctionné."],
+  "Listenansicht": ["List view", "Vue en liste"],
+  "Kalender": ["Calendar", "Calendrier"],
+  "Zur Ansicht": ["View only", "Consultation"],
+  "Zur Ansicht · Anmeldung nur für zugeteilte Personen": ["View only · registration for assigned people only", "Consultation · inscription réservée aux personnes désignées"],
+  "Keine kommenden Termine.": ["No upcoming events.", "Aucun événement à venir."],
 } as Record<string, [string, string]>

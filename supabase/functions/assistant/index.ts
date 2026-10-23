@@ -7,7 +7,7 @@
 // Mit {stream: true} kommen Arbeitsschritte als NDJSON ({step, detail} | {title}), am Ende {done: true, …}.
 // Secrets: OPENAI_API_KEY (optional; ohne ihn antwortet Marc nur aus dem Wissen),
 //          ASSISTANT_MODEL, ASSISTANT_REASONING, TITLE_MODEL (optional).
-import { createClient } from 'jsr:@supabase/supabase-js@2'
+import { createClient } from 'jsr:@supabase/supabase-js@2.117.2'
 import { appendToolRound, CONTEXT_BUCKET, contextPathAllowed, privateRequest, readContext, saveContext, type Context, type Item } from './privacy-context.ts'
 import { contactPolicy } from './contact-policy.ts'
 
@@ -162,7 +162,7 @@ Deno.serve(async (req) => {
       db.from('news_reads').select('news_id, confirmed_at').eq('employee_id', me.id),
       db.from('events').select('id, title, kind, starts_at, place, register_until, capacity, is_sample').gte('starts_at', nowIso).order('starts_at').limit(8),
       db.from('event_registrations').select('event_id, coming').eq('employee_id', me.id),
-      db.from('tickets').select('id, kind, title, status, updated_at, is_sample').eq('created_by', me.id).order('updated_at', { ascending: false }).limit(6),
+      db.from('tickets').select('id, kind, title, status, updated_at, is_sample').eq('created_by', me.id).neq('kind', 'Anliegen').order('updated_at', { ascending: false }).limit(6),
       db.from('onboarding_steps').select('id, title, proposed, is_sample').order('sort'),
       db.from('onboarding_progress').select('step_id').eq('employee_id', me.id),
       db.from('standby_days').select('day').eq('employee_id', me.id).gte('day', day0).order('day').limit(10),

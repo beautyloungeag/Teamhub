@@ -5,7 +5,7 @@
 //   - Erinnerung an Angemeldete X Tage vor Beginn
 // Sperre: ohne Secret RESEND_API_KEY oder ohne app_settings.mail_enabled = true geht nichts raus.
 // Secrets: RESEND_API_KEY, MAIL_FROM (optional), NOTIFY_SECRET, APP_URL (optional)
-import { createClient } from 'jsr:@supabase/supabase-js@2'
+import { createClient } from 'jsr:@supabase/supabase-js@2.117.2'
 import { mailScopes } from './scopes.ts'
 
 const cors = {
@@ -81,7 +81,7 @@ Deno.serve(async (req) => {
     if (!key) return json({ ok: false, error: 'no_key' })
     let m: Mail | null = null
     if (body.action === 'test_facility' || body.action === 'test_error') {
-      const { data: t } = await admin.from('tickets').select('id, title, body, branch_id, created_by_name, created_at, photo_path').eq('created_by', me.id).order('created_at', { ascending: false }).limit(1).maybeSingle()
+      const { data: t } = await admin.from('tickets').select('id, title, body, branch_id, created_by_name, created_at, photo_path').eq('created_by', me.id).eq('kind', 'Meldung').order('created_at', { ascending: false }).limit(1).maybeSingle()
       if (!t) return json({ ok: false, error: 'no_own_ticket' })
       const { data: b } = await admin.from('branches').select('name').eq('id', t.branch_id).maybeSingle()
       let photo: string | null = null

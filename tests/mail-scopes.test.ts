@@ -19,6 +19,7 @@ test('actual mailer forwards only a real report, preserves it and never processe
       { id: 'report', kind: 'Meldung', title: 'QA repair', body: 'Synthetic', branch_id: 'studio', created_by_name: 'QA', created_at: now, is_sample: false, mail_status: null },
       { id: 'idea', kind: 'Idee', created_at: now, is_sample: false, mail_status: null },
       { id: 'learning', kind: 'Learning', created_at: now, is_sample: false, mail_status: null },
+      { id: 'private', kind: 'Anliegen', title: 'Confidential', created_at: now, is_sample: false, mail_status: null },
       { id: 'sample', kind: 'Meldung', created_at: now, is_sample: true, mail_status: null },
     ],
     events: [{ id: 'event', starts_at: '2099-01-01T12:00:00Z', invite_mailed_at: null, is_sample: false }],
@@ -59,7 +60,7 @@ test('actual mailer forwards only a real report, preserves it and never processe
   assert.equal(sent.length, 1)
   assert.deepEqual(sent[0].to, ['facility@example.invalid'])
   assert.match(sent[0].html, /open=ticket:report/)
-  assert.equal(tables.tickets.length, 4)
+  assert.equal(tables.tickets.length, 5)
   assert.equal(tables.tickets[0].mail_status, 'gesendet')
   assert.equal(tables.tickets[1].mail_status, null)
   assert.equal(tables.events[0].invite_mailed_at, null)

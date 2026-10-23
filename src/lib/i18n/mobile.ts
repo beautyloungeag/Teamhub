@@ -748,4 +748,10 @@ export default {
   "mit Test": ["with test", "avec test"],
   "Gilt erst als gelesen, wenn du den Test am Ende bestanden hast.": ["Counts as read only once you have passed the test at the end.", "Compte comme lu seulement quand tu as réussi le test à la fin."],
   "Zum Test": ["Go to test", "Aller au test"],
+  "Anliegen": ["Personal concern", "Demande personnelle"],
+  "Persönlich": ["Personal", "Personnel"],
+  "Anliegen vertraulich gesendet": ["Personal concern sent confidentially", "Demande envoyée confidentiellement"],
+  "Vertraulich gesendet. Nur du und das Büro sehen dein Anliegen.": ["Sent confidentially. Only you and the office can see your concern.", "Envoyé confidentiellement. Seuls toi et le bureau pouvez voir ta demande."],
+  "Nur du und das Büro sehen dieses Anliegen, Kommentare und Anhänge. Keine Weiterleitung an Facility.": ["Only you and the office can see this concern, comments and attachments. Not forwarded to Facility.", "Seuls toi et le bureau pouvez voir cette demande, les commentaires et les pièces jointes. Aucun transfert au service technique."],
+  "Was möchtest du vertraulich mit dem Büro besprechen?": ["What would you like to discuss confidentially with the office?", "De quoi souhaites-tu discuter confidentiellement avec le bureau ?"],
 } as Record<string, [string, string]>

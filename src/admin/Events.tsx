@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Bell, ChevronRight, Pencil, Trash2 } from 'lucide-react'
 import { useApp, isoDay, fmtDate, fmtTime, type Ev, type Staff } from '../store'
 import { supabase } from '../lib/supabase'
 import { notifyNow } from '../lib/push'
 import { downloadCsv } from '../lib/csv'
 import { Avatar } from '../People'
+import { phorest } from '../lib/phorest'
 import { toast } from '../Toast'
 import { H, New, Th, Field, inpStone, btn, btn2, Err, retranslate, real, inBranch, Seg, Modal, Chips, Back, Section, Status, Empty, DataRow } from './kit'
 import { DonutParts, STEPS } from './charts'
@@ -19,7 +20,7 @@ function useEventPeople() {
   const { staff, me } = useApp()
   const office = me.app_role === 'buero'
   return (ev: Ev) => staff.filter(s => real(s) && s.branch_id !== 'buero' && (ev.audienceBranches.length === 0 || ev.audienceBranches.some(b => inBranch(s, b)))
-    && (ev.audienceSkills.length === 0 || s.skills.some(k => ev.audienceSkills.includes(k))) && (office || [me.branch_id, ...(me.extra ?? [])].some(b => inBranch(s, b))))
+    && (!ev.audiencePeople.length || ev.audiencePeople.includes(s.id)) && (ev.audienceSkills.length === 0 || s.skills.some(k => ev.audienceSkills.includes(k))) && (office || [me.branch_id, ...(me.extra ?? [])].some(b => inBranch(s, b))))
 }
 function useStats() {
   const { registrations } = useApp()
@@ -35,7 +36,7 @@ export function EventsAdmin() {
   const [open, setOpen] = useState<string | null>(null), [form, setForm] = useState<Ev | 'neu' | null>(null)
   const stats = useStats()
   const now = new Date()
-  const visible = events.filter(e => office || e.audienceBranches.length === 0 || e.audienceBranches.some(b => [me.branch_id, ...(me.extra ?? [])].includes(b)))
+  const visible = events.filter(e => e.kind === 'Schulung' || office || e.audienceBranches.length === 0 || e.audienceBranches.some(b => [me.branch_id, ...(me.extra ?? [])].includes(b)))
   const list = visible.filter(e => when === 'vergangen' ? new Date(e.endsAt ?? e.startsAt) < now : new Date(e.endsAt ?? e.startsAt) >= now)
     .sort((a, b) => when === 'vergangen' ? b.startsAt.localeCompare(a.startsAt) : a.startsAt.localeCompare(b.startsAt))
   const ev = open ? events.find(e => e.id === open) : null
@@ -105,6 +106,7 @@ function EventPage({ e, onBack, onEdit }: { e: Ev; onBack: () => void; onEdit: (
           <DataRow label="Plätze" value={e.capacity ? `${st.yes} von ${e.capacity} vergeben${st.wait ? ` · ${st.wait} auf der Warteliste` : ''}` : 'unbegrenzt'} />
           {e.registerUntil && <DataRow label="Anmeldung bis" value={fmtDate(e.registerUntil, { weekday: 'short', day: 'numeric', month: 'long' })} />}
           {creator && <DataRow label="Angelegt von" value={`${creator.first} ${creator.last}`} muted />}
+          {can && <PhorestEventStatus e={e} />}
           {e.description && <p className="mt-5 text-[14.5px] leading-relaxed text-ink/85 whitespace-pre-wrap">{e.description}</p>}
         </div>
         <div className="flex items-center gap-6 self-start">
@@ -128,6 +130,21 @@ function EventPage({ e, onBack, onEdit }: { e: Ev; onBack: () => void; onEdit: (
       </Section>
     </div>
   )
+}
+
+function PhorestEventStatus({ e }: { e: Ev }) {
+  const [status, setStatus] = useState<any>(null), [busy, setBusy] = useState(false)
+  const load = async () => { const { data } = await supabase!.rpc('phorest_event_status', { p_event: e.id }); setStatus(data) }
+  useEffect(() => { void load() }, [e.id, e.phorestSync, e.startsAt, e.endsAt])
+  const errors: Record<string,string> = { calendar_conflict: 'Überschneidung mit einem bestehenden Phorest-Termin oder einer Sperrzeit.', phorest_changed_manually: 'Der Eintrag wurde direkt in Phorest geändert. Bitte dort prüfen; TeamHub überschreibt ihn nicht.', missing_mapping: 'Mindestens eine angemeldete Person hat keine eindeutige Phorest-Zuordnung.', single_day_required: 'Beginn und Ende müssen am selben Tag liegen.', phorest_403: 'Dem Phorest-Zugang fehlt die Berechtigung für interne Kalendereinträge.', phorest_401: 'Der Phorest-Zugang wurde abgelehnt.', continue: 'Weitere Teilnahmen werden im nächsten Durchgang übertragen.' }
+  const sync = async () => { setBusy(true); const result = await phorest<any>({ action: 'retry', event_id: e.id, _eventSync: true }); setBusy(false); await load(); toast(result?.ok ? 'Phorest-Abgleich durchgeführt' : 'Phorest-Abgleich braucht Aufmerksamkeit', result?.ok ? 'ok' : 'error') }
+  if (!e.phorestSync && !status) return <DataRow label="Phorest" value="Nicht aktiviert" muted />
+  return <div className="my-5 rounded-[12px] bg-sage-50 p-4 text-[13px]">
+    <p className="font-medium">Phorest-Kalender · {status?.status === 'synced' ? 'Abgeglichen' : status?.status === 'error' ? 'Bitte prüfen' : status?.status === 'running' ? 'Wird abgeglichen' : 'Abgleich vorgemerkt'}</p>
+    <p className="text-mute mt-1">{e.phorestSync ? 'Bestätigte Teilnahmen werden als interne Kalendersperren übernommen. Wartelisten blockieren keine Zeit.' : 'Ausgeschaltet. Zukünftige TeamHub-Einträge werden entfernt.'}</p>
+    {status?.error && <p className="mt-2 text-alert">{errors[status.error] ?? 'Der Abgleich ist noch nicht abgeschlossen. Bitte erneut versuchen oder den Phorest-Zugang prüfen.'}</p>}
+    <button disabled={busy} onClick={sync} className="mt-3 text-olive-700 font-medium disabled:opacity-50">{busy ? 'Gleicht ab …' : 'Jetzt abgleichen'}</button>
+  </div>
 }
 
 /* ---------- Jahresplan ---------- */
@@ -154,23 +171,24 @@ function YearPlan({ events, onOpen }: { events: Ev[]; onOpen: (e: Ev) => void })
 const day = (iso: string) => isoDay(new Date(iso))
 const tm = (iso: string) => new Intl.DateTimeFormat('de-CH', { timeZone: 'Europe/Zurich', hour: '2-digit', minute: '2-digit' }).format(new Date(iso))
 function EventForm({ ev, onClose }: { ev: Ev | null; onClose: () => void }) {
-  const { branches, skillCatalog, me, employee, reload } = useApp()
+  const { branches, skillCatalog, staff, me, employee, reload } = useApp()
   const office = me.app_role === 'buero'
   const own = branches.filter(b => !b.is_office && (office || [me.branch_id, ...(me.extra ?? [])].includes(b.id)))
   const [f, setF] = useState({
     title: ev?.raw.title ?? '', kind: ev?.kind ?? 'Schulung', description: ev?.raw.description ?? '', date: ev ? day(ev.startsAt) : '', from: ev ? tm(ev.startsAt) : '09:00', to: ev?.endsAt ? tm(ev.endsAt) : '',
     place: ev?.raw.place ?? '', link: ev?.link ?? '', capacity: ev?.capacity ? String(ev.capacity) : '', until: ev?.registerUntil ? day(ev.registerUntil) : '',
-    branches: ev?.audienceBranches ?? (office ? [] : [me.branch_id]), skills: ev?.audienceSkills ?? [],
+    people: ev?.audiencePeople ?? [], phorestSync: ev?.phorestSync ?? false, phorestPaid: ev?.phorestPaid ?? true, branches: ev?.audienceBranches ?? (office ? [] : [me.branch_id]), skills: ev?.audienceSkills ?? [],
   })
-  const [err, setErr] = useState(''), [busy, setBusy] = useState(false)
+  const [err, setErr] = useState(''), [busy, setBusy] = useState(false), [personQuery, setPersonQuery] = useState('')
   const save = async () => {
     if (!f.title.trim() || !f.date) { setErr('Titel und Datum sind nötig.'); return }
+    if (f.phorestSync && !f.to) { setErr('Für Phorest ist eine Endzeit nötig.'); return }
     if (f.to && f.to <= f.from) { setErr('„Bis“ muss nach „Von“ liegen.'); return }
     if (!office && !f.branches.length) { setErr('Bitte dein Studio wählen.'); return }
     const at = (d: string, t: string) => new Date(`${d}T${t}:00`).toISOString()
     const row = { title: f.title.trim(), kind: f.kind, description: f.description.trim(), starts_at: at(f.date, f.from), ends_at: f.to ? at(f.date, f.to) : null,
       place: f.place.trim(), link: f.link.trim() || null, capacity: f.capacity ? Number(f.capacity) : null, register_until: f.until ? new Date(f.until + 'T23:59:00').toISOString() : null,
-      audience_branches: f.branches, audience_skills: f.skills }
+      audience_branches: f.branches, audience_skills: f.skills, audience_people: f.people, phorest_sync: f.phorestSync, phorest_paid: f.phorestPaid }
     setBusy(true)
     const { error } = ev ? await supabase!.from('events').update(row).eq('id', ev.id) : await supabase!.from('events').insert({ ...row, created_by: employee.id })
     setBusy(false)
@@ -193,7 +211,9 @@ function EventForm({ ev, onClose }: { ev: Ev | null; onClose: () => void }) {
       </div>
       <div className="mt-3"><Field label="Online-Link (optional)"><input value={f.link} onChange={x => setF({ ...f, link: x.target.value })} placeholder="https://…" className={inpStone} /></Field></div>
       <div className="mt-3"><Field label="Beschreibung"><textarea value={f.description} onChange={x => setF({ ...f, description: x.target.value })} rows={3} placeholder="Inhalt, was mitbringen, für wen" className="w-full rounded-[10px] bg-sage-50 px-3 py-2.5 text-[14px] outline-none resize-none" /></Field></div>
+      <div className="mt-4 rounded-[12px] bg-sage-50 p-3 text-[13px]"><label className="flex gap-2 items-center"><input type="checkbox" checked={f.phorestSync} onChange={x => setF({ ...f, phorestSync: x.target.checked })} />Bestätigte Teilnahmen in Phorest eintragen</label><p className="mt-1 text-mute">Schulungen und Meetings erscheinen als interne Kalendersperre, ohne Kundenbuchung. Änderungen und Absagen werden abgeglichen. Eine Endzeit ist erforderlich.</p>{f.phorestSync && <label className="mt-3 flex gap-2 items-center"><input type="checkbox" checked={f.phorestPaid} onChange={x => setF({ ...f, phorestPaid: x.target.checked })} />In Phorest als bezahlte Zeit markieren</label>}</div>
       <div className="mt-4"><span className="block text-xs text-mute mb-1.5">Für {office ? '(kein Studio = alle)' : ''}</span><Chips tone="stone" items={own.map(b => ({ value: b.id, label: b.name }))} value={f.branches} onChange={v => setF({ ...f, branches: v })} /></div>
+      <details className="mt-4 text-[13px]"><summary className="cursor-pointer text-ink">Einzelne Personen zuteilen (optional){f.people.length ? ` · ${f.people.length} ausgewählt` : ''}</summary><input aria-label="Personen suchen" placeholder="Personen suchen …" value={personQuery} onChange={e => setPersonQuery(e.target.value)} className={`${inpStone} mt-3`} /><div className="mt-2 max-h-36 overflow-y-auto"><Chips tone="stone" items={staff.filter(s => real(s) && (office || [me.branch_id, ...(me.extra ?? [])].includes(s.branch_id)) && `${s.first} ${s.last}`.toLowerCase().includes(personQuery.toLowerCase())).map(s => ({ value: s.id, label: `${s.first} ${s.last}` }))} value={f.people} onChange={v => setF({ ...f, people: v })} /></div></details><p className="mt-2 text-xs text-mute">Schulungen sehen alle. Anmelden können sich nur Personen, auf die alle gewählten Kriterien zutreffen. Ohne Auswahl gilt die gesamte Zielgruppe.</p>
       {skillCatalog.length > 0 && <div className="mt-3"><span className="block text-xs text-mute mb-1.5">Nur mit diesen Skills (optional)</span><Chips tone="stone" items={skillCatalog.map(k => ({ value: k, label: k }))} value={f.skills} onChange={v => setF({ ...f, skills: v })} /></div>}
       <div className="mt-3"><Err m={err} /></div>
     </Modal>

@@ -10,7 +10,7 @@ import { useAuth } from './lib/auth'
 import { supabase } from './lib/supabase'
 import { phorest, type MyDay, type StaffWeek, type ClientHit, type ClientHistory } from './lib/phorest'
 import { pushState, enablePush, disablePush, testPush, reportDevice, isStandalone, isIOS, isAndroid, canPromptInstall, promptInstall, type PushState } from './lib/push'
-import { useApp, isoDay, addDays, zurichHour, type Lang, type News, type WikiArticle, type WikiBlock, type Staff } from './store'
+import { useApp, isoDay, addDays, zurichHour, type Lang, type News, type WikiArticle, type WikiBlock, type Staff, type Ticket } from './store'
 import { Terminbuch, EventCalendar } from './Calendar'
 import { TONE, toneOf, type Tone } from './tones'
 import { tr, locale } from './lib/i18n'
@@ -1274,7 +1274,7 @@ function ProfileHead({ s, photo, onPhoto, busy }: { s: Staff; photo: string | nu
 function Tickets({ open, learning }: { open: (s: Sub) => void; learning?: boolean }) {
   const { tickets, addTicket, toggleVote, me, t, branches } = useApp()
   // Dritter Knopf „Learning“: Kolleginnen teilen Videos und Tipps, sichtbar für alle Studios (Inhaberin 20.10., Punkt 18)
-  const [kind, setKind] = useState<'Meldung' | 'Idee' | 'Learning'>(learning ? 'Learning' : 'Meldung'), [text, setText] = useState(''), [ok, setOk] = useState(''), [photo, setPhoto] = useState<File | null>(null), [busy, setBusy] = useState(false)
+  const [kind, setKind] = useState<Ticket['kind']>(learning ? 'Learning' : 'Meldung'), [text, setText] = useState(''), [ok, setOk] = useState(''), [photo, setPhoto] = useState<File | null>(null), [busy, setBusy] = useState(false)
   // Wer woanders aushilft, meldet für das Studio, in dem sie gerade ist
   const studios = branches.filter(b => !b.is_office)
   const [branchId, setBranchId] = useState(studios.some(b => b.id === me.branch_id) ? me.branch_id : studios[0]?.id ?? me.branch_id)
@@ -1283,25 +1283,26 @@ function Tickets({ open, learning }: { open: (s: Sub) => void; learning?: boolea
   const file = useRef<HTMLInputElement>(null)
   const submit = async () => {
     if (!text.trim() || busy) return
-    setBusy(true); const good = await addTicket({ kind, title: text.trim(), photo: photo ?? undefined, ...(kind === 'Learning' ? { branchId: me.branch_id } : branchId === '*' ? { allStudios: true } : { branchId }) }); setBusy(false)
-    if (good) { setText(''); setPhoto(null); setOk(kind === 'Learning' ? t('Geteilt. Alle Studios sehen es jetzt unter Learning.') : t('Gesendet. Du siehst hier, was daraus wird.')) } else setOk(t('Das hat nicht geklappt. Bitte versuche es noch einmal.'))
+    setBusy(true); const good = await addTicket({ kind, title: text.trim(), photo: photo ?? undefined, ...(kind === 'Learning' || kind === 'Anliegen' ? { branchId: me.branch_id } : branchId === '*' ? { allStudios: true } : { branchId }) }); setBusy(false)
+    if (good) { setText(''); setPhoto(null); setOk(kind === 'Anliegen' ? t('Vertraulich gesendet. Nur du und das Büro sehen dein Anliegen.') : kind === 'Learning' ? t('Geteilt. Alle Studios sehen es jetzt unter Learning.') : t('Gesendet. Du siehst hier, was daraus wird.')) } else setOk(t('Das hat nicht geklappt. Bitte versuche es noch einmal.'))
     setTimeout(() => setOk(''), 3000)
   }
   // Die Datenbank liefert nur, was diese Person sehen darf: eigene Meldungen, Ideen des Teams, als Leitung das Studio
-  const list = tickets.filter(x => x.kind !== 'Learning' && (view === 'offen' ? x.status !== 'Erledigt' : x.status === 'Erledigt'))
+  const list = tickets.filter(x => (kind === 'Anliegen' ? x.kind === 'Anliegen' : x.kind !== 'Learning' && x.kind !== 'Anliegen') && (view === 'offen' ? x.status !== 'Erledigt' : x.status === 'Erledigt'))
     .sort((a, b) => b.votes - a.votes)
   const learnings = tickets.filter(x => x.kind === 'Learning')
   const isVideo = photo?.type.startsWith('video')
   return (
     <div className="pb-10"><Title>{kind === 'Learning' ? t('Learning') : t('Melden & Ideen')}</Title>
       <div className="px-5">
-        <div className="grid grid-cols-3 gap-1 p-1 rounded-[12px] bg-white">
-          {(['Meldung', 'Idee', 'Learning'] as const).map(k => <button key={k} onClick={() => setKind(k)} className={`h-10 rounded-[10px] text-[15.5px] flex items-center justify-center gap-1.5 transition ${kind === k ? 'bg-olive-700 text-white' : ''}`}>{k === 'Meldung' ? <AlertTriangle size={15} /> : k === 'Idee' ? <Lightbulb size={15} /> : <GraduationCap size={15} />}{t(k)}</button>)}
+        <div className="grid grid-cols-2 gap-1 p-1 rounded-[12px] bg-white">
+          {(['Meldung', 'Idee', 'Learning', 'Anliegen'] as const).map(k => <button key={k} onClick={() => setKind(k)} className={`h-10 rounded-[10px] text-[15.5px] flex items-center justify-center gap-1.5 transition ${kind === k ? 'bg-olive-700 text-white' : ''}`}>{k === 'Meldung' ? <AlertTriangle size={15} /> : k === 'Idee' ? <Lightbulb size={15} /> : k === 'Anliegen' ? <Lock size={15} /> : <GraduationCap size={15} />}{t(k === 'Anliegen' ? 'Persönlich' : k)}</button>)}
         </div>
+        {kind === 'Anliegen' && <p className="mt-3 text-[13px] text-mute flex items-start gap-2"><Lock size={15} className="shrink-0 mt-0.5" />{t('Nur du und das Büro sehen dieses Anliegen, Kommentare und Anhänge. Keine Weiterleitung an Facility.')}</p>}
         <Card className="mt-3 p-4">
-          <textarea value={text} onChange={e => setText(e.target.value)} rows={3} placeholder={kind === 'Meldung' ? t('Was ist kaputt oder fehlt?') : kind === 'Learning' ? t('Was möchtest du dem Team zeigen? Zum Beispiel, wie du Brauen formst.') : t('Was könnten wir besser machen?')} className="w-full resize-none outline-none text-[17px] placeholder:text-mute bg-transparent" />
+          <textarea value={text} onChange={e => setText(e.target.value)} rows={3} placeholder={kind === 'Anliegen' ? t('Was möchtest du vertraulich mit dem Büro besprechen?') : kind === 'Meldung' ? t('Was ist kaputt oder fehlt?') : kind === 'Learning' ? t('Was möchtest du dem Team zeigen? Zum Beispiel, wie du Brauen formst.') : t('Was könnten wir besser machen?')} className="w-full resize-none outline-none text-[17px] placeholder:text-mute bg-transparent" />
           <div className="mt-2 flex items-center justify-between gap-2 text-[14.5px] text-mute">
-            <span className="flex items-center gap-3 min-w-0 whitespace-nowrap"><button onClick={() => file.current?.click()} className={`flex items-center gap-1 ${photo ? 'text-olive-700' : ''}`}>{isVideo ? <Video size={15} /> : <Camera size={15} />}{photo ? (isVideo ? t('Video dabei') : t('Foto dabei')) : t('Foto oder Video')}</button>{kind !== 'Learning' && <span className="relative"><button onClick={() => setPickB(!pickB)} className="flex items-center gap-1 hover:text-ink"><MapPin size={15} />{branchId === '*' ? t('Alle Studios') : branches.find(b => b.id === branchId)?.name ?? me.branch}<ChevronRight size={13} className={`transition ${pickB ? 'rotate-90' : ''}`} /></button>
+            <span className="flex items-center gap-3 min-w-0 whitespace-nowrap"><button onClick={() => file.current?.click()} className={`flex items-center gap-1 ${photo ? 'text-olive-700' : ''}`}>{isVideo ? <Video size={15} /> : <Camera size={15} />}{photo ? (isVideo ? t('Video dabei') : t('Foto dabei')) : t('Foto oder Video')}</button>{kind !== 'Learning' && kind !== 'Anliegen' && <span className="relative"><button onClick={() => setPickB(!pickB)} className="flex items-center gap-1 hover:text-ink"><MapPin size={15} />{branchId === '*' ? t('Alle Studios') : branches.find(b => b.id === branchId)?.name ?? me.branch}<ChevronRight size={13} className={`transition ${pickB ? 'rotate-90' : ''}`} /></button>
               {pickB && <span className="absolute z-20 left-0 bottom-7 w-48 rounded-[12px] bg-white shadow-[0_12px_32px_-12px_rgba(29,34,28,.45)] p-1 flex flex-col">{[{ id: '*', name: t('Alle Studios') }, ...studios].map(b => <button key={b.id} onClick={() => { setBranchId(b.id); setPickB(false) }} className={`h-9 px-3 rounded-[8px] text-left text-[15.5px] flex items-center justify-between ${b.id === branchId ? 'bg-sage-50 text-ink' : 'text-ink/80 hover:bg-sage-50'}`}>{b.name}{b.id === branchId && <Check size={14} />}</button>)}</span>}
             </span>}</span>
             <button disabled={busy} onClick={submit} className="h-9 px-4 rounded-[10px] bg-olive-700 text-white flex items-center gap-1.5 shrink-0 disabled:opacity-60"><Send size={13} />{kind === 'Learning' ? t('Teilen') : t('Senden')}</button>
@@ -1325,7 +1326,7 @@ function Tickets({ open, learning }: { open: (s: Sub) => void; learning?: boolea
               </div>
             </div>))}</div>
         </> : <>
-        <div className="mt-8 mb-2.5 px-1 flex items-center justify-between"><div><h2 className="rubric text-ink/70">{t('Verlauf')}</h2><p className="text-[13px] text-mute mt-1">{t('Schon gemeldet? Dann einfach upvoten.')}</p></div>
+        <div className="mt-8 mb-2.5 px-1 flex items-center justify-between"><div><h2 className="rubric text-ink/70">{t('Verlauf')}</h2>{kind !== 'Anliegen' && <p className="text-[13px] text-mute mt-1">{t('Schon gemeldet? Dann einfach upvoten.')}</p>}</div>
           <div className="flex gap-1 p-0.5 rounded-[8px] bg-white">{(['offen', 'erledigt'] as const).map(k => <button key={k} onClick={() => setView(k)} className={`h-7 px-2.5 rounded-[6px] text-[13px] transition ${view === k ? 'bg-olive-700 text-white' : 'text-ink/60'}`}>{t(k === 'offen' ? 'Offen' : 'Erledigt')}</button>)}</div></div>
         <List>{list.length === 0 && <Empty>{view === 'offen' ? t('Nichts offen.') : t('Noch nichts erledigt.')}</Empty>}{list.map(x => (
           <div key={x.id} className="px-4 py-3 flex gap-3 items-start">
@@ -1334,7 +1335,7 @@ function Tickets({ open, learning }: { open: (s: Sub) => void; learning?: boolea
               <p className="text-[17px] mt-1">{x.title}</p>
               <p className="text-[13px] mt-1 flex items-center gap-2"><Status s={x.status} />{x.assignee && <span className="text-mute">· {x.assignee}</span>}{x.comments.length > 0 && <span className="text-mute">· {t('{n} Kommentare', { n: x.comments.length })}</span>}</p>
             </button>
-            <button onClick={() => toggleVote(x.id)} aria-pressed={x.voted} title={t('Upvote')} className={`shrink-0 w-11 py-1.5 rounded-[10px] flex flex-col items-center text-[13px] transition ${x.voted ? 'bg-olive-700 text-white' : 'bg-sage-50 text-ink/70 hover:bg-sage-100'}`}><ArrowBigUp size={16} strokeWidth={1.8} />{x.votes}</button>
+            {x.kind !== 'Anliegen' && <button onClick={() => toggleVote(x.id)} aria-pressed={x.voted} title={t('Upvote')} className={`shrink-0 w-11 py-1.5 rounded-[10px] flex flex-col items-center text-[13px] transition ${x.voted ? 'bg-olive-700 text-white' : 'bg-sage-50 text-ink/70 hover:bg-sage-100'}`}><ArrowBigUp size={16} strokeWidth={1.8} />{x.votes}</button>}
           </div>
         ))}</List>
         </>}
@@ -1353,7 +1354,8 @@ function TicketDetail({ id }: { id: string }) {
       {x.body && <p className="mt-2 text-[17px] whitespace-pre-wrap">{x.body}</p>}
       <p className="mt-2 text-[14.5px] text-mute flex items-center gap-2"><Status s={x.status} />{x.assignee && <span>· {x.assignee}</span>}<span>· {x.who}, {x.when}</span></p>
       {x.photo && <div className="mt-4"><Media tk={x} /></div>}
-      <button onClick={() => toggleVote(x.id)} className={`mt-4 h-10 px-4 rounded-[10px] text-[15.5px] flex items-center gap-2 transition ${x.voted ? 'bg-olive-700 text-white' : 'bg-white'}`}><ArrowBigUp size={17} strokeWidth={1.8} />{x.voted ? t('Upvoted') : t('Upvote')} · {x.votes}</button>
+      {x.kind !== 'Anliegen' && <button onClick={() => toggleVote(x.id)} className={`mt-4 h-10 px-4 rounded-[10px] text-[15.5px] flex items-center gap-2 transition ${x.voted ? 'bg-olive-700 text-white' : 'bg-white'}`}><ArrowBigUp size={17} strokeWidth={1.8} />{x.voted ? t('Upvoted') : t('Upvote')} · {x.votes}</button>}
+      {x.kind === 'Anliegen' && <p className="mt-4 text-[13px] text-mute">{t('Nur du und das Büro sehen dieses Anliegen, Kommentare und Anhänge. Keine Weiterleitung an Facility.')}</p>}
       <Label>{t('Verlauf')}</Label>
       <div className="rounded-[16px] bg-white px-4 py-2"><Comments tk={x} compact /></div>
     </div>

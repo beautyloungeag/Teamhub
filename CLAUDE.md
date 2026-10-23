@@ -6,6 +6,6 @@ Interne Mitarbeiter-App der Beautylounge AG (6 Studios + Büro, ~50 Personen). E
 - Push nur per SSH (`git@github.com:beautyloungeag/Teamhub.git`).
 - Supabase `vdekbelklbctqwucibzn`, PAT `~/.supabase/access-token`. Functions immer `--no-verify-jwt` deployen (sie prüfen selbst).
 - Rechte liegen in der Datenbank (RLS, Rollen `mitarbeiterin` / `filialleitung` / `buero`), nicht nur in der Oberfläche. Neue Tabellen: RLS mit `to authenticated` + Rollenfunktionen aus Migration 0001/0002.
-- Phorest nur lesend über die Function `phorest`.
+- Phorest-Kundentermine weiterhin nur lesend über `phorest`. Ausnahme auf ausdrücklichen Ownerauftrag 23.10.: `phorest-events` schreibt opt-in interne Kalendersperren für bestätigte Schulungs-/Meeting-Teilnahmen; keine Kundenbuchungen. Regeln/Tests: `PILOT-FEATURES.md`.
 - Keine Mails an Mitarbeiterinnen vor dem Pilot. Konten still anlegen (`admin-employee`, `email_confirm`).
 - Beispielinhalte tragen `is_sample = true`.

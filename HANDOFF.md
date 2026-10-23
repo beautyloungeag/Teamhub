@@ -1,5 +1,10 @@
 # HANDOFF — Beautylounge TeamHub
 
+### 2026-10-23 — Missing pilot features completed
+
+All trainings visible independently of registration; individual audience assignment, employee list view, confidential author/office-only concerns including files/audit, and a separate Phorest internal-calendar writer. Owner explicitly authorized event writes; the general Phorest reader stays read-only. Event-level opt-in, confirmed participants only, durable intent/outbox, collision/manual-edit protection and minute scheduler. Real Phorest create/retry/time-update/cancel and automatic transport passed; QA removed. No users created/invited. Full verification, controls and limits: `PILOT-FEATURES.md`.
+
+
 ### 2026-10-23 — Confirmed customer settings applied; users deferred
 
 Facility-only forwarding enabled to the customer-confirmed central recipient; reports stay in the dashboard. Mailer v8 adds independent Facility/event scopes; event invitations and reminders remain off. Live preview/empty queue and rollback-based RLS visibility checks passed, no test mail sent. Five existing wiki checklist drafts are individually reviewable, not automatically approved. Academy course overviews verified with shared access and linked by audience; own learner login required, no video/progress import. Leadership guide RLS checked. No users created or invited. Ten tests, Deno check, build and browser checks passed. Implementation and limitations: `FACILITY-ACADEMY.md`.

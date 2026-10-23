@@ -11,7 +11,8 @@ export type TeamToday = { ok: boolean; team: { name: string; start: string; end:
 
 export async function phorest<T>(body: Record<string, unknown>): Promise<T> {
   if (!supabase) return { ok: false, error: 'not_configured' } as T
-  const { data, error } = await supabase.functions.invoke('phorest', { body })
+  const { _eventSync, ...payload } = body
+  const { data, error } = await supabase.functions.invoke(_eventSync ? 'phorest-events' : 'phorest', { body: payload })
   if (error) {
     // functions.invoke meldet Nicht-2xx als Fehler; die Antwort trägt trotzdem den Grund
     try { return await (error as { context?: Response }).context?.json() as T } catch { return { ok: false, error: 'phorest_unavailable' } as T }

@@ -1,3 +1,4 @@
+import { assignedToEvent } from './lib/event-access'
 import { useEffect, useMemo, useState } from 'react'
 import { ChevronDown, ChevronLeft, ChevronRight, MapPin, Search, Check, CalendarDays, X } from 'lucide-react'
 import { useApp, isoDay, addDays, fmtTime, zurichHour, type Ev } from './store'
@@ -197,6 +198,7 @@ export function EventCalendar() {
   const t0 = isoDay()
   const [y, setY] = useState(Number(t0.slice(0, 4))), [m, setM] = useState(Number(t0.slice(5, 7))), [sel, setSel] = useState(t0)
   const [filter, setFilter] = useState<Filter>('all')
+  const [view, setView] = useState<'calendar' | 'list'>('calendar')
   const [day, setDay] = useState<MyDay | null>(null)
   const [month, setMonth] = useState<Record<string, number> | null>(null)
   const [msg, setMsg] = useState<Record<string, string>>({})
@@ -206,7 +208,7 @@ export function EventCalendar() {
   useEffect(() => { if (!mapped) return; let alive = true; setMonth(null); phorest<{ ok: boolean; days: Record<string, number> }>({ action: 'my_month', from: ymd(y, m, 1), to: ymd(y, m, days) }).then(r => { if (alive) setMonth(r?.ok ? r.days : {}) }); return () => { alive = false } }, [y, m, days, mapped])
   const show = { phorest: mapped && filter !== 'event', event: filter !== 'phorest' }
   const evByDay = useMemo(() => { const map = new Map<string, Ev[]>(); for (const e of events) { const k = isoDay(new Date(e.startsAt)); map.set(k, [...(map.get(k) ?? []), e]) } return map }, [events])
-  const upcoming = events.filter(e => new Date(e.startsAt).getTime() >= Date.now()).sort((a, b) => a.startsAt.localeCompare(b.startsAt)).slice(0, 5)
+  const upcoming = events.filter(e => new Date(e.startsAt).getTime() >= Date.now()).sort((a, b) => a.startsAt.localeCompare(b.startsAt))
   const first = (new Date(Date.UTC(y, m - 1, 1)).getUTCDay() + 6) % 7
   const cells = Array.from({ length: Math.ceil((first + days) / 7) * 7 }, (_, i) => i - first + 1)
   const shiftMonth = (d: number) => { const nm = m + d; const ny = nm < 1 ? y - 1 : nm > 12 ? y + 1 : y; setY(ny); setM(((nm + 11) % 12) + 1) }
@@ -222,6 +224,8 @@ export function EventCalendar() {
   const filters: [Filter, string][] = [['all', t('Alles')], ['phorest', t('Meine Termine')], ['event', t('Schulungen & Events')]]
   return (
     <div>
+      <div className="mb-3 inline-flex p-1 rounded-full bg-white">{(['calendar', 'list'] as const).map(v => <button key={v} onClick={() => setView(v)} className={`h-8 px-3.5 rounded-full text-[13px] ${view === v ? 'bg-olive-700 text-white' : 'text-ink/80'}`}>{t(v === 'list' ? 'Listenansicht' : 'Kalender')}</button>)}</div>
+      {view === 'calendar' && <>
       {mapped && <div className="mb-3 inline-flex p-1 rounded-full bg-white">
         {filters.map(([k, label]) => <button key={k} onClick={() => setFilter(k)} className={`h-8 px-3.5 rounded-full text-[13px] transition ${filter === k ? 'bg-olive-700 text-white' : 'text-ink/80 hover:text-ink'}`}>{label}</button>)}
       </div>}
@@ -267,9 +271,10 @@ export function EventCalendar() {
               <div className="min-w-0 flex-1">
                 <p className="text-[15px]">{x.title}</p><p className="text-[13px] text-mute">{x.sub}</p>
                 {x.ev?.description && <p className="text-[13px] mt-1">{x.ev.description}</p>}
-                {x.ev?.link && <a href={x.ev.link} target="_blank" rel="noreferrer" className="text-[13px] text-sage-800 underline">{t('Zum Meeting')}</a>}
+                {x.ev?.link && assignedToEvent(me, x.ev) && <a href={x.ev.link} target="_blank" rel="noreferrer" className="text-[13px] text-sage-800 underline">{t('Zum Meeting')}</a>}
                 {x.ev && past && <p className="mt-1.5 text-[12px] text-mute">{j ? t('Du warst angemeldet.') : t('Vorbei')}</p>}
-                {x.ev && !past && <div className="mt-2 flex gap-1.5 items-center">
+                {x.ev && !past && !assignedToEvent(me, x.ev) && <p className="mt-2 text-[12px] text-mute">{t('Zur Ansicht · Anmeldung nur für zugeteilte Personen')}</p>}
+                {x.ev && !past && assignedToEvent(me, x.ev) && <div className="mt-2 flex gap-1.5 items-center">
                   {(() => { const w = x.ev ? waiting.has(x.ev.id) : false
                     const pos = w ? registrations.filter(r => r.event_id === x.ev!.id && r.coming && r.waitlist).findIndex(r => r.employee_id === me.id) + 1 : 0
                     return <button disabled={!j && closed} onClick={async () => { if (j && !w) return; const r = await toggleEvent(x.ev!.id); setMsg(v => ({ ...v, [x.ev!.id]: r ?? '' })) }} className={`h-8 px-3.5 rounded-[8px] text-[12px] transition disabled:opacity-50 ${j && !w ? 'bg-olive-700 text-white' : w ? 'bg-brass/15 text-ink' : 'bg-sage-50 text-ink'}`}>
@@ -283,17 +288,19 @@ export function EventCalendar() {
         })}
       </div>
 
-      {show.event && upcoming.length > 0 && <>
+      </>}
+      {(view === 'list' || show.event) && upcoming.length > 0 && <>
         <h2 className="mt-8 mb-2.5 px-1 rubric text-ink/70">{t('Schulungen & Events · als Nächstes')}</h2>
         <div className="rounded-[16px] bg-white divide-y divide-sage-50 overflow-hidden">
           {upcoming.map(e => { const k = isoDay(new Date(e.startsAt)), j = joined.has(e.id), no = declined.has(e.id)
-            return <button key={e.id} onClick={() => goTo(k)} className="w-full text-left flex items-center gap-3 px-4 py-3">
+            return <button key={e.id} onClick={() => { goTo(k); setView('calendar') }} className="w-full text-left flex items-center gap-3 px-4 py-3">
               <span className="w-11 shrink-0 text-center"><span className="block text-[11px] text-mute uppercase">{new Intl.DateTimeFormat(locale(), { timeZone: 'Europe/Zurich', month: 'short' }).format(new Date(e.startsAt))}</span><span className="block font-display text-[19px] leading-tight">{new Intl.DateTimeFormat('de-CH', { timeZone: 'Europe/Zurich', day: 'numeric' }).format(new Date(e.startsAt))}</span></span>
               <span className="flex-1 min-w-0"><span className="block text-[15px] truncate">{e.title}</span><span className="block text-[12px] text-mute truncate">{fmtTime(e.startsAt)} · {e.link ? t('Online') : e.place}</span></span>
-              <span className={`text-[12px] shrink-0 inline-flex items-center gap-1.5 ${j ? 'text-ok' : no ? 'text-mute' : 'text-brass'}`}><span className={`w-[6px] h-[6px] rounded-full ${j ? 'bg-ok' : no ? 'bg-sage-400' : 'bg-brass'}`} />{j ? t('Zugesagt') : no ? t('Abgesagt') : t('Offen')}</span>
+              <span className={`text-[12px] shrink-0 inline-flex items-center gap-1.5 ${j ? 'text-ok' : no ? 'text-mute' : 'text-brass'}`}><span className={`w-[6px] h-[6px] rounded-full ${j ? 'bg-ok' : no ? 'bg-sage-400' : 'bg-brass'}`} />{!assignedToEvent(me, e) ? t('Zur Ansicht') : j ? t('Zugesagt') : no ? t('Abgesagt') : t('Offen')}</span>
             </button> })}
         </div>
       </>}
+      {view === 'list' && upcoming.length === 0 && <p className="p-4 text-mute">{t('Keine kommenden Termine.')}</p>}
       <p className="mt-4 px-1 text-xs text-mute flex items-center gap-1"><CalendarDays size={12} />{t('Termine ändern bleibt in Phorest. Schulungen und Events legt das Büro an.')}</p>
     </div>
   )

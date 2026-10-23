@@ -7,3 +7,7 @@ This document covers the privacy slice; see `HANDOFF.md` for the rest of the app
 - `privacy-retention` v1 uses the existing notification secret; hourly job at minute 35 UTC reads its headers from Vault. Object removal goes through Storage API before queue acknowledgement. Settings are enabled by explicit owner approval. This is not deletion of HR, learning, wiki, tickets or external mailboxes.
 
 Exact verification, scope and limits: `PRIVACY.md`. No frontend deployment in this release.
+
+## Pilot feature extension (23 October 2026)
+
+Five additive migrations `20261023135138`–`20261023140714` separate training visibility from audience registration, enforce confidential tickets/files/audit, and add service-only Phorest event outbox/link ledgers plus claim/finish functions. `phorest-events` is the only new calendar writer, using existing provider credentials and Vault-authenticated minute transport. General `phorest`, Academy links and customer bookings remain unchanged. Operational contract: `PILOT-FEATURES.md`.

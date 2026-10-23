@@ -12,9 +12,9 @@ export type News = { id: string; title: string; teaser: string; body: string; au
 export type TaskItem = { id: string; title: string; time: string; group: string; prio: boolean; proof: boolean; articleId: string | null; linkUrl: string | null }
 export type Template = { id: string; name: string; repeat: 'daily' | 'weekly' | 'monthly'; weekday: number | null; monthday: number | null; branchIds: string[]; items: TaskItem[]; active: boolean; proposed: boolean; sample: boolean }
 export type Done = { by: string; byId: string | null; at: string; photo: string | null }
-export type Ticket = { id: string; kind: 'Meldung' | 'Idee' | 'Learning'; title: string; body: string; branch: string; branchId: string; allStudios: boolean; status: 'Neu' | 'Zugewiesen' | 'In Arbeit' | 'Erledigt'; who: string; when: string; assignee: string | null; photo: string | null; mediaKind: 'photo' | 'video'; viaAI: boolean; mine: boolean; votes: number; voted: boolean; comments: Comment[] }
+export type Ticket = { id: string; kind: 'Meldung' | 'Idee' | 'Learning' | 'Anliegen'; title: string; body: string; branch: string; branchId: string; allStudios: boolean; status: 'Neu' | 'Zugewiesen' | 'In Arbeit' | 'Erledigt'; who: string; when: string; assignee: string | null; photo: string | null; mediaKind: 'photo' | 'video'; viaAI: boolean; mine: boolean; votes: number; voted: boolean; comments: Comment[] }
 export type Comment = { id: string; author: string; authorId: string | null; body: string; when: string }
-export type Ev = { id: string; title: string; kind: string; description: string; startsAt: string; endsAt: string | null; place: string; link: string | null; capacity: number | null; registerUntil: string | null; audienceBranches: string[]; audienceSkills: string[]; taken: number; waiting: number; createdBy: string | null; raw: { title: string; description: string; place: string } }
+export type Ev = { id: string; title: string; kind: string; description: string; startsAt: string; endsAt: string | null; place: string; link: string | null; capacity: number | null; registerUntil: string | null; audienceBranches: string[]; audienceSkills: string[]; audiencePeople: string[]; phorestSync: boolean; phorestPaid: boolean; taken: number; waiting: number; createdBy: string | null; raw: { title: string; description: string; place: string } }
 export type WikiBlock = { t: 'h' | 'p' | 'ul' | 'ol' | 'quote' | 'img' | 'video' | 'file'; text?: string; items?: string[]; src?: string; url?: string; name?: string; level?: number }
 export type WikiArticle = { id: string; cat: string; catKey: string; title: string; minutes: number; updated: string; body: string[]; mediaKind: string; mediaUrl: string | null; published: boolean; fromNews?: boolean; intro: string; tags: string[]; accessLevel: 'alle' | 'filialleitung' | 'buero'; imported: boolean }
 export type Step = { id: string; title: string; minutes: number; articleId: string | null; proposed: boolean; branchIds: string[] }
@@ -67,7 +67,7 @@ type Ctx = {
   newsReads: { news_id: string; employee_id: string; confirmed_at: string | null }[]
   templates: Template[]; tasks: TaskItem[]; done: Map<string, Done>; toggle: (id: string, photo?: File) => Promise<void>
   completionsToday: { item_id: string; branch_id: string }[]
-  tickets: Ticket[]; addTicket: (t: { kind: 'Meldung' | 'Idee' | 'Learning'; title: string; body?: string; photo?: File; viaAI?: boolean; branchId?: string; allStudios?: boolean }) => Promise<boolean>
+  tickets: Ticket[]; addTicket: (t: { kind: 'Meldung' | 'Idee' | 'Learning' | 'Anliegen'; title: string; body?: string; photo?: File; viaAI?: boolean; branchId?: string; allStudios?: boolean }) => Promise<boolean>
   addComment: (ticketId: string, body: string) => Promise<boolean>; toggleVote: (ticketId: string) => Promise<void>
   assign: (id: string, a: string) => Promise<void>; setStatus: (id: string, s: Ticket['status']) => Promise<void>
   events: Ev[]; joined: Set<string>; declined: Set<string>; waiting: Set<string>; toggleEvent: (id: string) => Promise<string | null>; declineEvent: (id: string) => Promise<void>
@@ -207,10 +207,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     })))
     setCompletions(tc.data ?? [])
     const counts = new Map(((cnt.data ?? []) as any[]).map(c => [c.event_id, c.taken]))
-    const mySkills: string[] = ((em.data ?? []) as any[]).find(e => e.id === employee.id)?.skills ?? []
-    setEvents(keep(ev.data).filter((e: any) => employee.app_role === 'buero' || !(e.audience_skills ?? []).length || (e.audience_skills as string[]).some(k => mySkills.includes(k))).map((e: any) => ({
+    setEvents(keep(ev.data).map((e: any) => ({
       id: e.id, title: tx(e, 'title', lang), kind: e.kind, description: tx(e, 'description', lang), startsAt: e.starts_at, endsAt: e.ends_at, place: tx(e, 'place', lang), link: e.link, createdBy: e.created_by ?? null, raw: { title: e.title, description: e.description ?? '', place: e.place ?? '' },
-      capacity: e.capacity, registerUntil: e.register_until, audienceBranches: e.audience_branches ?? [], audienceSkills: e.audience_skills ?? [], taken: counts.get(e.id) ?? 0,
+      capacity: e.capacity, registerUntil: e.register_until, audienceBranches: e.audience_branches ?? [], audienceSkills: e.audience_skills ?? [], audiencePeople: e.audience_people ?? [], phorestSync: !!e.phorest_sync, phorestPaid: e.phorest_paid !== false, taken: counts.get(e.id) ?? 0,
       waiting: ((rg.data ?? []) as any[]).filter(r => r.event_id === e.id && r.coming && r.waitlist).length,
     })))
     setRegistrations((rg.data ?? []) as Ctx['registrations'])
@@ -327,8 +326,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     addTicket: async ({ kind, title, body = '', photo, viaAI = false, branchId, allStudios = false }) => {
       const path = photo ? await upload('ticket-photos', photo, `${Date.now()}`) : null
       if (photo && !path) return false
-      const { error } = await sb.from('tickets').insert({ kind, title, body, branch_id: branchId ?? myBranch, all_studios: allStudios, created_by: employee.id, created_by_name: name, via_ai: viaAI, photo_path: path, media_kind: photo?.type.startsWith('video') ? 'video' : 'photo' })
-      if (!error) { await reload(); toast(tr(kind === 'Idee' ? 'Idee gesendet' : kind === 'Learning' ? 'Mit dem Team geteilt' : 'Meldung gesendet')) } else toast(tr('Senden hat nicht geklappt'), 'error')
+      const { error } = await sb.from('tickets').insert({ kind, title, body, branch_id: branchId ?? myBranch, all_studios: kind === 'Anliegen' ? false : allStudios, created_by: employee.id, created_by_name: name, via_ai: viaAI, photo_path: path, media_kind: photo?.type.startsWith('video') ? 'video' : 'photo' })
+      if (!error) { await reload(); toast(tr(kind === 'Idee' ? 'Idee gesendet' : kind === 'Learning' ? 'Mit dem Team geteilt' : kind === 'Anliegen' ? 'Anliegen vertraulich gesendet' : 'Meldung gesendet')) } else toast(tr('Senden hat nicht geklappt'), 'error')
       return !error
     },
     addComment: async (ticketId, body) => {
