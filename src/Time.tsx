@@ -1,3 +1,4 @@
+import { ViewportOverlay } from './ViewportOverlay'
 import { useEffect, useRef, useState } from 'react'
 import { Play, Pause, Square, ExternalLink, Plane, Clock, CalendarDays, Lock, X, Plus } from 'lucide-react'
 import { supabase } from './lib/supabase'
@@ -208,8 +209,8 @@ function RequestSheet({ types, today, onClose, onDone }: { types: AType[]; today
     else toast((r as { error?: string } | null)?.error || t('Timebutler hat den Antrag nicht angenommen.'), 'error')
   }
   return (
-    <div className="fixed inset-0 z-50 bg-ink/30 flex items-end md:items-center justify-center" onClick={onClose}>
-      <div onClick={e => e.stopPropagation()} className="w-full md:max-w-[480px] bg-paper rounded-t-[24px] md:rounded-[24px] p-5 pb-8">
+    <ViewportOverlay label={t('Ferien beantragen')} onClose={onClose} className="bg-ink/30 flex items-end md:items-center justify-center">
+      <div onClick={e => e.stopPropagation()} className="mobile-sheet w-full md:max-w-[480px] bg-paper rounded-t-[24px] md:rounded-[24px] p-5 pb-8">
         <div className="flex items-center justify-between"><p className="text-[20px]">{t('Ferien beantragen')}</p><button onClick={onClose} aria-label={t('Schliessen')} className="w-9 h-9 rounded-full bg-white flex items-center justify-center"><X size={18} /></button></div>
         <div className="mt-4 rounded-[18px] bg-white p-4 space-y-3">
           {usable.length > 1 && <label className="block"><span className="block text-[14px] text-mute mb-1.5">{t('Art')}</span>
@@ -224,6 +225,6 @@ function RequestSheet({ types, today, onClose, onDone }: { types: AType[]; today
         <button disabled={busy || !type} onClick={send} className="mt-4 w-full h-12 rounded-[16px] bg-olive-800 text-white font-semibold disabled:opacity-50">{busy ? t('Sendet …') : t('Antrag senden')}</button>
         <p className="mt-2 text-[13px] text-mute text-center">{t('Der Antrag geht direkt an Timebutler, deine Leitung genehmigt ihn dort.')}</p>
       </div>
-    </div>
+    </ViewportOverlay>
   )
 }

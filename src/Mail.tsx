@@ -1,3 +1,4 @@
+import { ViewportOverlay } from './ViewportOverlay'
 import { useEffect, useRef, useState } from 'react'
 import { Mail as MailIcon, RefreshCw, SquarePen, Paperclip, Reply, Forward, X, Send, Lock, ExternalLink, ChevronRight, LogOut } from 'lucide-react'
 import { supabase } from './lib/supabase'
@@ -182,8 +183,8 @@ function Compose({ onClose, base, mode }: { onClose: () => void; base?: Full; mo
   }
   const field = 'w-full h-11 bg-transparent outline-none text-[16.5px] placeholder:text-mute'
   return (
-    <div className="fixed inset-0 z-50 bg-ink/30 flex items-end md:items-center justify-center" onClick={onClose}>
-      <div onClick={e => e.stopPropagation()} className="w-full md:max-w-[560px] h-[92dvh] md:h-auto md:max-h-[86dvh] bg-paper rounded-t-[24px] md:rounded-[24px] flex flex-col">
+    <ViewportOverlay label={t('Neue E-Mail')} onClose={onClose} className="bg-ink/30 flex items-end md:items-center justify-center">
+      <div onClick={e => e.stopPropagation()} className="w-full md:max-w-[560px] mobile-mail-sheet h-[92dvh] md:h-auto md:max-h-[86dvh] bg-paper rounded-t-[24px] md:rounded-[24px] flex flex-col">
         <div className="px-4 pt-4 pb-2 flex items-center justify-between"><button onClick={onClose} aria-label={t('Schliessen')} className="w-10 h-10 rounded-full bg-white flex items-center justify-center"><X size={18} /></button>
           <p className="text-[17px] font-semibold">{mode === 'reply' ? t('Antworten') : mode === 'forward' ? t('Weiterleiten') : t('Neue E-Mail')}</p>
           <button disabled={busy || !to.trim() || !text.trim()} onClick={send} className="h-10 px-4 rounded-full bg-olive-800 text-white font-semibold flex items-center gap-1.5 disabled:opacity-40"><Send size={15} />{t('Senden')}</button></div>
@@ -192,8 +193,8 @@ function Compose({ onClose, base, mode }: { onClose: () => void; base?: Full; mo
           <label className="flex items-center gap-2"><span className="w-12 text-[15px] text-mute">Cc</span><input value={cc} onChange={e => setCc(e.target.value)} inputMode="email" className={field} /></label>
           <label className="flex items-center gap-2"><span className="w-12 text-[15px] text-mute">{t('Betreff')}</span><input value={subject} onChange={e => setSubject(e.target.value)} className={field} /></label>
         </div>
-        <textarea autoFocus value={text} onChange={e => setText(e.target.value)} placeholder={t('Deine Nachricht')} className="flex-1 mx-4 mt-2 mb-6 rounded-[18px] bg-white p-4 text-[16.5px] leading-relaxed outline-none resize-none placeholder:text-mute" onFocus={e => { if (mode) e.currentTarget.setSelectionRange(0, 0) }} />
+        <textarea aria-label={t('Deine Nachricht')} value={text} onChange={e => setText(e.target.value)} placeholder={t('Deine Nachricht')} className="min-h-[96px] flex-1 mx-4 mt-2 mb-6 rounded-[18px] bg-white p-4 text-[16.5px] leading-relaxed outline-none resize-none placeholder:text-mute" onFocus={e => { if (mode) e.currentTarget.setSelectionRange(0, 0) }} />
       </div>
-    </div>
+    </ViewportOverlay>
   )
 }

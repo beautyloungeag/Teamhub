@@ -1,3 +1,5 @@
+import { scrollInPane } from './lib/mobile-viewport'
+import { ViewportOverlay } from './ViewportOverlay'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, SquarePen, Send, Users, Search, Check, X } from 'lucide-react'
 import { supabase } from './lib/supabase'
@@ -126,11 +128,11 @@ function PeoplePicker({ onClose, onStart }: { onClose: () => void; onStart: (ids
   const list = staff.filter(s => s.active && s.id !== me.id && `${s.first} ${s.last} ${s.branch} ${s.role}`.toLowerCase().includes(q.toLowerCase()))
   const toggle = (id: string) => setSel(x => x.includes(id) ? x.filter(y => y !== id) : [...x, id])
   return (
-    <div className="fixed inset-0 z-50 bg-ink/30 flex items-end md:items-center justify-center" onClick={onClose}>
-      <div onClick={e => e.stopPropagation()} className="w-full md:max-w-[480px] max-h-[88dvh] bg-paper rounded-t-[24px] md:rounded-[24px] flex flex-col">
+    <ViewportOverlay label={t('Neuer Chat')} onClose={onClose} className="bg-ink/30 flex items-end md:items-center justify-center">
+      <div onClick={e => e.stopPropagation()} className="w-full md:max-w-[480px] mobile-sheet max-h-[88dvh] bg-paper rounded-t-[24px] md:rounded-[24px] flex flex-col">
         <div className="px-5 pt-5 pb-3 flex items-center justify-between"><p className="text-[20px]">{t('Neuer Chat')}</p><button onClick={onClose} aria-label={t('Schliessen')} className="w-9 h-9 rounded-full bg-white flex items-center justify-center"><X size={18} /></button></div>
-        <div className="px-5"><div className="h-11 rounded-2xl bg-white px-3.5 flex items-center gap-2"><Search size={18} className="text-mute" /><input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder={t('Name oder Studio')} className="flex-1 bg-transparent outline-none text-[17px] placeholder:text-mute" /></div></div>
-        <div className="flex-1 overflow-y-auto no-scrollbar px-5 py-3"><div className="rounded-[18px] bg-white divide-y divide-line overflow-hidden">
+        <div className="px-5"><div className="h-11 rounded-2xl bg-white px-3.5 flex items-center gap-2"><Search size={18} className="text-mute" /><input value={q} onChange={e => setQ(e.target.value)} placeholder={t('Name oder Studio')} className="flex-1 bg-transparent outline-none text-[17px] placeholder:text-mute" /></div></div>
+        <div className="min-h-0 flex-1 overflow-y-auto no-scrollbar px-5 py-3"><div className="rounded-[18px] bg-white divide-y divide-line overflow-hidden">
           {list.map(s => { const on = sel.includes(s.id)
             return <button key={s.id} onClick={() => toggle(s.id)} className="w-full px-4 py-3 flex items-center gap-3 text-left">
               <Avatar s={s} photo={s.photo} size="w-10 h-10" /><span className="flex-1 min-w-0"><span className="block text-[17px] truncate">{s.first} {s.last}</span><span className="block text-[14px] text-mute truncate">{s.role} · {s.branch}</span></span>
@@ -143,16 +145,26 @@ function PeoplePicker({ onClose, onStart }: { onClose: () => void; onStart: (ids
             {sel.length > 1 ? t('Gruppe mit {n} Personen starten', { n: sel.length }) : t('Chat starten')}</button>
         </div>
       </div>
-    </div>
+    </ViewportOverlay>
   )
 }
 
 export function ChatRoom({ id, onBack }: { id: string; onBack: () => void }) {
+  const messagesPane = useRef<HTMLDivElement>(null)
+  const input = useRef<HTMLTextAreaElement>(null)
+  useEffect(() => {
+    const pane = messagesPane.current
+    if (!pane) return
+    const observer = new ResizeObserver(() => scrollInPane(pane, end.current, 'end'))
+    observer.observe(pane)
+    return () => observer.disconnect()
+  }, [])
   const { me, staff, branches, t } = useApp()
   const [roomReady, setRoomReady] = useState(false)
   const [room, setRoom] = useState<Room | null>(null), [members, setMembers] = useState<string[]>([])
   const [msgs, setMsgs] = useState<Msg[] | null>(null)
   const [text, setText] = useState(''), [busy, setBusy] = useState(false)
+  useEffect(() => { const area = input.current; if (area) { area.style.height = 'auto'; area.style.height = Math.min(area.scrollHeight, 144) + 'px' } }, [text])
   const end = useRef<HTMLDivElement>(null), roomRoot = useRef<HTMLDivElement>(null)
   const markRead = () => { if (document.visibilityState !== 'visible' || !roomRoot.current?.getClientRects().length) return; return supabase?.from('chat_members').upsert({ room_id: id, employee_id: me.id, last_read_at: new Date().toISOString() }).then(({ error }) => { if (!error) window.dispatchEvent(new Event('th-chat-read')) }) }
   useEffect(() => {
@@ -182,7 +194,7 @@ export function ChatRoom({ id, onBack }: { id: string; onBack: () => void }) {
     document.addEventListener('visibilitychange', visible)
     return () => { live = false; observer.disconnect(); document.removeEventListener('visibilitychange', visible); supabase!.removeChannel(ch) }
   }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { end.current?.scrollIntoView({ block: 'end' }) }, [msgs?.length])
+  useEffect(() => { scrollInPane(messagesPane.current, end.current, 'end') }, [msgs?.length])
   const send = async () => {
     const body = text.trim(); if (!body || !supabase) return
     setBusy(true)
@@ -196,12 +208,12 @@ export function ChatRoom({ id, onBack }: { id: string; onBack: () => void }) {
   const day = (iso: string) => new Intl.DateTimeFormat(locale(), { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date(iso))
   if (roomReady && !room) return <div className="chat-app-header px-5"><button onClick={onBack} className="h-11 text-olive-700">{t('Zurück zu den Chats')}</button><p className="mt-4 text-[16px] text-mute">{t('Dieser Chat ist nicht mehr verfügbar oder gerade nicht erreichbar.')}</p></div>
   return (
-    <div ref={roomRoot} className="h-full flex flex-col">
+    <div ref={roomRoot} className="chat-screen h-full min-h-0 flex flex-col">
       <div className="chat-app-header shrink-0 md:pt-3 pb-2 px-3 flex items-center gap-2 bg-paper border-b border-line">
         <button onClick={onBack} className="h-11 px-1 flex items-center gap-0.5 text-sage-800 text-[17px]"><ChevronLeft size={22} />{t('Chats')}</button>
         <div className="flex-1 min-w-0 text-center pr-16"><p className="text-[17px] font-semibold truncate">{name}</p>{sub && <p className="text-[13px] text-mute">{sub}</p>}</div>
       </div>
-      <div className="flex-1 overflow-y-auto no-scrollbar bg-sage-50">
+      <div ref={messagesPane} className="min-h-0 flex-1 overflow-y-auto no-scrollbar bg-sage-50">
         <div className="max-w-[760px] mx-auto px-4 py-4 space-y-1.5">
           {msgs === null && <p className="text-mute text-[15.5px]">{t('Lädt …')}</p>}
           {msgs?.length === 0 && <p className="text-center text-[15.5px] text-mute pt-10">{t('Schreib die erste Nachricht.')}</p>}
@@ -224,9 +236,9 @@ export function ChatRoom({ id, onBack }: { id: string; onBack: () => void }) {
       </div>
       <div className="shrink-0 px-3 pt-2 pb-3 md:pb-5 bg-paper border-t border-line">
         <div className="max-w-[760px] mx-auto flex items-end gap-2">
-          <textarea value={text} onChange={e => setText(e.target.value)} rows={1} placeholder={t('Nachricht')}
+          <textarea ref={input} value={text} onChange={e => setText(e.target.value)} rows={1} aria-label={t('Nachricht')} placeholder={t('Nachricht')}
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && window.matchMedia('(hover: hover)').matches) { e.preventDefault(); send() } }}
-            className="flex-1 max-h-36 min-h-[46px] rounded-[22px] bg-white px-4 py-3 text-[17px] outline-none resize-none placeholder:text-mute" />
+            className="team-chat-input flex-1 max-h-36 min-h-[46px] rounded-[22px] bg-white px-4 py-3 text-[17px] outline-none resize-none placeholder:text-mute" />
           <button disabled={busy || !text.trim()} onClick={send} aria-label={t('Senden')} className="w-[46px] h-[46px] rounded-full bg-olive-700 text-white flex items-center justify-center disabled:opacity-40 shrink-0"><Send size={18} /></button>
         </div>
       </div>

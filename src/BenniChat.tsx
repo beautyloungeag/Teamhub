@@ -1,3 +1,5 @@
+import { scrollInPane } from './lib/mobile-viewport'
+import { ViewportOverlay } from './ViewportOverlay'
 import { useEffect, useRef, useState, useSyncExternalStore, type ClipboardEvent, type DragEvent, type ReactNode } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { ArrowUp, ArrowUpRight, BookOpen, Check, ChevronDown, ChevronLeft, ExternalLink, FileSpreadsheet, FileText, Globe, Mail, MessagesSquare, Mic, Paperclip, Phone, Sparkles, Square, SquarePen, Trash2, X } from 'lucide-react'
@@ -32,6 +34,9 @@ type Attach = { id: string; name: string; kind: 'image' | 'file'; preview?: stri
 /* ---------- Zustand ausserhalb der Komponenten: Antworten laufen weiter, auch wenn man den Chat wechselt ---------- */
 const S = { owner: '', chats: [] as Chat[], loaded: false, active: null as string | null, ver: 0, creating: false }
 const subs = new Set<() => void>()
+// Text drafts stay in this session and belong to one employee/conversation.
+// Switching history must never carry an unsent question into another chat.
+const drafts = new Map<string, string>()
 const bump = () => { S.ver++; subs.forEach(f => f()) }
 const subscribe = (f: () => void) => { subs.add(f); return () => { subs.delete(f) } }
 function useBenni() { useSyncExternalStore(subscribe, () => S.ver); return S }
@@ -40,7 +45,7 @@ let pendingAsk: string | null = null
 const toMsg = (r: { id: string; role: string; text: string; data: MsgData | null; created_at: string }): ChatMsg => ({ id: r.id, me: r.role === 'user', t: r.text, data: r.data ?? {}, at: r.created_at })
 
 async function loadChats(owner: string) {
-  if (S.owner !== owner) { S.owner = owner; S.chats = []; S.loaded = false; S.active = null; bump() }
+  if (S.owner !== owner) { drafts.clear(); S.owner = owner; S.chats = []; S.loaded = false; S.active = null; bump() }
   if (S.loaded || !supabase) return
   S.loaded = true
   const { data } = await supabase.from('benni_chats').select('id, title, updated_at').order('updated_at', { ascending: false }).limit(60)
@@ -423,9 +428,13 @@ const TIERS: { k: Tier; name: string; hint: string; model: string }[] = [
 ]
 let tierPref: Tier = (() => { try { const v = localStorage.getItem('th-benni-model'); return v === 'schnell' || v === 'stark' ? v : 'standard' } catch { return 'standard' } })()
 
-function Composer({ busy, variant, onSend }: { busy: boolean; variant: 'app' | 'panel'; onSend: (text: string, files: Attach[], opts: { model: Tier; web: boolean }) => void }) {
+function Composer({ busy, variant, onSend, draftKey }: { busy: boolean; variant: 'app' | 'panel'; draftKey: string; onSend: (text: string, files: Attach[], opts: { model: Tier; web: boolean }) => void }) {
   const { t, lang } = useApp()
-  const [v, setV] = useState(''), [files, setFiles] = useState<Attach[]>([]), [tier, setTier] = useState<Tier>(tierPref), [web, setWeb] = useState(false), [menu, setMenu] = useState(false)
+  const [v, setV] = useState(() => drafts.get(draftKey) ?? ''), [files, setFiles] = useState<Attach[]>([]), [tier, setTier] = useState<Tier>(tierPref), [web, setWeb] = useState(false), [menu, setMenu] = useState(false)
+  useEffect(() => {
+    if (v) { drafts.set(draftKey, v); if (drafts.size > 20) drafts.delete(drafts.keys().next().value!) }
+    else drafts.delete(draftKey)
+  }, [draftKey, v])
   const area = useRef<HTMLTextAreaElement>(null), pick = useRef<HTMLInputElement>(null)
   // Nach dem Diktat: Text zum Bearbeiten ins Feld (Stopp) oder direkt senden (Pfeil)
   const after = useRef<'edit' | 'send'>('edit'), live = useRef({ v, files, tier, web })
@@ -463,9 +472,9 @@ function Composer({ busy, variant, onSend }: { busy: boolean; variant: 'app' | '
           <button onClick={() => setFiles(x => x.filter(y => y.id !== f.id))} aria-label={t('Entfernen')} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-ink text-white flex items-center justify-center"><X size={11} /></button>
         </span>))}</div>}
       {dict.state === 'idle' ? (
-        <textarea ref={area} rows={1} value={v} onChange={e => setV(e.target.value)} onPaste={onPaste}
+        <textarea ref={area} rows={1} aria-label={t('Frag Marc …')} value={v} onChange={e => setV(e.target.value)} onPaste={onPaste}
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !touch && !e.nativeEvent.isComposing) { e.preventDefault(); send() } }}
-          placeholder={t('Frag Marc …')} className="block w-full resize-none bg-transparent px-4 pt-3.5 pb-1 text-[17px] leading-[22px] outline-none placeholder:text-mute max-h-[168px]" />
+          placeholder={t('Frag Marc …')} className="chat-composer-input block w-full resize-none bg-transparent px-4 pt-3.5 pb-1 text-[17px] leading-[22px] outline-none placeholder:text-mute max-h-[168px]" />
       ) : (
         <div className="px-4 pt-3.5 pb-1 min-h-[36px] text-[17px] leading-[22px]" aria-live="polite">
           {v.trim() && <span>{v.trim()} </span>}
@@ -473,7 +482,7 @@ function Composer({ busy, variant, onSend }: { busy: boolean; variant: 'app' | '
           {dict.state === 'rec' && <span className="inline-block w-[2px] h-[17px] -mb-[3px] ml-0.5 bg-olive-700 animate-pulse" />}
         </div>
       )}
-      <div className="px-2 pb-2 pt-1 flex items-center gap-1">
+      <div className="chat-composer-tools px-2 pb-2 pt-1 flex items-center gap-1">
         {dict.state === 'idle' ? <>
           <input ref={pick} type="file" multiple hidden accept="image/*,.pdf,.docx,.xlsx,.pptx,.csv,.txt" onChange={e => { if (e.target.files) add(e.target.files); e.target.value = '' }} />
           <button onClick={() => pick.current?.click()} title={t('Datei oder Foto anhängen')} aria-label={t('Datei oder Foto anhängen')} className="w-8 h-8 rounded-full text-mute hover:text-ink hover:bg-sage-50 flex items-center justify-center"><Paperclip size={17} /></button>
@@ -481,7 +490,7 @@ function Composer({ busy, variant, onSend }: { busy: boolean; variant: 'app' | '
             <button onClick={() => setMenu(!menu)} className={`${chip} text-ink/75 hover:bg-sage-50`} aria-expanded={menu}>{t(cur.name)}<ChevronDown size={13} className="text-mute" /></button>
             {menu && <>
               <div className="fixed inset-0 z-10" onClick={() => setMenu(false)} />
-              <div className="absolute z-20 bottom-10 left-0 w-[264px] rounded-[14px] bg-white border border-line shadow-[0_12px_32px_-12px_rgba(29,34,28,.25)] p-1.5">
+              <div className="mobile-model-menu absolute z-20 bottom-10 left-0 w-[264px] rounded-[14px] bg-white border border-line shadow-[0_12px_32px_-12px_rgba(29,34,28,.25)] p-1.5">
                 {TIERS.map(x => <button key={x.k} onClick={() => setModel(x.k)} className="w-full text-left rounded-[10px] px-3 py-2 hover:bg-sage-50 flex items-start gap-2">
                   <span className="flex-1 min-w-0"><span className="block text-[15.5px]">{t(x.name)} <span className="text-[13px] text-mute">{x.model}</span></span><span className="block text-[13px] text-mute">{t(x.hint)}</span></span>
                   {x.k === tier && <Check size={15} className="text-olive-700 mt-1 shrink-0" />}
@@ -548,7 +557,7 @@ export function BenniChat({ variant = 'app', onOpenArticle, onOpenClient, onClos
   const { employee, me, t, reload } = useApp()
   const st = useBenni()
   const [drawer, setDrawer] = useState(false)
-  const end = useRef<HTMLDivElement>(null)
+  const end = useRef<HTMLDivElement>(null), messagesPane = useRef<HTMLDivElement>(null)
   const chat = st.chats.find(c => c.id === st.active) ?? null
   const msgs = chat?.msgs ?? []
   useEffect(() => { loadChats(employee.id) }, [employee.id, st.loaded])
@@ -559,9 +568,21 @@ export function BenniChat({ variant = 'app', onOpenArticle, onOpenClient, onClos
   // Neue Antwort: Frage und Antwortanfang zeigen (lange Antworten liest man von oben); sonst ans Ende
   useEffect(() => {
     const last = msgs[msgs.length - 1], q = msgs[msgs.length - 2]
-    if (last && !last.me && q?.me && !chat?.busy) document.getElementById('bm-' + q.id)?.scrollIntoView({ block: 'start', behavior: 'smooth' })
-    else end.current?.scrollIntoView({ block: 'end', behavior: 'smooth' })
+    if (last && !last.me && q?.me && !chat?.busy) {
+      const question = document.getElementById('bm-' + q.id), pane = messagesPane.current
+      const target = question && pane && question.getBoundingClientRect().height > pane.clientHeight * .6 ? document.getElementById('bm-' + last.id) : question
+      scrollInPane(pane, target, 'start', true)
+    }
+    else scrollInPane(messagesPane.current, end.current, 'end', true)
   }, [st.active, msgs.length, chat?.steps.length, chat?.busy, chat?.loading]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const pane = messagesPane.current
+    if (!pane) return
+    let height = pane.clientHeight
+    const observer = new ResizeObserver(() => { if (Math.abs(height - pane.clientHeight) > 2) { height = pane.clientHeight; scrollInPane(pane, end.current, 'end') } })
+    observer.observe(pane)
+    return () => observer.disconnect()
+  }, [variant])
   const hidden = hiddenCards(msgs)
   const lastA = [...msgs].reverse().find(m => !m.me)
   const title = chat ? chat.title || t('Neuer Chat') : t('Neuer Chat')
@@ -585,7 +606,8 @@ export function BenniChat({ variant = 'app', onOpenArticle, onOpenClient, onClos
       <div ref={end} className="h-1" />
     </>
   )
-  const composer = <Composer busy={!!chat?.busy} variant={variant} onSend={(text, files, opts) => send(text, files, opts)} />
+  const draftKey = employee.id + ':' + (chat?.id ?? 'new')
+  const composer = <Composer key={draftKey} draftKey={draftKey} busy={!!chat?.busy} variant={variant} onSend={(text, files, opts) => send(text, files, opts)} />
   const newBtn = <button onClick={() => openChat(null)} title={t('Neuer Chat')} aria-label={t('Neuer Chat')} className="w-9 h-9 rounded-full text-ink/70 hover:bg-sage-100 flex items-center justify-center shrink-0"><SquarePen size={17} /></button>
 
   if (variant === 'panel') return (
@@ -598,14 +620,14 @@ export function BenniChat({ variant = 'app', onOpenArticle, onOpenClient, onClos
         {onClose && <button onClick={onClose} aria-label={t('Schliessen')} className="w-9 h-9 rounded-full hover:bg-sage-50 flex items-center justify-center"><X size={17} /></button>}
       </div>
       {drawer && <div className="absolute top-16 inset-x-0 bottom-0 z-20 bg-white p-3 overflow-y-auto no-scrollbar"><ChatList onPicked={() => setDrawer(false)} /></div>}
-      <div className="flex-1 overflow-y-auto no-scrollbar px-4 py-4">{body}</div>
+      <div ref={messagesPane} className="min-h-0 flex-1 overflow-y-auto no-scrollbar px-4 py-4">{body}</div>
       <div className="p-3 border-t border-line">{composer}</div>
     </aside>
   )
 
   const fresh = !chat
   return (
-    <div className="flex h-full">
+    <div className="chat-screen flex h-full min-h-0 overflow-hidden">
       {/* Desktop: Chats als eigene Spalte, bündig an der Navigation */}
       <aside className="hidden md:flex w-[260px] shrink-0 flex-col bg-white border-r border-line">
         <div className="h-[60px] shrink-0 pl-5 pr-3 flex items-center justify-between border-b border-line/70">
@@ -614,8 +636,8 @@ export function BenniChat({ variant = 'app', onOpenArticle, onOpenClient, onClos
         </div>
         <div className="flex-1 overflow-y-auto no-scrollbar px-2 py-3"><ChatList /></div>
       </aside>
-      <div className="flex-1 min-w-0 flex flex-col">
-        <div className="shrink-0 pt-11 md:pt-0 h-auto md:h-[60px] px-3 md:px-8 flex items-center gap-1 md:border-b md:border-line/70">
+      <div className="flex-1 min-w-0 min-h-0 flex flex-col">
+        <div className="chat-app-header shrink-0 md:pt-0 h-auto md:h-[60px] px-3 md:px-8 flex items-center gap-1 md:border-b md:border-line/70">
           {/* Aus der Chat-Liste geöffnet: zurück zu den Team-Chats, Marcs eigene Gespräche heissen dann „Verlauf“ */}
           {onBack && <button onClick={onBack} className="h-10 pl-0.5 pr-1 flex items-center gap-0.5 text-sage-800 text-[17px]"><ChevronLeft size={22} />{t('Chats')}</button>}
           <button onClick={() => setDrawer(true)} className="md:hidden h-9 px-2.5 rounded-full hover:bg-sage-100 flex items-center gap-1.5 text-[15.5px] text-ink/80"><MessagesSquare size={17} />{onBack ? t('Verlauf') : t('Chats')}</button>
@@ -623,20 +645,20 @@ export function BenniChat({ variant = 'app', onOpenArticle, onOpenClient, onClos
           <span className="md:hidden">{newBtn}</span>
         </div>
         {fresh && <div className="hidden md:block flex-1" />}
-        <div className={`overflow-y-auto no-scrollbar ${fresh ? 'flex-1 md:flex-none' : 'flex-1'}`}>
+        <div ref={messagesPane} className={`min-h-0 overflow-y-auto no-scrollbar ${fresh ? 'flex-1 md:flex-none' : 'flex-1'}`}>
           <div className="max-w-[760px] mx-auto px-5 md:px-8 pt-3 pb-4">{body}</div>
         </div>
-        <div className="shrink-0 px-4 md:px-8 pb-3 md:pb-6"><div className="max-w-[760px] mx-auto">{composer}</div></div>
+        <div className="chat-composer-wrap shrink-0 px-3 md:px-8 pb-3 md:pb-6"><div className="max-w-[760px] mx-auto">{composer}</div></div>
         {fresh && <div className="hidden md:block flex-1" />}
       </div>
-      <AnimatePresence>{drawer && <>
-        <motion.div key="bg" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-40 bg-ink/30 md:hidden" onClick={() => setDrawer(false)} />
-        <motion.div key="dr" initial={{ x: '-100%' }} animate={{ x: 0 }} exit={{ x: '-100%' }} transition={{ type: 'tween', duration: 0.22 }} className="fixed inset-y-0 left-0 z-50 w-[84%] max-w-[340px] bg-white pt-12 flex flex-col md:hidden">
-          <div className="px-4 flex items-center justify-between mb-3"><p className="text-[20px]">{t('Chats')}</p><button onClick={() => setDrawer(false)} aria-label={t('Schliessen')} className="w-9 h-9 rounded-full hover:bg-sage-100 flex items-center justify-center"><X size={18} /></button></div>
-          <div className="px-4"><button onClick={() => { openChat(null); setDrawer(false) }} className="w-full h-11 px-3 rounded-[12px] bg-sage-50 flex items-center gap-2 text-[17px] mb-3"><SquarePen size={17} />{t('Neuer Chat')}</button></div>
-          <div className="flex-1 overflow-y-auto no-scrollbar px-2 pb-6"><ChatList onPicked={() => setDrawer(false)} /></div>
-        </motion.div>
-      </>}</AnimatePresence>
+      {drawer && <ViewportOverlay label={t('Chats')} onClose={() => setDrawer(false)} className="bg-ink/30 md:hidden">
+        <div onClick={e => e.stopPropagation()} className="mobile-history-drawer w-[84%] max-w-[340px] h-full bg-white flex flex-col">
+          <div className="shrink-0 px-4 flex items-center justify-between mb-3"><p className="text-[20px]">{t('Chats')}</p><button onClick={() => setDrawer(false)} aria-label={t('Schliessen')} className="w-11 h-11 rounded-full hover:bg-sage-100 flex items-center justify-center"><X size={18} /></button></div>
+          <div className="shrink-0 px-4"><button onClick={() => { openChat(null); setDrawer(false) }} className="w-full h-11 px-3 rounded-[12px] bg-sage-50 flex items-center gap-2 text-[17px] mb-3"><SquarePen size={17} />{t('Neuer Chat')}</button></div>
+          <div className="min-h-0 flex-1 overflow-y-auto no-scrollbar px-2 pb-6"><ChatList onPicked={() => setDrawer(false)} /></div>
+        </div>
+      </ViewportOverlay>}
+
     </div>
   )
 }

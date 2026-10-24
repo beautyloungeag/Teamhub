@@ -61,4 +61,6 @@ export default {
   "Zur Ansicht": ["View only", "Consultation"],
   "Zur Ansicht · Anmeldung nur für zugeteilte Personen": ["View only · registration for assigned people only", "Consultation · inscription réservée aux personnes désignées"],
   "Keine kommenden Termine.": ["No upcoming events.", "Aucun événement à venir."],
+  "Vorheriger Tag": ["Previous day", "Jour précédent"],
+  "Nächster Tag": ["Next day", "Jour suivant"],
 } as Record<string, [string, string]>

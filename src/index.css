@@ -70,9 +70,9 @@ input[type=checkbox]{accent-color:#495940}
 /* Mobile has one fixed viewport; only content panes and explicit carousels scroll. */
 @media(max-width:767px){
   html,body{width:100%;max-width:100%;height:100%;margin:0;overflow:hidden;overscroll-behavior:none}
-  body{position:fixed;inset:0}
+  body{position:static}
   #root{position:absolute;inset:0;width:100%;min-width:0;max-width:100%;overflow:hidden;overscroll-behavior:none}
-  .teamhub-app-shell{position:fixed;inset:0;width:100%;max-width:100%;min-width:0;overflow:hidden;overscroll-behavior:none}
+  .teamhub-app-shell{position:fixed;inset:var(--app-top,0px) 0 auto;width:100%;max-width:100%;min-width:0;overflow:hidden;overscroll-behavior:none}
   .app-mobile-root,.app-page{max-width:100%;min-width:0}
   .app-content-scroll{max-width:100%;overflow-x:hidden;overscroll-behavior:none;overflow-wrap:anywhere}
   .teamhub-app-shell .overflow-x-auto{overscroll-behavior-x:contain}
@@ -83,7 +83,48 @@ input[type=checkbox]{accent-color:#495940}
   input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not([type=file]),textarea,select{font-size:16px}
 }
 
-@media(max-width:359px){.home-quick-action{flex-direction:column;align-items:flex-start;gap:8px}}
+/* Every signed-in screen and sheet shares the same visible, possibly panned
+   viewport. In particular, a keyboard must not move navigation above a form. */
+@media(max-width:767px){
+  :root{--color-mute:#626d5c}
+  .app-mobile-root,.app-column,.app-content-scroll,.chat-screen{min-height:0}
+  .chat-screen{overflow:hidden;overflow-wrap:anywhere}
+  .chat-screen button[aria-label]{min-width:44px;min-height:44px}
+  .chat-composer-input{min-height:44px;max-height:min(168px,calc(var(--app-height,100dvh)*.28));overflow-y:auto;scroll-margin-block:12px}
+  .team-chat-input{max-height:min(144px,calc(var(--app-height,100dvh)*.3));overflow-y:auto}
+  .chat-composer-tools{gap:0;align-items:center}
+  .chat-composer-tools>button,.chat-composer-tools>div>button{flex-shrink:0;white-space:nowrap;min-height:44px}
+  .chat-composer-tools>button[aria-pressed]{width:44px;padding:0;overflow:hidden;font-size:0;gap:0}
+  .chat-composer-tools>button[aria-pressed] svg{width:18px;height:18px}
+  .mobile-model-menu{width:min(264px,calc(100vw - 84px));max-height:max(96px,calc(var(--app-height,100dvh) - 170px));overflow-y:auto;overscroll-behavior:contain}
+  .mobile-overlay{top:var(--app-top,0px);bottom:auto;height:var(--app-height,100dvh);padding-top:max(8px,env(safe-area-inset-top));overflow:hidden}
+  .mobile-sheet{max-height:100%;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding-bottom:max(24px,env(safe-area-inset-bottom))}
+  .mobile-todo-sheet{overflow:hidden;padding-bottom:0}
+  .mobile-sheet>div:not(.flex-1){flex-shrink:0}
+  .mobile-sheet:not(.mobile-todo-sheet)>div:first-child{position:sticky;top:0;z-index:2;background:var(--color-paper)}
+  .mobile-overlay button[aria-label]{min-width:44px;min-height:44px}
+  .mobile-overlay input,.mobile-overlay textarea{min-width:0;scroll-margin-block:12px}
+  .mobile-mail-sheet{height:100%;max-height:100%;min-height:0;overflow-y:auto;padding-bottom:max(12px,env(safe-area-inset-bottom))}
+  .mobile-mail-sheet>div:first-child{position:sticky;top:0;z-index:1;flex-shrink:0;background:white}
+  .mobile-mail-sheet>div:nth-child(2){flex-shrink:0}
+  .mobile-history-drawer{padding-top:8px}
+  .app-toasts{top:calc(var(--app-top,0px) + max(12px,env(safe-area-inset-top)));bottom:auto;max-height:calc(var(--app-height,100dvh) - 80px);overflow-y:auto;overflow-wrap:anywhere}
+  html[data-keyboard-open=true] .app-bottom-nav{display:none}
+  html[data-keyboard-open=true] .chat-composer-wrap{padding-bottom:8px}
+  html[data-keyboard-open=true] .mobile-sheet:not(.mobile-todo-sheet){padding-bottom:16px}
+  .app-bottom-nav button{min-height:48px}
+  .mobile-page-title{flex-basis:180px;overflow-wrap:break-word}
+  .mobile-page-head>button{flex-shrink:0;min-height:44px}
+  .calendar-days>button{min-height:44px;min-width:44px;white-space:nowrap}
+  .ticket-tools{flex-wrap:wrap}
+  .ticket-tools>button{width:100%;min-height:44px;justify-content:center}
+  .ticket-attachments{flex-wrap:wrap;width:100%;white-space:normal;gap:4px}
+  .ticket-attachments button{min-height:44px}
+  .ticket-studio-picker{display:block;flex:1 1 100%}
+  .ticket-studio-menu{position:static;width:100%;margin-top:8px;max-height:240px;overflow-y:auto}
+}
+
+@media(max-width:359px){.home-quick-action{flex-direction:column;align-items:flex-start;gap:8px}.home-metric{padding-inline:10px}.home-metric>span:last-child{font-size:13px;overflow-wrap:normal}}
 
 /* Login is a native document flow, not the fixed authenticated app canvas.
    Its layout must not depend on the keyboard-adjusted --app-height. */

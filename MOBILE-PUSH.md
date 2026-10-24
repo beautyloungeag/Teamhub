@@ -1,5 +1,7 @@
 # Employee app installation and push — 23 October 2026
 
+**24 October usability correction:** The owner's assistant/keyboard screenshot supersedes the earlier fixed-body approach below. The mobile body is now static; a shared visible frame handles keyboard height and pan, and sheets are body portals with their own bounded scrolling/focus. Chat scrolling no longer pans the document. The wider employee-app review, verified steps and physical-device limits are documented in `MOBILE-USABILITY.md`. Push transport and role policies are unchanged; native iPhone acceptance is still pending.
+
 TeamHub uses a Home Screen web app (PWA), not a newly distributed native binary. iPhone/iPad Web Push requires iOS/iPadOS 16.4+, Home Screen installation in app mode, and the person's notification permission. Apple controls banners, sound, Lock Screen, Focus and delivery timing. No app-store/developer-account purchase is involved.
 
 ## Employee setup

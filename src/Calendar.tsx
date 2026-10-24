@@ -1,3 +1,4 @@
+import { ViewportOverlay } from './ViewportOverlay'
 import { assignedToEvent } from './lib/event-access'
 import { useEffect, useMemo, useState } from 'react'
 import { ChevronDown, ChevronLeft, ChevronRight, MapPin, Search, Check, CalendarDays, X } from 'lucide-react'
@@ -46,7 +47,7 @@ export function Terminbuch({ compact }: { compact?: boolean }) {
   if (!allowed.length) return <p className="text-[14px] text-mute">{t('Für dein Konto ist kein Studio mit Phorest-Kalender hinterlegt.')}</p>
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full min-h-0">
       <div className="flex items-center gap-2 flex-wrap">
         <div className="relative">
           <button onClick={() => allowed.length > 1 && setPick(!pick)} className="h-10 pl-3 pr-2.5 rounded-xl bg-white border border-sage-200 hover:border-sage-400 flex items-center gap-2 text-[14px] font-medium"><MapPin size={16} className="text-sage-800" />{bname}{allowed.length > 1 && <ChevronDown size={16} className="text-mute" />}</button>
@@ -56,18 +57,18 @@ export function Terminbuch({ compact }: { compact?: boolean }) {
           </div></>}
         </div>
         <a href={phorestUrl()} target="_blank" rel="noreferrer" title={t('Phorest öffnen')} aria-label={t('Phorest öffnen')} className="h-10 w-10 rounded-xl bg-white border border-sage-200 flex items-center justify-center shrink-0 hover:border-sage-400"><img src="/phorest.png" alt="" className="w-5 h-5" /></a>
-        {!compact && <div className="h-10 flex-1 min-w-[200px] max-w-sm rounded-xl bg-white border border-sage-200 px-3 flex items-center gap-2"><Search size={16} className="text-mute" /><input value={q} onChange={e => setQ(e.target.value)} placeholder={t('Kunden suchen')} className="flex-1 outline-none text-[14px] bg-transparent" /></div>}
+        {!compact && <div className="h-10 flex-1 min-w-[200px] max-w-sm rounded-xl bg-white border border-sage-200 px-3 flex items-center gap-2"><Search size={16} className="text-mute" /><input value={q} onChange={e => setQ(e.target.value)} placeholder={t('Kunden suchen')} className="min-w-0 flex-1 outline-none text-[14px] bg-transparent" /></div>}
         {compact && myStaff.length > 0 && <div className="h-10 p-1 rounded-xl bg-white border border-sage-200 flex">{([[true, t('Nur ich')], [false, t('Ganzes Team')]] as const).map(([v, l]) => <button key={l} onClick={() => setOnlyMe(v)} className={`px-3 rounded-lg text-[13px] transition ${onlyMe === v ? 'bg-olive-700 text-white' : 'text-ink/80'}`}>{l}</button>)}</div>}
       </div>
-      {compact && <div className="mt-2 h-10 rounded-xl bg-white border border-sage-200 px-3 flex items-center gap-2"><Search size={16} className="text-mute" /><input value={q} onChange={e => setQ(e.target.value)} placeholder={t('Kunden suchen')} className="flex-1 outline-none text-[14px] bg-transparent" /></div>}
+      {compact && <div className="mt-2 h-10 rounded-xl bg-white border border-sage-200 px-3 flex items-center gap-2"><Search size={16} className="text-mute" /><input value={q} onChange={e => setQ(e.target.value)} placeholder={t('Kunden suchen')} className="min-w-0 flex-1 outline-none text-[14px] bg-transparent" /></div>}
 
       {q.length > 1 && data?.ok && hits.length === 0 && <p className="mt-2 px-1 text-[13px] text-mute">{t('An diesem Tag kein Termin unter diesem Namen.')}</p>}
       {hits.length > 0 && <div className="mt-2 rounded-2xl bg-white border border-sage-100 divide-y divide-sage-50">{hits.slice(0, 5).map((h, i) => <button key={i} onClick={() => setDetail(h)} className="w-full text-left px-3 py-2 text-[13px] flex justify-between hover:bg-sage-50"><span>{h.client} · {h.service}</span><span className="text-mute">{h.start} · {h.who}</span></button>)}</div>}
 
-      <div className="mt-3 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
-        <button onClick={() => setDay(Math.max(0, day - 1))} className="w-9 h-9 rounded-lg bg-white border border-sage-200 flex items-center justify-center shrink-0"><ChevronLeft size={16} /></button>
+      <div className="calendar-days mt-3 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+        <button aria-label={t('Vorheriger Tag')} disabled={day === 0} onClick={() => setDay(Math.max(0, day - 1))} className="w-9 h-9 rounded-lg bg-white border border-sage-200 flex items-center justify-center shrink-0 disabled:opacity-40"><ChevronLeft size={16} /></button>
         {Array.from({ length: 7 }, (_, i) => <button key={i} onClick={() => setDay(i)} className={`h-9 px-3 rounded-lg text-[13px] shrink-0 ${day === i ? 'bg-olive-700 text-white' : 'bg-white border border-sage-200'}`}>{dayLabel(i)}</button>)}
-        <button onClick={() => setDay(Math.min(6, day + 1))} className="w-9 h-9 rounded-lg bg-white border border-sage-200 flex items-center justify-center shrink-0"><ChevronRight size={16} /></button>
+        <button aria-label={t('Nächster Tag')} disabled={day === 6} onClick={() => setDay(Math.min(6, day + 1))} className="w-9 h-9 rounded-lg bg-white border border-sage-200 flex items-center justify-center shrink-0 disabled:opacity-40"><ChevronRight size={16} /></button>
       </div>
 
       <div className="mt-3 flex-1 min-h-0 rounded-2xl bg-white border border-sage-100 overflow-auto no-scrollbar">
@@ -140,9 +141,9 @@ function AppointmentSheet({ a, onClose }: { a: Appt & { who: string }; onClose: 
     [t('Treuepunkte'), c.loyalty_points != null ? String(c.loyalty_points) : null], [t('Offener Betrag'), c.balance ? `CHF ${c.balance.toFixed(2)}` : null], [t('Kategorien'), c.categories?.join(', ')], [t('Kundennotiz'), c.notes]] : []
   const extraShown = extra.filter(([, v]) => v)
   return (
-    <div className="fixed inset-0 z-40 flex items-end md:items-stretch md:justify-end" onClick={onClose}>
+    <ViewportOverlay label={t('Kundentermine')} onClose={onClose} className="flex items-end md:items-stretch md:justify-end">
       <div className="absolute inset-0 bg-ink/25" />
-      <div onClick={e => e.stopPropagation()} className="relative w-full md:w-[440px] max-h-[88dvh] md:max-h-none overflow-y-auto no-scrollbar bg-paper rounded-t-[24px] md:rounded-none px-6 pt-5 pb-10 md:pb-6 shadow-[0_-12px_40px_-16px_rgba(29,34,28,.4)]">
+      <div onClick={e => e.stopPropagation()} className="mobile-sheet relative w-full md:w-[440px] max-h-[88dvh] md:max-h-none overflow-y-auto no-scrollbar bg-paper rounded-t-[24px] md:rounded-none px-6 pt-5 pb-10 md:pb-6 shadow-[0_-12px_40px_-16px_rgba(29,34,28,.4)]">
         <div className="flex items-center justify-between gap-3 mb-4">
           <p className="text-[13px] text-mute tabular-nums">{a.start}–{a.end} · {a.who}</p>
           <button onClick={onClose} aria-label={t('Schliessen')} className="w-9 h-9 -mr-2 rounded-full hover:bg-sage-50 flex items-center justify-center text-mute shrink-0"><X size={18} /></button>
@@ -182,7 +183,7 @@ function AppointmentSheet({ a, onClose }: { a: Appt & { who: string }; onClose: 
         </>}
         <p className="mt-6 text-[11.5px] text-mute">{t('Ändern, Bezahlen und Check-in bleiben in Phorest.')}</p>
       </div>
-    </div>
+    </ViewportOverlay>
   )
 }
 

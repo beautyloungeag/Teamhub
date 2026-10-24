@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
 import { ErrorBoundary } from './ErrorBoundary'
+import { installMobileViewport } from './lib/mobile-viewport'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -17,13 +18,5 @@ if ('serviceWorker' in navigator) {
 import './lib/push'
 import './lib/errors'
 
-// Visual viewport follows the iPhone keyboard; only the mobile shell uses this value.
-const updateViewport = () => {
-  const viewport = window.visualViewport
-  // Pinch zoom changes the visual viewport too; it must not resize the app layout.
-  const height = viewport && Math.abs(viewport.scale - 1) < 0.01 ? viewport.height : window.innerHeight
-  document.documentElement.style.setProperty('--app-height', `${height}px`)
-}
-updateViewport()
-window.visualViewport?.addEventListener('resize', updateViewport)
-window.addEventListener('orientationchange', updateViewport)
+const stopViewport = installMobileViewport()
+if (import.meta.hot) import.meta.hot.dispose(stopViewport)

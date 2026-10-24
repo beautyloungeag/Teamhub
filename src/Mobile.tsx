@@ -1,3 +1,4 @@
+import { scrollInPane } from './lib/mobile-viewport'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { motion } from 'motion/react'
 import {
@@ -60,8 +61,8 @@ const Row = ({ icon, title, sub, onClick, right }: { icon?: ReactNode; title: st
 )
 const List = ({ children }: { children: ReactNode }) => <Card className="divide-y divide-sage-50 overflow-hidden">{children}</Card>
 const Title = ({ children, sub, right }: { children: ReactNode; sub?: string; right?: ReactNode }) => (
-  <div className="px-5 pt-3 pb-4 flex items-end justify-between gap-3">
-    <div>{sub && <p className="text-[14.5px] text-mute">{sub}</p>}<h1 className="text-[30px] leading-tight">{children}</h1></div>{right}
+  <div className="mobile-page-head px-5 pt-3 pb-4 flex flex-wrap items-end justify-between gap-3">
+    <div className="mobile-page-title min-w-0 flex-1">{sub && <p className="text-[14.5px] text-mute">{sub}</p>}<h1 className="text-[30px] leading-tight">{children}</h1></div>{right}
   </div>
 )
 const Label = ({ children, action }: { children: ReactNode; action?: ReactNode }) => (
@@ -74,9 +75,9 @@ const Chips = ({ items, value, onChange, label = x => x }: { items: string[]; va
 )
 const Btn = ({ children, onClick, ghost, disabled }: { children: ReactNode; onClick?: () => void; ghost?: boolean; disabled?: boolean }) =>
   <button disabled={disabled} onClick={onClick} className={`w-full h-12 rounded-2xl font-medium flex items-center justify-center gap-2 disabled:opacity-60 ${ghost ? 'bg-white text-ink' : 'bg-olive-700 text-white'}`}>{children}</button>
-const SearchBox = ({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder: string }) => (
-  <div className="h-11 rounded-2xl bg-white px-3.5 flex items-center gap-2"><Search size={18} className="text-mute" />
-    <input value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} className="flex-1 bg-transparent outline-none text-[17px] placeholder:text-mute" /></div>
+const SearchBox = ({ value, onChange, placeholder, onSubmit }: { value: string; onChange: (v: string) => void; placeholder: string; onSubmit?: () => void }) => (
+  <div className="min-w-0 h-11 rounded-2xl bg-white px-3.5 flex items-center gap-2"><Search size={18} className="text-mute shrink-0" />
+    <input value={value} onChange={e => onChange(e.target.value)} aria-label={placeholder} placeholder={placeholder} enterKeyHint={onSubmit ? 'search' : 'done'} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); if (onSubmit) onSubmit(); else e.currentTarget.blur() } }} className="min-w-0 flex-1 bg-transparent outline-none text-[17px] placeholder:text-mute" /></div>
 )
 const Empty = ({ children }: { children: ReactNode }) => <p className="px-4 py-4 text-[15.5px] text-mute">{children}</p>
 
@@ -94,9 +95,10 @@ function Shell({ onLogout, onSwitch }: { onLogout: () => void; onSwitch?: () => 
   const scroller = useRef<HTMLDivElement>(null)
   const top = () => requestAnimationFrame(() => scroller.current?.scrollTo({ top: 0 }))
   // Jeder Unterbildschirm ist ein Eintrag im Browser-Verlauf: so führt die Zurück-Geste (Android) eine Ebene zurück
-  const open = (s: Sub) => { setStack(st => [...st, s]); history.pushState({ th: 1 }, ''); top() }
-  const back = () => history.back()
-  const go = (x: Tab) => { const n = stack.length; setStack([]); setTab(x); top(); if (n) history.go(-n) }
+  const open = (s: Sub) => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur(); setStack(st => [...st, s]); history.pushState({ th: 1 }, ''); top() }
+  const dismissInput = () => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur() }
+  const back = () => { dismissInput(); history.back() }
+  const go = (x: Tab) => { dismissInput(); const n = stack.length; setStack([]); setTab(x); top(); if (n) history.go(-n) }
   useEffect(() => { const onPop = () => { setStack(st => st.slice(0, -1)); top() }; window.addEventListener('popstate', onPop); return () => window.removeEventListener('popstate', onPop) }, []) // eslint-disable-line react-hooks/exhaustive-deps
   const mustOpen = news.filter(n => n.mustRead && !read.has(n.id)).length
   // Tipp auf eine Mitteilung: ?open=news:<id> | ticket:<id> | events | tickets. Unbekannte News: erst neu laden.
@@ -147,7 +149,7 @@ function Shell({ onLogout, onSwitch }: { onLogout: () => void; onSwitch?: () => 
     case 'clients': screen = <ClientHistoryView cid={sub.cid} />; break
     case 'events': screen = <Events />; break
     case 'conn': screen = <Connections />; break
-    case 'book': screen = <div className="px-5 pb-4 h-[calc(100dvh-150px)] md:h-[calc(100dvh-110px)]"><h1 className="text-[26px] font-medium tracking-tight mb-3">{t('Kundentermine')}</h1><Terminbuch compact /></div>; break
+    case 'book': screen = <div className="calendar-screen h-full min-h-0 flex flex-col px-4 pb-3"><div className="chat-app-header shrink-0"><button onClick={back} className="h-11 flex items-center text-sage-800"><ChevronLeft size={22} />{t('Zurück')}</button><h1 className="text-[26px] font-medium tracking-tight mb-3">{t('Kundentermine')}</h1></div><div className="flex-1 min-h-0"><Terminbuch compact /></div></div>; break
     case 'inbox': screen = <Inbox onOpen={(uid, item) => open({ k: 'mail', uid, item })} />; break
     case 'mail': screen = <MailRead uid={sub.uid} item={sub.item} />; break
     case 'time': screen = <TimeView />; break
@@ -160,7 +162,7 @@ function Shell({ onLogout, onSwitch }: { onLogout: () => void; onSwitch?: () => 
   const key = (sub ? sub.k + ('item' in sub ? String((sub.item as { id?: string }).id) : '') : tab) + stack.length
   // Chats (Team + Marc angeheftet) statt eines eigenen Marc-Reiters, Fokus auf Austausch im Team (Inhaberin 21.10.)
   const nav: [Tab, string, typeof Home][] = [['home', 'Heute', Home], ['tasks', 'Aufgaben', ListChecks], ['ai', 'Chats', MessageCircle], ['wiki', 'Wissen', BookOpen], ['menu', 'Menü', LayoutGrid]]
-  const full = !loading && (sub?.k === 'marc' || sub?.k === 'chat')
+  const full = !loading && (sub?.k === 'marc' || sub?.k === 'chat' || sub?.k === 'book')
   return (
     <div className="app-mobile-root w-full min-w-0 flex-1 min-h-0 flex">
       {/* Desktop: Navigation als Seitenleiste wie im Backoffice, zuklappbar */}
@@ -171,9 +173,9 @@ function Shell({ onLogout, onSwitch }: { onLogout: () => void; onSwitch?: () => 
           extra={onSwitch ? [{ key: 'switch', label: t('Büro-Backoffice'), icon: <Monitor size={18} strokeWidth={1.6} />, onClick: onSwitch }] : []}
           onProfile={() => open({ k: 'me' })} profileActive={sub?.k === 'me'} onLogout={onLogout} />
       </div>
-      <div className="relative flex-1 min-w-0 flex flex-col">
+      <div className="app-column relative flex-1 min-w-0 min-h-0 flex flex-col">
         {/* Marc und Team-Chats füllen die ganze Fläche und scrollen selbst (Eingabe unten) */}
-        <div ref={scroller} className={`app-content-scroll min-w-0 w-full flex-1 no-scrollbar bg-sage-50 ${full ? 'overflow-hidden' : 'overflow-y-auto'}`}>
+        <div ref={scroller} className={`app-content-scroll min-h-0 min-w-0 w-full flex-1 no-scrollbar bg-sage-50 ${full ? 'overflow-hidden' : 'overflow-y-auto'}`}>
           {full ? screen : (
           <div className="app-page min-w-0 w-full md:mx-auto md:max-w-[760px]">
             <div className="app-top-space md:h-8" />
@@ -262,7 +264,7 @@ function Today({ open, go }: { open: (s: Sub) => void; go: (t: Tab) => void }) {
   const learning = tickets.find(x => x.kind === 'Learning')
   const mailUnread = useMailUnread()
   const tile = (tone: Tone, big: string, label: string, onClick: () => void) =>
-    <button onClick={onClick} className={`rounded-[18px] p-3 text-left flex flex-col gap-1 min-h-[84px] ${TONE[tone].bg} ${TONE[tone].fg}`}><span className="font-display text-[26px] leading-none">{big}</span><span className="text-[14.5px] font-semibold leading-tight">{label}</span></button>
+    <button onClick={onClick} className={`home-metric min-w-0 rounded-[18px] p-3 text-left flex flex-col gap-1 min-h-[84px] ${TONE[tone].bg} ${TONE[tone].fg}`}><span className="font-display text-[26px] leading-none">{big}</span><span className="text-[14.5px] font-semibold leading-tight">{label}</span></button>
   return (
     <div className="px-4 pb-10">
       <div className="relative h-[204px] rounded-[24px] overflow-hidden bg-olive-800">
@@ -936,7 +938,7 @@ function WikiDetail({ a }: { a: WikiArticle }) {
       {!a.fromNews && full && <div className="sticky bottom-0 mt-6 px-4 pt-3 pb-3 bg-gradient-to-t from-sage-50 via-sage-50 to-sage-50/0">
         <div className="grid grid-cols-2 gap-2">
           {isRead ? <div className={`h-12 rounded-[16px] flex items-center justify-center gap-2 font-semibold whitespace-nowrap ${TONE.done.bg} ${TONE.done.fg}`}><Check size={18} />{t('Bestätigt')}</div>
-            : quiz && !quizPassed ? <button onClick={() => quizRef.current?.scrollIntoView({ behavior: 'smooth' })} className="h-12 rounded-[16px] bg-olive-800 text-white font-semibold flex items-center justify-center gap-2 whitespace-nowrap"><GraduationCap size={18} />{t('Zum Test')}</button>
+            : quiz && !quizPassed ? <button onClick={() => scrollInPane(quizRef.current?.closest<HTMLElement>('.app-content-scroll') ?? null, quizRef.current, 'start', true)} className="h-12 rounded-[16px] bg-olive-800 text-white font-semibold flex items-center justify-center gap-2 whitespace-nowrap"><GraduationCap size={18} />{t('Zum Test')}</button>
             : <button disabled={busy} onClick={confirmRead} className="h-12 px-2 rounded-[16px] bg-olive-800 text-white text-[15.5px] font-semibold flex items-center justify-center gap-1.5 whitespace-nowrap disabled:opacity-60">{t('Gelesen & bestätigen')}</button>}
           <button onClick={() => openNewBenniChat(t('Ich lese gerade „{title}“. Fass mir die wichtigsten Punkte kurz zusammen, danach habe ich eine Frage.', { title: a.title }))} className={`h-12 px-2 rounded-[16px] text-[15.5px] font-semibold flex items-center justify-center gap-1.5 whitespace-nowrap ${TONE.note.bg} ${TONE.note.fg}`}><MessageCircle size={17} />{t('Frage an Marc')}</button>
         </div>
@@ -1023,6 +1025,7 @@ function ClientHistoryView({ cid }: { cid?: string }) {
   const day = useMyDay()
   const search = async () => {
     if (q.trim().length < 3 || busy) return
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
     setBusy(true); setErr(''); setH(null)
     const r = await phorest<{ ok: boolean; clients: ClientHit[]; error?: string }>({ action: 'client_search', q })
     setBusy(false)
@@ -1045,8 +1048,8 @@ function ClientHistoryView({ cid }: { cid?: string }) {
   return (
     <div className="pb-10"><Title>{t('Kundenhistorie')}</Title>
       <div className="px-5">
-        <div className="flex gap-2"><div className="flex-1"><SearchBox value={q} onChange={setQ} placeholder={t('Name, E-Mail oder Telefon')} /></div>
-          <button disabled={busy || q.trim().length < 3} onClick={search} className="h-11 px-4 rounded-[10px] bg-olive-700 text-white text-[15.5px] disabled:opacity-40">{t('Suchen')}</button></div>
+        <div className="flex gap-2"><div className="min-w-0 flex-1"><SearchBox value={q} onChange={setQ} onSubmit={search} placeholder={t(me.app_role === 'mitarbeiterin' ? 'Kunden suchen' : 'Name, E-Mail oder Telefon')} /></div>
+          <button disabled={busy || q.trim().length < 3} onClick={search} className="shrink-0 whitespace-nowrap h-11 px-4 rounded-[10px] bg-olive-700 text-white text-[15.5px] disabled:opacity-40">{t('Suchen')}</button></div>
         {err && <p className="mt-3 text-[14.5px] text-alert">{err}</p>}
         {busy && <p className="mt-4 text-[15.5px] text-mute">{t('Lädt aus Phorest …')}</p>}
         {hits && !busy && <div className="mt-4"><List>{hits.length === 0 && <Empty>{t('Keine Kunden gefunden.')}</Empty>}
@@ -1303,11 +1306,11 @@ function Tickets({ open, learning }: { open: (s: Sub) => void; learning?: boolea
         {kind === 'Anliegen' && <p className="mt-3 text-[13px] text-mute flex items-start gap-2"><Lock size={15} className="shrink-0 mt-0.5" />{t('Nur du und das Büro sehen dieses Anliegen, Kommentare und Anhänge. Keine Weiterleitung an Facility.')}</p>}
         <Card className="mt-3 p-4">
           <textarea value={text} onChange={e => setText(e.target.value)} rows={3} placeholder={kind === 'Anliegen' ? t('Was möchtest du vertraulich mit dem Büro besprechen?') : kind === 'Meldung' ? t('Was ist kaputt oder fehlt?') : kind === 'Learning' ? t('Was möchtest du dem Team zeigen? Zum Beispiel, wie du Brauen formst.') : t('Was könnten wir besser machen?')} className="w-full resize-none outline-none text-[17px] placeholder:text-mute bg-transparent" />
-          <div className="mt-2 flex items-center justify-between gap-2 text-[14.5px] text-mute">
-            <span className="flex items-center gap-3 min-w-0 whitespace-nowrap"><button onClick={() => file.current?.click()} className={`flex items-center gap-1 ${photo ? 'text-olive-700' : ''}`}>{isVideo ? <Video size={15} /> : <Camera size={15} />}{photo ? (isVideo ? t('Video dabei') : t('Foto dabei')) : t('Foto oder Video')}</button>{kind !== 'Learning' && kind !== 'Anliegen' && <span className="relative"><button onClick={() => setPickB(!pickB)} className="flex items-center gap-1 hover:text-ink"><MapPin size={15} />{branchId === '*' ? t('Alle Studios') : branches.find(b => b.id === branchId)?.name ?? me.branch}<ChevronRight size={13} className={`transition ${pickB ? 'rotate-90' : ''}`} /></button>
-              {pickB && <span className="absolute z-20 left-0 bottom-7 w-48 rounded-[12px] bg-white shadow-[0_12px_32px_-12px_rgba(29,34,28,.45)] p-1 flex flex-col">{[{ id: '*', name: t('Alle Studios') }, ...studios].map(b => <button key={b.id} onClick={() => { setBranchId(b.id); setPickB(false) }} className={`h-9 px-3 rounded-[8px] text-left text-[15.5px] flex items-center justify-between ${b.id === branchId ? 'bg-sage-50 text-ink' : 'text-ink/80 hover:bg-sage-50'}`}>{b.name}{b.id === branchId && <Check size={14} />}</button>)}</span>}
+          <div className="ticket-tools mt-2 flex items-center justify-between gap-2 text-[14.5px] text-mute">
+            <span className="ticket-attachments flex items-center gap-3 min-w-0 whitespace-nowrap"><button onClick={() => file.current?.click()} className={`flex items-center gap-1 ${photo ? 'text-olive-700' : ''}`}>{isVideo ? <Video size={15} /> : <Camera size={15} />}{photo ? (isVideo ? t('Video dabei') : t('Foto dabei')) : t('Foto oder Video')}</button>{kind !== 'Learning' && kind !== 'Anliegen' && <span className="ticket-studio-picker relative"><button onClick={() => setPickB(!pickB)} className="flex items-center gap-1 hover:text-ink"><MapPin size={15} />{branchId === '*' ? t('Alle Studios') : branches.find(b => b.id === branchId)?.name ?? me.branch}<ChevronRight size={13} className={`transition ${pickB ? 'rotate-90' : ''}`} /></button>
+              {pickB && <span className="ticket-studio-menu absolute z-20 left-0 bottom-7 w-48 rounded-[12px] bg-white shadow-[0_12px_32px_-12px_rgba(29,34,28,.45)] p-1 flex flex-col">{[{ id: '*', name: t('Alle Studios') }, ...studios].map(b => <button key={b.id} onClick={() => { setBranchId(b.id); setPickB(false) }} className={`h-9 px-3 rounded-[8px] text-left text-[15.5px] flex items-center justify-between ${b.id === branchId ? 'bg-sage-50 text-ink' : 'text-ink/80 hover:bg-sage-50'}`}>{b.name}{b.id === branchId && <Check size={14} />}</button>)}</span>}
             </span>}</span>
-            <button disabled={busy} onClick={submit} className="h-9 px-4 rounded-[10px] bg-olive-700 text-white flex items-center gap-1.5 shrink-0 disabled:opacity-60"><Send size={13} />{kind === 'Learning' ? t('Teilen') : t('Senden')}</button>
+            <button disabled={busy || !text.trim()} onClick={submit} className="h-9 px-4 rounded-[10px] bg-olive-700 text-white flex items-center gap-1.5 shrink-0 disabled:opacity-60"><Send size={13} />{kind === 'Learning' ? t('Teilen') : t('Senden')}</button>
           </div>
           <input ref={file} type="file" accept="image/*,video/*" className="hidden" onChange={e => setPhoto(e.target.files?.[0] ?? null)} />
         </Card>
@@ -1328,8 +1331,8 @@ function Tickets({ open, learning }: { open: (s: Sub) => void; learning?: boolea
               </div>
             </div>))}</div>
         </> : <>
-        <div className="mt-8 mb-2.5 px-1 flex items-center justify-between"><div><h2 className="rubric text-ink/70">{t('Verlauf')}</h2>{kind !== 'Anliegen' && <p className="text-[13px] text-mute mt-1">{t('Schon gemeldet? Dann einfach upvoten.')}</p>}</div>
-          <div className="flex gap-1 p-0.5 rounded-[8px] bg-white">{(['offen', 'erledigt'] as const).map(k => <button key={k} onClick={() => setView(k)} className={`h-7 px-2.5 rounded-[6px] text-[13px] transition ${view === k ? 'bg-olive-700 text-white' : 'text-ink/60'}`}>{t(k === 'offen' ? 'Offen' : 'Erledigt')}</button>)}</div></div>
+        <div className="mt-8 mb-2.5 px-1 flex flex-wrap gap-3 items-center justify-between"><div><h2 className="rubric text-ink/70">{t('Verlauf')}</h2>{kind !== 'Anliegen' && <p className="text-[13px] text-mute mt-1">{t('Schon gemeldet? Dann einfach upvoten.')}</p>}</div>
+          <div className="flex shrink-0 gap-1 p-0.5 rounded-[8px] bg-white">{(['offen', 'erledigt'] as const).map(k => <button key={k} onClick={() => setView(k)} className={`h-11 whitespace-nowrap px-3 rounded-[6px] text-[13px] transition ${view === k ? 'bg-olive-700 text-white' : 'text-ink/60'}`}>{t(k === 'offen' ? 'Offen' : 'Erledigt')}</button>)}</div></div>
         <List>{list.length === 0 && <Empty>{view === 'offen' ? t('Nichts offen.') : t('Noch nichts erledigt.')}</Empty>}{list.map(x => (
           <div key={x.id} className="px-4 py-3 flex gap-3 items-start">
             <button onClick={() => open({ k: 'ticket', id: x.id })} className="flex-1 min-w-0 text-left">

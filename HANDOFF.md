@@ -1,5 +1,9 @@
 # HANDOFF — Beautylounge TeamHub
 
+### 2026-10-24 — Employee mobile usability review
+
+Owner requests a whole-app review after an installed iPhone assistant/keyboard failure. Shared pan+height viewport handling, pane-only transcript scrolling, shrinking flex chain, bounded composers/model menu, conversation-bound in-memory drafts, common accessible body-portalled sheets, fixed dialog close controls, wrapping/dismissible errors, login error reveal, mobile headers/report controls/search and flex calendar corrected. Primary employee flows inspected at narrow/short/landscape sizes plus a desktop regression; one synthetic real assistant response, disposable form fixtures with provider writes blocked, QA chat cleaned. 31 tests/build/translations pass; existing lint warnings remain. **Physical iPhone keyboard/camera/mic/push acceptance is still not evidenced.** No pilot invitations, customer messages, provider/config/role changes. Full scope and limits: `MOBILE-USABILITY.md`.
+
 ### 2026-10-23 — Browser favicon refresh
 
 Owner still sees the old lightning icon in the browser. Production `/favicon.svg` already matches the Beautylounge B, but the unchanged URL can retain an old browser favicon. HTML now uses a new B SVG URL plus a 32px PNG fallback, and `/favicon.ico` contains the same existing B at 16/32/48px for conventional discovery. Existing app/Home Screen icons and logo geometry are unchanged. Build and published asset checks verify the release; previously open tabs may need to be closed and reopened.

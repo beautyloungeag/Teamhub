@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Logo } from './Logo'
 import { supabase } from './lib/supabase'
 import { tr, savedLang, setCurrentLang, type Lang } from './lib/i18n'
@@ -18,15 +18,22 @@ export default function Login({ notice }: { notice?: string }) {
   const [code, setCode] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState(notice ?? '')
+  const errorRef = useRef<HTMLParagraphElement>(null)
   // Hinweis auch zeigen, wenn die Seite schon offen war (z. B. Zugang nach dem Code deaktiviert)
   useEffect(() => { if (notice) setErr(notice) }, [notice])
+  useEffect(() => {
+    if (!err) return
+    const frame = requestAnimationFrame(() => errorRef.current?.scrollIntoView({ block: 'nearest' }))
+    return () => cancelAnimationFrame(frame)
+  }, [err])
 
   const dismissKeyboard = () => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur() }
   const send = async () => {
+    dismissKeyboard()
     const e = email.trim().toLowerCase()
     if (!/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/.test(e)) { setErr('Bitte gib deine E-Mail-Adresse ein.'); return }
     if (!supabase) { setErr('Die Verbindung zum Server ist nicht eingerichtet.'); return }
-    dismissKeyboard(); setBusy(true); setErr('')
+    setBusy(true); setErr('')
     const { error } = await supabase.auth.signInWithOtp({ email: e, options: { shouldCreateUser: false, emailRedirectTo: window.location.origin } })
     setBusy(false)
     if (error) {
@@ -40,10 +47,11 @@ export default function Login({ notice }: { notice?: string }) {
   }
 
   const verify = async () => {
+    dismissKeyboard()
     if (!supabase) return
     const token = code.replace(/\D/g, '')
     if (token.length < 6) { setErr('Bitte gib den Code aus der E-Mail ein.'); return }
-    dismissKeyboard(); setBusy(true); setErr('')
+    setBusy(true); setErr('')
     const { error } = await supabase.auth.verifyOtp({ email, token, type: 'email' })
     setBusy(false)
     if (error) setErr('Der Code stimmt nicht oder ist abgelaufen.')
@@ -76,7 +84,7 @@ export default function Login({ notice }: { notice?: string }) {
           <button disabled={busy} onClick={verify} className="w-full h-12 rounded-[10px] font-medium bg-olive-700 text-white disabled:opacity-60">{busy ? '…' : t('Anmelden')}</button>
           <button onClick={() => { dismissKeyboard(); setStep('mail'); setCode(''); setErr('') }} className="w-full text-sm text-mute">{t('Andere E-Mail verwenden')}</button>
         </>}
-        {err && <p role="alert" className="text-sm text-center text-alert">{t(err)}</p>}
+        {err && <p ref={errorRef} role="alert" className="text-sm text-center text-alert">{t(err)}</p>}
         </div>
       </div>
     </div>

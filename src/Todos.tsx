@@ -1,3 +1,4 @@
+import { ViewportOverlay } from './ViewportOverlay'
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { motion } from 'motion/react'
 import { Check, Plus, Trash2, X } from 'lucide-react'
@@ -109,14 +110,15 @@ export function MyTodos() {
 }
 
 function Modal({ children, onClose }: { children: ReactNode; onClose: () => void }) {
+  const { t } = useApp()
   return (
-    <div className="fixed inset-0 z-50 flex items-end md:items-center md:justify-center" onClick={onClose}>
+    <ViewportOverlay label={t('Aufgaben')} onClose={onClose} className="flex items-end md:items-center md:justify-center">
       <div className="absolute inset-0 bg-ink/30" />
-      <motion.div initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="relative w-full md:max-w-[460px] bg-white rounded-t-[28px] md:rounded-[20px] p-6 pb-10 md:pb-6" onClick={e => e.stopPropagation()}>
-        <button onClick={onClose} aria-label="×" className="absolute right-4 top-4 w-9 h-9 rounded-full hover:bg-sage-100 flex items-center justify-center text-mute"><X size={18} /></button>
-        {children}
+      <motion.div initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="mobile-sheet mobile-todo-sheet relative w-full md:max-w-[460px] bg-white rounded-t-[28px] md:rounded-[20px] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="shrink-0 flex justify-end px-3 pt-2"><button onClick={onClose} aria-label={t('Schliessen')} className="w-11 h-11 rounded-full hover:bg-sage-100 flex items-center justify-center text-mute"><X size={18} /></button></div>
+        <div className="mobile-sheet-scroll flex-1 min-h-0 overflow-y-auto px-6 pb-6">{children}</div>
       </motion.div>
-    </div>
+    </ViewportOverlay>
   )
 }
 
@@ -158,7 +160,7 @@ function TodoSheet({ onClose }: { onClose: () => void }) {
   return (
     <Modal onClose={onClose}>
       <p className="font-medium text-[18px]">{t('Eigenes To-do')}</p>
-      <input autoFocus value={title} onChange={e => setTitle(e.target.value)} onKeyDown={e => e.key === 'Enter' && save()} placeholder={t('Was ist zu tun?')} className="mt-4 w-full h-12 rounded-[12px] bg-sage-50 px-4 text-[17px] outline-none" />
+      <input value={title} onChange={e => setTitle(e.target.value)} onKeyDown={e => e.key === 'Enter' && save()} placeholder={t('Was ist zu tun?')} className="mt-4 w-full h-12 rounded-[12px] bg-sage-50 px-4 text-[17px] outline-none" />
       <textarea value={note} onChange={e => setNote(e.target.value)} rows={2} placeholder={t('Notiz (optional)')} className="mt-2 w-full rounded-[12px] bg-sage-50 px-4 py-3 text-[15.5px] outline-none resize-none" />
       <div className="mt-4"><DueFields date={date} time={time} setDate={setDate} setTime={setTime} /></div>
       <button onClick={save} disabled={!title.trim() || busy} className="mt-6 w-full h-12 rounded-[14px] bg-olive-700 text-white text-[17px] disabled:opacity-50">{t('Speichern')}</button>

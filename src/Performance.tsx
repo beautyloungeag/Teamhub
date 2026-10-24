@@ -201,8 +201,8 @@ export function MyPerformance() {
         {goals ? <GoalList goals={goals} staff={staff} onChanged={reloadGoals} canDeleteOf={() => lead} emptyText={t('Noch keine Ziele. Ziele legt die Filialleitung an.')} /> : <p className="py-3 text-[13.5px] text-mute">…</p>}
       </div>
 
-      <h2 className="rubric text-ink/70 mt-8 mb-2.5 px-1">{t('Meine Bewertungen')}</h2>
-      <div className="rounded-[16px] bg-white px-4 py-1">{p?.ok && p.mapped !== false ? <ReviewList items={p.reviews ?? []} /> : <p className="py-3 text-[13.5px] text-mute">…</p>}</div>
+      {p?.ok && p.mapped !== false && <><h2 className="rubric text-ink/70 mt-8 mb-2.5 px-1">{t('Meine Bewertungen')}</h2>
+      <div className="rounded-[16px] bg-white px-4 py-1"><ReviewList items={p.reviews ?? []} /></div></>}
     </div>
   )
 }
