@@ -1,20 +1,42 @@
-import { useState } from 'react'
+import { useRef, useState, useSyncExternalStore } from 'react'
 import { Send, Check } from 'lucide-react'
 import { useApp, type Ticket } from './store'
 import { Avatar } from './People'
+import { captureAccountScope, isCurrentAccountScope, onAccountScopeChange } from './lib/account-scope'
 
 // Ein Verlauf mit Kommentaren, damit alle sehen, was passiert („Techniker kommt Montag 8 Uhr“)
 export function Comments({ tk, compact }: { tk: Ticket; compact?: boolean }) {
-  const { addComment, t, staff } = useApp()
-  const [v, setV] = useState(''), [busy, setBusy] = useState(false)
-  const send = async () => { if (!v.trim() || busy) return; setBusy(true); if (await addComment(tk.id, v)) setV(''); setBusy(false) }
+  const { me } = useApp()
+  const version = useSyncExternalStore(onAccountScopeChange, () => captureAccountScope(me.id)?.version ?? -1)
+  return version < 0 ? null : <CommentThread key={`${version}:${tk.id}`} tk={tk} compact={compact} />
+}
+function CommentThread({ tk, compact }: { tk: Ticket; compact?: boolean }) {
+  const { addComment, me, t, staff } = useApp()
+  const [v, setV] = useState(''), [busy, setBusy] = useState(false), [error, setError] = useState(false)
+  const flight = useRef(false)
+  const send = async () => {
+    const scope = captureAccountScope(me.id), body = v.trim()
+    if (!scope || !body || flight.current) return
+    flight.current = true; setBusy(true); setError(false)
+    try {
+      const ok = await addComment(tk.id, body)
+      if (!isCurrentAccountScope(scope)) return
+      if (ok) setV(value => value.trim() === body ? '' : value)
+      else setError(true)
+    } catch { if (isCurrentAccountScope(scope)) setError(true) }
+    finally { flight.current = false; if (isCurrentAccountScope(scope)) setBusy(false) }
+  }
   return (<div>
     {tk.comments.map(c => { const p = c.authorId ? staff.find(s => s.id === c.authorId) : null
+      const author = p ? `${p.first} ${p.last}` : t('Ehemalige Person')
       return <div key={c.id} className="py-2.5 border-b border-line text-[13px] flex gap-2.5">
-        {p ? <Avatar s={p} photo={p.photo} size="w-7 h-7 text-[10px] shrink-0" /> : <span className="w-7 h-7 rounded-full bg-sage-100 text-mute text-[10px] flex items-center justify-center shrink-0">{c.author.slice(0, 1)}</span>}
-        <div className="min-w-0"><p className="text-xs"><span className="text-ink font-medium">{c.author}</span><span className="text-mute"> · {c.when}</span></p><p className="mt-0.5 whitespace-pre-wrap">{c.body}</p></div></div> })}
-    <div className={`flex gap-2 ${compact ? 'mt-2' : 'mt-3'}`}><input value={v} onChange={e => setV(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} placeholder={t('Kommentar schreiben …')} className="flex-1 h-9 rounded-[8px] bg-sage-50 px-3 text-[13px] outline-none" />
-      <button disabled={busy || !v.trim()} onClick={send} className="h-9 w-9 rounded-[8px] bg-olive-700 text-white flex items-center justify-center disabled:opacity-40"><Send size={14} /></button></div>
+        {p ? <Avatar s={p} photo={p.photo} size="w-7 h-7 text-[10px] shrink-0" /> : <span className="w-7 h-7 rounded-full bg-sage-100 text-mute text-[10px] flex items-center justify-center shrink-0">{author.slice(0, 1)}</span>}
+        <div className="min-w-0"><p className="text-xs"><span className="text-ink font-medium">{author}</span><span className="text-mute"> · {c.when}</span></p><p className="mt-0.5 whitespace-pre-wrap break-words">{c.body}</p></div></div> })}
+    {error && <p role="alert" className="mt-3 text-[14px] text-alert">{t('Kommentar konnte nicht gesendet werden. Dein Entwurf bleibt erhalten. Bitte erneut versuchen.')}</p>}
+    <div className={`flex items-end gap-2 ${compact ? 'mt-2' : 'mt-3'}`}><textarea value={v} rows={2} onChange={e => setV(e.target.value)}
+      onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && window.matchMedia('(hover: hover)').matches) { e.preventDefault(); void send() } }}
+      aria-label={t('Kommentar schreiben …')} placeholder={t('Kommentar schreiben …')} className="flex-1 min-w-0 min-h-11 max-h-40 resize-y rounded-[8px] bg-sage-50 px-3 py-2.5 text-[16px] md:text-[14px] outline-none" />
+      <button disabled={busy || !v.trim()} onClick={() => void send()} aria-label={t('Kommentar senden')} className="h-11 w-11 shrink-0 rounded-[8px] bg-olive-700 text-white flex items-center justify-center disabled:opacity-40"><Send size={18} /></button></div>
   </div>)
 }
 export function Media({ tk }: { tk: Ticket }) {

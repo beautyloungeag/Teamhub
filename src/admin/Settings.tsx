@@ -1,16 +1,17 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Download } from 'lucide-react'
-import { useApp, isoDay, addDays, appliesOn, fmtDate, fmtTime } from '../store'
+import { useApp, isoDay, addDays, appliesOn, fmtDate, fmtTime, inNewsAudience } from '../store'
 import { supabase } from '../lib/supabase'
 import { pushState, enablePush, disablePush, testPush, type PushState } from '../lib/push'
 import { downloadCsv, type Row } from '../lib/csv'
 import { loadPollResults } from '../Poll'
 import { toast } from '../Toast'
-import { H, Seg, Select, Th, btn, btn2, real, inBranch, Section, isTest } from './kit'
+import { H, Seg, Select, Th, btn, btn2, inBranch, Section, isTest } from './kit'
 import { ProtocolView } from './Protocol'
 import { StudiosAdmin, DemoSwitch, MailSettings } from './Studios'
 import { RoleSelect, ROLE } from './Team'
 import { Avatar } from '../People'
+import { adminEventReport, adminNewsAudience, eventParticipantCsv } from '../lib/admin-audience'
 
 // Einstellungen: Mitteilungen (eigene), Protokoll, Export für Filialleitung und Büro; Allgemein, Studios, System nur Büro.
 
@@ -43,7 +44,8 @@ const RIGHTS: [string, string, string, string][] = [
   ['Personen anlegen und deaktivieren', '–', 'eigene Studios', 'alle Studios'],
   ['Aufgaben zuweisen, Checklisten anlegen', '–', 'eigene Studios', 'alle Studios'],
   ['News, Umfragen, Quiz und Events', '–', 'eigene Studios', 'alle Studios'],
-  ['Meldungen', 'eigene sehen', 'eigene Studios bearbeiten', 'alle bearbeiten'],
+  ['Schäden und allgemeine Meldungen', 'eigene und freigegebene Studio-Meldungen sehen', 'eigene Studios bearbeiten', 'alle bearbeiten'],
+  ['Persönliche Anliegen (privat)', 'nur eigene, Austausch mit Büro', 'nur eigene; keine Anliegen anderer', 'alle sehen und bearbeiten'],
   ['Lektionen anlegen', '–', 'eigene Studios', 'alle Studios'],
   ['Protokoll und Export', '–', 'eigene Studios', 'alle Studios'],
   ['Kontrollfragen, Studios, E-Mail-Versand, Systemfehler', '–', '–', 'ja'],
@@ -55,7 +57,7 @@ function Roles() {
   const by = (r: string) => staff.filter(s => s.active && s.app_role === r).sort((a, b) => Number(a.email.includes('+')) - Number(b.email.includes('+')) || a.first.localeCompare(b.first))
   const cell = (v: string) => <td className={`px-4 py-2.5 ${v === '–' ? 'text-mute' : 'text-ink/85'}`}>{v}</td>
   const people = (r: string) => <table className="tbl w-full text-[14px] table-fixed"><tbody className="divide-y divide-line">{by(r).map(p => <tr key={p.id}>
-    <td className="px-4 py-2.5"><span className="flex items-center gap-3 min-w-0"><Avatar s={p} photo={p.photo} size="w-7 h-7 text-[11px]" /><span className="truncate">{p.first} {p.last}</span>{isTest(p) && p.email.includes('+') && <span className="text-xs text-mute">Testkonto</span>}{p.id === me.id && <span className="text-xs text-mute">du</span>}</span></td>
+    <td className="px-4 py-2.5"><span className="flex items-center gap-3 min-w-0"><Avatar s={p} photo={p.photo} size="w-7 h-7 text-[11px]" /><span className="truncate">{p.first} {p.last}</span>{isTest(p) && <span className="text-xs text-mute">Testkonto</span>}{p.id === me.id && <span className="text-xs text-mute">du</span>}</span></td>
     <td className="px-4 w-[260px] text-mute truncate">{r === 'buero' ? p.email : [p.branch, ...(p.extra ?? []).map(b => branches.find(x => x.id === b)?.name)].filter(Boolean).join(', ')}</td>
     <td className="px-4 w-[200px]">{office && p.id !== me.id ? <RoleSelect p={p} /> : <span className="text-mute">{ROLE[p.app_role]}</span>}</td>
   </tr>)}</tbody></table>
@@ -73,7 +75,7 @@ function Roles() {
 /* ---------- Mitteilungen ---------- */
 // Gleiche Standards wie in der Function notify
 const PREFS: { key: string; label: string; hint: string; def: { filialleitung: boolean; buero: boolean } }[] = [
-  { key: 'lead_tickets', label: 'Neue Meldung', hint: 'Wenn jemand in deinem Studio etwas meldet (Schaden, Anliegen).', def: { filialleitung: true, buero: true } },
+  { key: 'lead_tickets', label: 'Neue Meldung', hint: 'Bei Schäden und allgemeinen Meldungen im eigenen Studio. Private Anliegen anderer gehen nur ans Büro.', def: { filialleitung: true, buero: true } },
   { key: 'lead_ideas', label: 'Neue Idee', hint: 'Wenn jemand eine Idee einreicht.', def: { filialleitung: false, buero: true } },
   { key: 'lead_standby', label: 'Zusage auf Aushilfe-Anfrage', hint: 'Wenn jemand auf deine Anfrage „Ich kann“ antwortet.', def: { filialleitung: true, buero: true } },
   { key: 'lead_events', label: 'Anmeldeschluss erreicht', hint: 'Bei deinen Terminen: wie viele kommen, absagen und nicht geantwortet haben.', def: { filialleitung: true, buero: true } },
@@ -144,17 +146,14 @@ function Exports() {
   }
   const participants = () => {
     const e = events.find(x => x.id === ev); if (!e) return
-    const aud = staff.filter(s => real(s) && s.branch_id !== 'buero' && inScope(s) && (e.audienceBranches.length === 0 || e.audienceBranches.some(x => inBranch(s, x))) && (e.audienceSkills.length === 0 || s.skills.some(k => e.audienceSkills.includes(k))))
-    const regs = registrations.filter(r => r.event_id === e.id)
-    const ids = new Set([...aud.map(s => s.id), ...regs.map(r => r.employee_id)])
-    downloadCsv(`Teilnehmende ${e.title} ${isoDay(new Date(e.startsAt))}`, [...ids].map(id => { const s = staff.find(x => x.id === id), r = regs.find(x => x.employee_id === id)
-      return { Name: s ? `${s.first} ${s.last}` : id, Studio: s?.branch ?? '', Funktion: s?.role ?? '', Antwort: !r ? 'keine Antwort' : !r.coming ? 'kommt nicht' : r.waitlist ? 'Warteliste' : 'kommt' } }).sort((a, z) => String(a.Antwort).localeCompare(String(z.Antwort))))
+    const report = adminEventReport(staff, me, e, registrations)
+    downloadCsv(`Teilnehmende ${e.title} ${isoDay(new Date(e.startsAt))}`, eventParticipantCsv(report.people))
   }
   const reads = () => {
     const n = news.find(x => x.id === nw); if (!n) return
-    const aud = staff.filter(s => real(s) && inScope(s) && (n.audiencePeople.length ? n.audiencePeople.includes(s.id) : (n.audienceBranches.length === 0 || n.audienceBranches.some(x => inBranch(s, x)))))
+    const aud = adminNewsAudience(staff, me, n, inNewsAudience)
     downloadCsv(`Lesebestätigungen ${n.title}`, aud.map(s => { const r = newsReads.find(x => x.news_id === n.id && x.employee_id === s.id)
-      return { Name: `${s.first} ${s.last}`, Studio: s.branch, Geöffnet: r ? 'ja' : 'nein', Bestätigt: r?.confirmed_at ? `${fmtDate(r.confirmed_at, { day: '2-digit', month: '2-digit', year: 'numeric' })} ${fmtTime(r.confirmed_at)}` : '' } }))
+      return { Name: `${s.first} ${s.last}`, Studio: s.branch, Testkonto: isTest(s) ? 'ja' : 'nein', Geöffnet: r ? 'ja' : 'nein', Bestätigt: r?.confirmed_at ? `${fmtDate(r.confirmed_at, { day: '2-digit', month: '2-digit', year: 'numeric' })} ${fmtTime(r.confirmed_at)}` : '' } }))
   }
   const poll = async () => {
     const p = polls.find(x => x.id === pl); if (!p) return
@@ -166,7 +165,7 @@ function Exports() {
   }
   const team = () => downloadCsv(`Team ${isoDay()}`, staff.filter(s => s.active && inScope(s)).map(s => ({ Vorname: s.first, Nachname: s.last, Funktion: s.role, Studio: s.branch, Zusatzstudios: (s.extra ?? []).map(bname).join(', '), 'E-Mail': s.email, Telefon: s.phone ?? '', Skills: s.skills.join(', '), Rechte: s.app_role, 'App installiert': !!s.appInstalled, Mitteilungen: !!s.pushEnabled })))
   const myNews = news.filter(n => office || n.authorId === me.id || n.audienceBranches.length === 0 || n.audienceBranches.some(x => mine.includes(x)))
-  const myEvents = events.filter(e => office || e.audienceBranches.length === 0 || e.audienceBranches.some(x => mine.includes(x)))
+  const myEvents = events.filter(e => e.kind === 'Schulung' || office || e.audienceBranches.length === 0 || e.audienceBranches.some(x => mine.includes(x)))
   const myPolls = polls.filter(p => myNews.some(n => n.id === p.newsId))
   const card = (title: string, hint: string, controls: React.ReactNode, run: () => void, key: string, disabled = false) =>
     <div className="py-5 border-b border-line grid grid-cols-[1fr_auto] gap-6 items-center">

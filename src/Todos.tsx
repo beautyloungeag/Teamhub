@@ -1,3 +1,4 @@
+import { captureAccountScope, isCurrentAccountScope, onAccountScopeChange } from './lib/account-scope'
 import { ViewportOverlay } from './ViewportOverlay'
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { motion } from 'motion/react'
@@ -18,18 +19,24 @@ export type Todo = {
 const T = { owner: '', list: [] as Todo[], loaded: false, ver: 0 }
 const subs = new Set<() => void>()
 const bump = () => { T.ver++; subs.forEach(f => f()) }
+let requestVersion = 0
+onAccountScopeChange(() => { requestVersion++; T.owner = ''; T.list = []; T.loaded = false; bump() })
 export async function reloadTodos() {
-  if (!supabase) return
+  const scope = captureAccountScope(), version = ++requestVersion
+  if (!supabase || !scope) return
   const since = new Date(Date.now() - 14 * 864e5).toISOString()
-  const { data } = await supabase.from('todos').select('id, title, note, due_at, assignee_id, branch_id, created_by, created_by_name, done_at, done_by_name, created_at')
-    .or(`done_at.is.null,done_at.gte.${since}`).order('due_at', { ascending: true, nullsFirst: false }).limit(500)
+  const { data, error } = await supabase.from('todos').select('id, title, note, due_at, assignee_id, branch_id, created_by, created_by_name, done_at, done_by_name, created_at')
+    .or(`done_at.is.null,done_at.gte.${since}`).order('due_at', { ascending: true, nullsFirst: false }).limit(500).abortSignal(scope.signal)
+  if (!isCurrentAccountScope(scope) || version !== requestVersion || error) return
+  T.owner = scope.key + ':' + scope.version
   T.list = (data ?? []) as Todo[]; T.loaded = true; bump()
 }
 export function useTodos() {
   const { employee } = useApp()
   useSyncExternalStore(f => { subs.add(f); return () => { subs.delete(f) } }, () => T.ver)
-  useEffect(() => { if (T.owner !== employee.id) { T.owner = employee.id; T.list = []; T.loaded = false } if (!T.loaded) reloadTodos() }, [employee.id])
-  return T.list
+  const scope = captureAccountScope(employee.id), owner = scope ? scope.key + ':' + scope.version : ''
+  useEffect(() => { if (scope && (!T.loaded || T.owner !== owner)) void reloadTodos() }, [owner]) // eslint-disable-line react-hooks/exhaustive-deps
+  return owner && T.owner === owner ? T.list : []
 }
 /** Was die Person selbst erledigen soll: ihr zugewiesen, ihrem Studio, oder eigene To-dos. */
 export const isForMe = (x: Todo, me: Staff) => x.assignee_id === me.id || (x.assignee_id === null && !!x.branch_id && [me.branch_id, ...(me.extra ?? [])].includes(x.branch_id))
@@ -50,7 +57,9 @@ export const isLate = (x: Todo) => !x.done_at && !!x.due_at && new Date(x.due_at
 const toIso = (date: string, time: string) => date ? new Date(`${date}T${time || '23:59'}:00`).toISOString() : null
 
 async function setDone(x: Todo, done: boolean, t: (s: string) => string) {
-  const { error } = await supabase!.rpc('todo_done', { p_id: x.id, p_done: done })
+  const scope = captureAccountScope(); if (!scope) return
+  const { error } = await supabase!.rpc('todo_done', { p_id: x.id, p_done: done }).abortSignal(scope.signal)
+  if (!isCurrentAccountScope(scope)) return
   // Studio-Aufgabe: jemand anderes war schneller
   if (error) toast(t(/already_done/.test(error.message) ? 'Schon erledigt, jemand war schneller.' : 'Das hat nicht geklappt'), 'error')
   await reloadTodos()
@@ -150,12 +159,14 @@ function TodoSheet({ onClose }: { onClose: () => void }) {
   const { t, employee, me } = useApp()
   const [title, setTitle] = useState(''), [note, setNote] = useState(''), [date, setDate] = useState(''), [time, setTime] = useState(''), [busy, setBusy] = useState(false)
   const save = async () => {
-    if (!title.trim() || busy) return
+    const scope = captureAccountScope(employee.id)
+    if (!scope || !title.trim() || busy) return
     setBusy(true)
-    const { error } = await supabase!.from('todos').insert({ title: title.trim(), note: note.trim(), due_at: toIso(date, time), assignee_id: employee.id, created_by: employee.id, created_by_name: `${me.first} ${me.last.slice(0, 1)}.` })
+    const { error } = await supabase!.from('todos').insert({ title: title.trim(), note: note.trim(), due_at: toIso(date, time), assignee_id: employee.id, created_by: employee.id, created_by_name: `${me.first} ${me.last.slice(0, 1)}.` }).abortSignal(scope.signal)
+    if (!isCurrentAccountScope(scope)) return
     setBusy(false)
     if (error) { toast(t('Das hat nicht geklappt'), 'error'); return }
-    toast(t('To-do gespeichert')); await reloadTodos(); onClose()
+    toast(t('To-do gespeichert')); await reloadTodos(); if (isCurrentAccountScope(scope)) onClose()
   }
   return (
     <Modal onClose={onClose}>
@@ -171,7 +182,7 @@ function TodoSheet({ onClose }: { onClose: () => void }) {
 function TodoDetail({ x, onClose, onToggle }: { x: Todo; onClose: () => void; onToggle: () => void }) {
   const { t, me, branches } = useApp()
   const due = useDue()
-  const del = async () => { await supabase!.from('todos').delete().eq('id', x.id); toast(t('Gelöscht')); await reloadTodos(); onClose() }
+  const del = async () => { const scope = captureAccountScope(me.id); if (!scope) return; const { error } = await supabase!.from('todos').delete().eq('id', x.id).abortSignal(scope.signal); if (!isCurrentAccountScope(scope)) return; if (error) { toast(t('Das hat nicht geklappt'), 'error'); return } toast(t('Gelöscht')); await reloadTodos(); if (isCurrentAccountScope(scope)) onClose() }
   return (
     <Modal onClose={onClose}>
       <p className="font-medium text-[18px] pr-10">{x.title}</p>

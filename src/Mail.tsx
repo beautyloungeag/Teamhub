@@ -1,3 +1,4 @@
+import { captureAccountScope, isCurrentAccountScope, onAccountScopeChange, type AccountScope } from './lib/account-scope'
 import { ViewportOverlay } from './ViewportOverlay'
 import { useEffect, useRef, useState } from 'react'
 import { Mail as MailIcon, RefreshCw, SquarePen, Paperclip, Reply, Forward, X, Send, Lock, ExternalLink, ChevronRight, LogOut } from 'lucide-react'
@@ -14,7 +15,17 @@ type Full = { uid: number; subject: string; date: string | null; from: { name: s
 type Box = { ok: boolean; configured?: boolean; connected?: boolean; address?: string; total?: number; unseen?: number; items?: MailItem[]; error?: string }
 export const WEBMAIL = 'https://webmail.cyon.ch'
 
-const call = async (body: Record<string, unknown>) => (await supabase!.functions.invoke('mailbox', { body })).data as Box & Full & { ok: boolean; error?: string }
+const call = async (body: Record<string, unknown>, scope: AccountScope | null) => {
+  if (!isCurrentAccountScope(scope)) throw new Error('session_changed')
+  const { data, error } = await supabase!.functions.invoke('mailbox', { body, signal: scope.signal })
+  if (!isCurrentAccountScope(scope)) throw new Error('session_changed')
+  if (error) throw error
+  return data as Box & Full & { ok: boolean; error?: string }
+}
+function useMailScope() {
+  const { employee } = useApp()
+  return useState(() => captureAccountScope(employee.id))[0]
+}
 
 // Nur lokal für Ansichts-PDFs: Beispiel-Postfach
 const demoOn = () => { try { return import.meta.env.DEV && localStorage.getItem('th-demo') === '1' } catch { return false } }
@@ -40,32 +51,42 @@ const Face = ({ who, size = 'w-11 h-11 text-[15px]' }: { who: { name: string; ad
   return <span className={`${size} rounded-full flex items-center justify-center font-semibold shrink-0 ${tone.bg} ${tone.fg}`}>{initials(who?.name || who?.address || '')}</span>
 }
 
-let cache: Box | null = null
+let cache: Box | null = null, cacheScope: AccountScope | null = null
+const cached = (scope: AccountScope | null) => isCurrentAccountScope(scope) && cacheScope === scope ? cache : null
+onAccountScopeChange(() => { cache = null; cacheScope = null })
 /** Ungelesene im Posteingang (für Menü und Startseite) */
 export function useMailUnread() {
-  const [n, setN] = useState<number | null>(cache?.unseen ?? null)
-  useEffect(() => { if (demoOn()) { setN(2); return } if (cache) return; call({ action: 'status' }).then(s => { if (!s?.connected) setN(null) }) }, [])
+  const scope = useMailScope()
+  const [n, setN] = useState<number | null>(cached(scope)?.unseen ?? null)
+  useEffect(() => { if (demoOn()) { setN(2); return } if (cached(scope)) return; call({ action: 'status' }, scope).then(s => { if (isCurrentAccountScope(scope) && !s?.connected) setN(null) }).catch(() => {}) }, [])
   return n
 }
 
 export function Inbox({ onOpen }: { onOpen: (uid: number, item: MailItem) => void }) {
   const { t } = useApp()
-  const [box, setBox] = useState<Box | null>(cache)
+  const scope = useMailScope()
+  const [box, setBox] = useState<Box | null>(cached(scope))
   const [busy, setBusy] = useState(false), [compose, setCompose] = useState(false)
+  const loadVersion = useRef(0), alive = useRef(true)
+  useEffect(() => { alive.current = true; return () => { alive.current = false; loadVersion.current++ } }, [])
   const load = async () => {
-    if (demoOn()) { const b = { ok: true, configured: true, connected: true, address: 'vorname@beautylounge.ch', total: 4, unseen: 2, items: DEMO }; cache = b; setBox(b); return }
-    setBusy(true); const b = await call({ action: 'list' }).catch(() => ({ ok: false } as Box)); setBusy(false)
-    if (b?.ok && b.connected) cache = b
+    if (!isCurrentAccountScope(scope) || !alive.current) return
+    const version = ++loadVersion.current
+    if (demoOn()) { const b = { ok: true, configured: true, connected: true, address: 'vorname@beautylounge.ch', total: 4, unseen: 2, items: DEMO }; cache = b; cacheScope = scope; setBox(b); return }
+    setBusy(true); const b = await call({ action: 'list' }, scope).catch(() => ({ ok: false } as Box)); if (!isCurrentAccountScope(scope) || !alive.current || version !== loadVersion.current) return; setBusy(false)
+    if (b?.ok && b.connected) { cache = b; cacheScope = scope }
     setBox(b ?? { ok: false })
   }
   useEffect(() => { load() }, [])
   const more = async () => { const last = box?.items?.[box.items.length - 1]; if (!last) return
-    setBusy(true); const b = await call({ action: 'list', before: last.uid }); setBusy(false)
-    if (b?.ok) setBox(x => { const n = { ...x!, items: [...(x?.items ?? []), ...(b.items ?? [])] }; cache = n; return n }) }
+    if (!isCurrentAccountScope(scope)) return
+    const version = ++loadVersion.current
+    setBusy(true); const b = await call({ action: 'list', before: last.uid }, scope).catch(() => null); if (!isCurrentAccountScope(scope) || !alive.current || version !== loadVersion.current) return; setBusy(false)
+    if (b?.ok) { const n = { ...box!, items: [...(box?.items ?? []), ...(b.items ?? [])] }; cache = n; cacheScope = scope; setBox(n) } }
   const head = (right?: React.ReactNode) => <div className="px-5 pt-3 pb-4 flex items-end justify-between gap-3"><div><h1 className="text-[30px] leading-tight">{t('Posteingang')}</h1>{box?.address && <p className="text-[14.5px] text-mute mt-0.5 truncate">{box.address}</p>}</div>{right}</div>
   if (!box) return <div className="pb-10">{head()}<p className="px-5 text-mute">{t('Lädt …')}</p></div>
   if (!box.ok && box.error !== 'login_failed') return <div className="pb-10">{head()}<div className="px-4"><div className="rounded-[22px] bg-white p-5"><p className="text-[17px] font-semibold">{t('Das Postfach ist gerade nicht erreichbar')}</p><p className="mt-1 text-[15.5px] text-mute">{t('Bitte versuche es gleich noch einmal.')}</p><button onClick={load} className="mt-4 h-11 px-4 rounded-[14px] bg-sage-50 font-medium">{t('Erneut versuchen')}</button></div></div></div>
-  if (!box.connected || box.error === 'login_failed') return <div className="pb-10">{head()}<Connect address={box.address ?? ''} failed={box.error === 'login_failed'} onDone={() => { cache = null; load() }} /></div>
+  if (!box.connected || box.error === 'login_failed') return <div className="pb-10">{head()}<Connect address={box.address ?? ''} failed={box.error === 'login_failed'} onDone={() => { if (isCurrentAccountScope(scope)) { cache = null; void load() } }} /></div>
   const items = box.items ?? []
   return (
     <div className="pb-10">
@@ -78,7 +99,7 @@ export function Inbox({ onOpen }: { onOpen: (uid: number, item: MailItem) => voi
         </div>
         <div className="rounded-[20px] bg-white overflow-hidden divide-y divide-line">
           {items.length === 0 && <p className="px-4 py-5 text-[15.5px] text-mute">{t('Dein Posteingang ist leer.')}</p>}
-          {items.map(m => <button key={m.uid} onClick={() => { setBox(x => x ? { ...x, unseen: Math.max(0, (x.unseen ?? 0) - (m.seen ? 0 : 1)), items: x.items?.map(y => y.uid === m.uid ? { ...y, seen: true } : y) } : x); if (cache?.items) cache = { ...cache, items: cache.items.map(y => y.uid === m.uid ? { ...y, seen: true } : y) }; onOpen(m.uid, m) }} className="w-full px-4 py-3.5 flex gap-3 text-left">
+          {items.map(m => <button key={m.uid} onClick={() => { if (!isCurrentAccountScope(scope)) return; setBox(x => x ? { ...x, unseen: Math.max(0, (x.unseen ?? 0) - (m.seen ? 0 : 1)), items: x.items?.map(y => y.uid === m.uid ? { ...y, seen: true } : y) } : x); if (cached(scope)?.items && cache?.items) cache = { ...cache, items: cache.items.map(y => y.uid === m.uid ? { ...y, seen: true } : y) }; onOpen(m.uid, m) }} className="w-full px-4 py-3.5 flex gap-3 text-left">
             <Face who={m.from} />
             <span className="flex-1 min-w-0">
               <span className="flex items-baseline gap-2"><span className={`flex-1 min-w-0 truncate text-[16.5px] ${m.seen ? '' : 'font-semibold'}`}>{m.from?.name || m.from?.address || t('Unbekannt')}</span><span className={`text-[13px] shrink-0 ${m.seen ? 'text-mute' : 'text-duty font-semibold'}`}>{when(m.date)}</span></span>
@@ -91,7 +112,7 @@ export function Inbox({ onOpen }: { onOpen: (uid: number, item: MailItem) => voi
         {items.length >= 25 && <button onClick={more} disabled={busy} className="mt-3 w-full h-11 rounded-[14px] bg-white text-[15.5px] font-medium disabled:opacity-60">{t('Ältere laden')}</button>}
         <div className="mt-4 flex items-center justify-between px-1">
           <a href={WEBMAIL} target="_blank" rel="noreferrer" className="text-[14px] text-sage-800 flex items-center gap-1">{t('Im Webmail öffnen')}<ExternalLink size={13} /></a>
-          {!demoOn() && <button onClick={async () => { await call({ action: 'disconnect' }); cache = null; load() }} className="text-[14px] text-mute flex items-center gap-1"><LogOut size={14} />{t('Postfach trennen')}</button>}
+          {!demoOn() && <button onClick={async () => { const result = await call({ action: 'disconnect' }, scope).catch(() => null); if (isCurrentAccountScope(scope) && result?.ok) { cache = null; void load() } }} className="text-[14px] text-mute flex items-center gap-1"><LogOut size={14} />{t('Postfach trennen')}</button>}
         </div>
       </div>
       {compose && <Compose onClose={() => setCompose(false)} />}
@@ -101,11 +122,13 @@ export function Inbox({ onOpen }: { onOpen: (uid: number, item: MailItem) => voi
 
 function Connect({ address, failed, onDone }: { address: string; failed: boolean; onDone: () => void }) {
   const { t } = useApp()
+  const scope = useMailScope()
   const [pw, setPw] = useState(''), [busy, setBusy] = useState(false), [err, setErr] = useState(failed ? t('Das gespeicherte Passwort stimmt nicht mehr. Bitte neu eingeben.') : '')
   const go = async () => {
     if (!pw) return
     setBusy(true); setErr('')
-    const r = await call({ action: 'connect', password: pw }).catch(() => null)
+    const r = await call({ action: 'connect', password: pw }, scope).catch(() => null)
+    if (!isCurrentAccountScope(scope)) return
     setBusy(false); setPw('')
     if (r?.ok) { toast(t('Postfach verbunden')); onDone() } else setErr(r?.error === 'login_failed' ? t('Anmeldung fehlgeschlagen. Bitte prüfe dein Postfach-Passwort.') : t('Das Postfach ist gerade nicht erreichbar.'))
   }
@@ -128,13 +151,17 @@ function Connect({ address, failed, onDone }: { address: string; failed: boolean
 
 export function MailRead({ uid, item }: { uid: number; item?: MailItem }) {
   const { t } = useApp()
+  const scope = useMailScope()
   const [m, setM] = useState<Full | null>(null), [err, setErr] = useState(false)
   const [compose, setCompose] = useState<null | 'reply' | 'forward'>(null)
   const frame = useRef<HTMLIFrameElement>(null)
   useEffect(() => {
+    let alive = true
+    setM(null); setErr(false)
     if (demoOn()) { const d = DEMO.find(x => x.uid === uid) ?? DEMO[0]; setM({ uid, subject: d.subject, date: d.date, from: d.from, to: [{ name: 'Du', address: 'vorname@beautylounge.ch' }], cc: [], messageId: null, references: null, html: '', attachments: d.attachments ? [{ name: 'Dienstplan-November.pdf', size: 184000 }] : [],
       text: `${d.snippet}\n\nBei Fragen meldet euch einfach im Büro oder schreibt im Team-Chat.\n\nLiebe Grüsse\n${d.from?.name ?? ''}` }); return }
-    call({ action: 'message', uid }).then(r => r?.ok ? setM(r as unknown as Full) : setErr(true)).catch(() => setErr(true))
+    void call({ action: 'message', uid }, scope).then(r => { if (alive && isCurrentAccountScope(scope)) { if (r?.ok) setM(r as unknown as Full); else setErr(true) } }).catch(() => { if (alive && isCurrentAccountScope(scope)) setErr(true) })
+    return () => { alive = false }
   }, [uid])
   const fmt = (iso: string | null) => iso ? new Intl.DateTimeFormat(locale(), { weekday: 'short', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }).format(new Date(iso)) : ''
   // HTML-Mails im abgeschotteten Rahmen: keine Skripte, Links öffnen neu, Höhe passt sich an
@@ -170,6 +197,7 @@ export function MailRead({ uid, item }: { uid: number; item?: MailItem }) {
 
 function Compose({ onClose, base, mode }: { onClose: () => void; base?: Full; mode?: 'reply' | 'forward' }) {
   const { t } = useApp()
+  const scope = useMailScope()
   const quote = base ? `\n\n${t('Am {date} schrieb {name}:', { date: base.date ? new Intl.DateTimeFormat(locale(), { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(base.date)) : '', name: base.from?.name || base.from?.address || '' })}\n${(base.text || '').split('\n').map(l => '> ' + l).join('\n')}` : ''
   const [to, setTo] = useState(mode === 'reply' ? base?.from?.address ?? '' : ''), [cc, setCc] = useState('')
   const [subject, setSubject] = useState(base ? (mode === 'reply' ? (/^re:/i.test(base.subject) ? base.subject : 'Re: ' + base.subject) : 'Fwd: ' + base.subject) : '')
@@ -177,7 +205,8 @@ function Compose({ onClose, base, mode }: { onClose: () => void; base?: Full; mo
   const send = async () => {
     if (demoOn()) { toast(t('Beispiel: In der App geht die Mail direkt aus deinem Postfach.')); onClose(); return }
     setBusy(true)
-    const r = await call({ action: 'send', to, cc, subject, text, ...(mode === 'reply' && base ? { inReplyTo: base.messageId, references: base.references, replyUid: base.uid } : {}) }).catch(() => null)
+    const r = await call({ action: 'send', to, cc, subject, text, ...(mode === 'reply' && base ? { inReplyTo: base.messageId, references: base.references, replyUid: base.uid } : {}) }, scope).catch(() => null)
+    if (!isCurrentAccountScope(scope)) return
     setBusy(false)
     if (r?.ok) { toast(t('Gesendet')); onClose() } else toast(r?.error === 'bad_recipient' ? t('Bitte prüfe die Empfänger-Adresse.') : t('Senden hat nicht geklappt'), 'error')
   }

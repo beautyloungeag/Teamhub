@@ -1,3 +1,4 @@
+import { captureAccountScope, isCurrentAccountScope } from '../lib/account-scope'
 import { useEffect, useMemo, useState } from 'react'
 import { Check, ChevronRight, Lock, Plus, Trash2, X } from 'lucide-react'
 import { useApp, fmtDate, inNewsAudience, type Quiz, type Staff, type Step } from '../store'
@@ -5,41 +6,44 @@ import { supabase } from '../lib/supabase'
 import { notifyNow } from '../lib/push'
 import { Avatar } from '../People'
 import { toast } from '../Toast'
-import { H, New, Th, Field, inpStone, btn, btn2, Err, retranslate, real, inBranch, Select, Seg, Modal, Chips, Back, Section, Status, Empty, ReadOnly, ToneTile } from './kit'
+import { H, New, Th, Field, inpStone, btn, btn2, Err, retranslate, isTest, inBranch, Select, Seg, Modal, Chips, Back, Section, Status, Empty, ReadOnly, ToneTile } from './kit'
 import { Donut } from './charts'
+import { adminLearnPeople } from '../lib/admin-audience'
 
 // Lernen: Fortschritt je Person, Lektionen (Marc geht sie mit Neuen durch) und Quiz.
 // Lektionen und Quiz des Büros gelten für alle Studios; die Filialleitung ergänzt eigene für ihr Studio.
 
 type Page = null | { k: 'quiz'; id: string } | { k: 'edit'; q: QuizEdit }
 export function LearnAdmin() {
+  const [includeTests, setIncludeTests] = useState(false)
+  const testControl = <label className="flex items-center gap-2 text-[13px] text-mute"><input type="checkbox" checked={includeTests} onChange={e => setIncludeTests(e.target.checked)} />Testkonten einbeziehen</label>
   const [tab, setTab] = useState<'fortschritt' | 'lektionen' | 'quiz'>('fortschritt')
   const [page, setPage] = useState<Page>(null), [lesson, setLesson] = useState<Step | 'neu' | null>(null)
-  if (page?.k === 'quiz') return <QuizPage id={page.id} onBack={() => setPage(null)} onEdit={q => setPage({ k: 'edit', q })} />
+  if (page?.k === 'quiz') return <><div className="mb-4">{testControl}</div><QuizPage includeTests={includeTests} id={page.id} onBack={() => setPage(null)} onEdit={q => setPage({ k: 'edit', q })} /></>
   if (page?.k === 'edit') return <QuizEditor q={page.q} onBack={() => setPage(null)} />
   return (<>
     <H action={tab === 'lektionen' ? <New onClick={() => setLesson('neu')}>Neue Lektion</New> : tab === 'quiz' ? <New onClick={() => setPage({ k: 'edit', q: blankQuiz() })}>Neues Quiz</New> : undefined}>Lernen</H>
-    <div className="mb-6"><Seg value={tab} onChange={setTab} items={[['fortschritt', 'Fortschritt'], ['lektionen', 'Lektionen'], ['quiz', 'Quiz']]} /></div>
-    {tab === 'fortschritt' && <Progress />}
-    {tab === 'lektionen' && <Lessons onOpen={setLesson} />}
-    {tab === 'quiz' && <Quizzes onOpen={id => setPage({ k: 'quiz', id })} />}
+    <div className="mb-6 flex items-center justify-between gap-4"><Seg value={tab} onChange={setTab} items={[['fortschritt', 'Fortschritt'], ['lektionen', 'Lektionen'], ['quiz', 'Quiz']]} />{testControl}</div>
+    {tab === 'fortschritt' && <Progress includeTests={includeTests} />}
+    {tab === 'lektionen' && <Lessons includeTests={includeTests} onOpen={setLesson} />}
+    {tab === 'quiz' && <Quizzes includeTests={includeTests} onOpen={id => setPage({ k: 'quiz', id })} />}
     {lesson && <LessonModal step={lesson === 'neu' ? null : lesson} onClose={() => setLesson(null)} />}
   </>)
 }
 
 /* ---------- gemeinsame Daten ---------- */
-function useScope() {
+function useScope(includeTests: boolean) {
   const { staff, me, branches } = useApp()
   const office = me.app_role === 'buero'
   const [br, setBr] = useState('')
   const studios = branches.filter(b => !b.is_office && (office || [me.branch_id, ...(me.extra ?? [])].includes(b.id)))
-  const people = staff.filter(s => real(s) && s.branch_id !== 'buero' && (office || studios.some(b => inBranch(s, b.id))) && (!br || inBranch(s, br))).sort((a, b) => a.first.localeCompare(b.first))
+  const people = adminLearnPeople(staff, me, br, includeTests).sort((a, b) => a.first.localeCompare(b.first))
   return { people, studios, br, setBr }
 }
 function useLearnStats() {
-  const { news, newsReads, quizzes, attempts, steps } = useApp()
+  const { news, newsReads, quizzes, attempts, steps, me, progressVersion } = useApp()
   const [ob, setOb] = useState<{ employee_id: string; step_id: string }[] | null>(null)
-  useEffect(() => { supabase!.from('onboarding_progress').select('employee_id, step_id').then(({ data }) => setOb(data ?? [])) }, [])
+  useEffect(() => { const scope = captureAccountScope(me.id); let alive = true; if (!scope) return; supabase!.from('onboarding_progress').select('employee_id, step_id').abortSignal(scope.signal).then(({ data, error }) => { if (alive && isCurrentAccountScope(scope) && !error) setOb(data ?? []) }); return () => { alive = false } }, [me.id, progressVersion])
   const must = news.filter(n => n.mustRead && new Date(n.publishAt) <= new Date())
   return (p: Staff) => {
     const done = new Set((ob ?? []).filter(x => x.employee_id === p.id).map(x => x.step_id))
@@ -58,8 +62,8 @@ const quizStatus = (x: { passed: boolean; at: string | null; n: number; max: num
   : x.n ? <Status kind="late">Nicht bestanden · {x.max} %, {x.n} {x.n === 1 ? 'Versuch' : 'Versuche'}</Status> : <Status kind="none">Noch nicht gemacht</Status>
 
 /* ---------- Fortschritt ---------- */
-function Progress() {
-  const { people, studios, br, setBr } = useScope()
+function Progress({ includeTests }: { includeTests: boolean }) {
+  const { people, studios, br, setBr } = useScope(includeTests)
   const stats = useLearnStats()
   const [sel, setSel] = useState<Staff | null>(null)
   const rows = people.map(p => ({ p, st: stats(p) }))
@@ -77,7 +81,7 @@ function Progress() {
     <table className="tbl w-full text-[14px] table-fixed"><thead><tr><Th>Person</Th><th className="w-[220px] text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">Lektionen</th><th className="w-[220px] text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">Pflicht-News</th><th className="w-[160px] text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">Quiz</th><th className="w-10 border-b border-line" /></tr></thead>
       <tbody className="divide-y divide-line">{rows.map(({ p, st }) => { const mOk = st.must.filter(x => x.ok).length, qOk = st.quizzes.filter(x => x.passed).length
         return <tr key={p.id} onClick={() => setSel(p)} className="cursor-pointer hover:bg-sage-50/70">
-          <td className="px-4 py-2.5"><span className="flex items-center gap-3 min-w-0"><Avatar s={p} photo={p.photo} size="w-8 h-8 text-[12px]" /><span className="min-w-0"><span className="block truncate">{p.first} {p.last}</span><span className="block text-[12.5px] text-mute truncate">{p.role} · {p.branch}</span></span></span></td>
+          <td className="px-4 py-2.5"><span className="flex items-center gap-3 min-w-0"><Avatar s={p} photo={p.photo} size="w-8 h-8 text-[12px]" /><span className="min-w-0"><span className="block truncate">{p.first} {p.last}{isTest(p) ? ' · Testkonto' : ''}</span><span className="block text-[12.5px] text-mute truncate">{p.role} · {p.branch}</span></span></span></td>
           <td className="px-4">{st.loaded ? bar(st.obDone, st.obTotal) : null}</td>
           <td className="px-4">{bar(mOk, st.must.length, mOk < st.must.length ? 'bg-duty' : 'bg-done')}</td>
           <td className="px-4 text-[13px] tabular-nums">{st.quizzes.length ? `${qOk} von ${st.quizzes.length}` : <span className="text-mute">–</span>}</td>
@@ -89,7 +93,7 @@ function Progress() {
 function PersonLearn({ p, st, onClose }: { p: Staff; st: ReturnType<ReturnType<typeof useLearnStats>>; onClose: () => void }) {
   const row = (ok: boolean, title: string, right: React.ReactNode, key: string) => <li key={key} className="py-2.5 flex items-center justify-between gap-4 text-[14px]"><span className={ok ? 'text-mute' : ''}>{title}</span>{right}</li>
   return (
-    <Modal width={640} title={<span className="flex items-center gap-3"><Avatar s={p} photo={p.photo} size="w-9 h-9 text-[13px]" />{p.first} {p.last}</span>} onClose={onClose}>
+    <Modal width={640} title={<span className="flex items-center gap-3"><Avatar s={p} photo={p.photo} size="w-9 h-9 text-[13px]" />{p.first} {p.last}{isTest(p) ? ' · Testkonto' : ''}</span>} onClose={onClose}>
       <Section title="Lektionen" count={`${st.obDone} von ${st.obTotal}`}><ul className="divide-y divide-line mb-6">{st.steps.map(({ s, done }) => row(done, s.title, done ? <Status kind="done">Erledigt</Status> : <Status kind="none">Offen</Status>, s.id))}</ul></Section>
       <Section title="Pflicht-News" count={`${st.must.filter(x => x.ok).length} von ${st.must.length}`}>{st.must.length === 0 ? <Empty>Keine Pflicht-News für diese Person.</Empty> : <ul className="divide-y divide-line mb-6">{st.must.map(({ n, ok }) => row(ok, n.title, ok ? <Status kind="done">Bestätigt</Status> : <Status kind="none">Offen</Status>, n.id))}</ul>}</Section>
       <Section title="Quiz" count={`${st.quizzes.filter(x => x.passed).length} von ${st.quizzes.length}`}>{st.quizzes.length === 0 ? <Empty>Kein Quiz.</Empty> : <ul className="divide-y divide-line">{st.quizzes.map(x => row(x.passed, x.q.title, quizStatus(x), x.q.id))}</ul>}</Section>
@@ -98,9 +102,9 @@ function PersonLearn({ p, st, onClose }: { p: Staff; st: ReturnType<ReturnType<t
 }
 
 /* ---------- Lektionen ---------- */
-function Lessons({ onOpen }: { onOpen: (s: Step) => void }) {
+function Lessons({ onOpen, includeTests }: { onOpen: (s: Step) => void; includeTests: boolean }) {
   const { steps, wiki, me, branches } = useApp()
-  const { people } = useScope()
+  const { people } = useScope(includeTests)
   const stats = useLearnStats()
   const office = me.app_role === 'buero'
   const mine = [me.branch_id, ...(me.extra ?? [])]
@@ -191,9 +195,9 @@ function useQuizMeta() {
     target: (q: Quiz) => q.newsId ? { kind: 'News', title: news.find(n => n.id === q.newsId)?.title ?? '–' } : { kind: 'Wissen', title: wiki.find(a => a.id === q.articleId)?.title ?? '–' },
   }
 }
-function Quizzes({ onOpen }: { onOpen: (id: string) => void }) {
+function Quizzes({ onOpen, includeTests }: { onOpen: (id: string) => void; includeTests: boolean }) {
   const { quizzes } = useApp()
-  const { people } = useScope()
+  const { people } = useScope(includeTests)
   const stats = useLearnStats()
   const { target } = useQuizMeta()
   if (!quizzes.length) return <Empty>Noch kein Quiz.</Empty>
@@ -209,9 +213,9 @@ function Quizzes({ onOpen }: { onOpen: (id: string) => void }) {
   )
 }
 
-function QuizPage({ id, onBack, onEdit }: { id: string; onBack: () => void; onEdit: (q: QuizEdit) => void }) {
+function QuizPage({ id, onBack, onEdit, includeTests }: { id: string; onBack: () => void; onEdit: (q: QuizEdit) => void; includeTests: boolean }) {
   const { quizzes, reload } = useApp()
-  const { people } = useScope()
+  const { people } = useScope(includeTests)
   const stats = useLearnStats()
   const { canEdit, target } = useQuizMeta()
   const q = quizzes.find(x => x.id === id)
@@ -240,7 +244,7 @@ function QuizPage({ id, onBack, onEdit }: { id: string; onBack: () => void; onEd
         {list.length === 0 ? <Empty>Niemand in dieser Auswahl.</Empty> :
         <table className="tbl w-full text-[14px] table-fixed"><thead><tr><Th>Person</Th><th className="w-[180px] text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">Studio</th><th className="w-[320px] text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">Stand</th></tr></thead>
           <tbody className="divide-y divide-line">{list.map(({ p, x }) => <tr key={p.id}>
-            <td className="px-4 py-2.5"><span className="flex items-center gap-3 min-w-0"><Avatar s={p} photo={p.photo} size="w-8 h-8 text-[12px]" /><span className="truncate">{p.first} {p.last}</span></span></td>
+            <td className="px-4 py-2.5"><span className="flex items-center gap-3 min-w-0"><Avatar s={p} photo={p.photo} size="w-8 h-8 text-[12px]" /><span className="truncate">{p.first} {p.last}{isTest(p) ? ' · Testkonto' : ''}</span></span></td>
             <td className="px-4 text-mute">{p.branch}</td><td className="px-4">{quizStatus(x)}</td></tr>)}</tbody></table>}
       </Section>
     </div>

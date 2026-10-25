@@ -28,9 +28,11 @@ function bindDevice(employeeId: string | null, reg?: ServiceWorkerRegistration) 
   identityWrites = identityWrites.catch(() => {}).then(() => writeDeviceIdentity(employeeId, reg))
   return identityWrites
 }
-export function syncPushAccount(userId: string | null) {
-  if (pushAccount === userId) return
-  pushAccount = userId; pushEpoch++
+// The caller supplies the authenticated access-scope identity, not a credential.
+export function syncPushAccount(identityKey: string | null) {
+  if (pushAccount === identityKey) return
+  pushAccount = identityKey; pushEpoch++
+  void setChatBadge(0)
   if ('serviceWorker' in navigator) void bindDevice(null).catch(() => {})
 }
 export async function pushState(): Promise<PushState> {
@@ -52,6 +54,7 @@ export async function pushState(): Promise<PushState> {
     if (error) throw error
     if (epoch !== pushEpoch) return 'off'
     await bindDevice(data ? me.id : null, reg)
+    if (epoch !== pushEpoch) return 'off'
     return data ? 'on' : 'off'
   } catch { return 'error' }
 }
@@ -62,12 +65,14 @@ export async function enablePush(employeeId: string): Promise<PushState> {
   // Must be called directly from the user's tap, before any asynchronous work.
   const epoch = pushEpoch
   const perm = await Notification.requestPermission()
+  if (epoch !== pushEpoch) throw new Error('push_account_changed')
   if (perm !== 'granted') return perm === 'denied' ? 'denied' : 'off'
   const reg = await navigator.serviceWorker.register('/sw.js')
   await new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('push_worker_not_ready')), 15000)
     navigator.serviceWorker.ready.then(() => { clearTimeout(timer); resolve() }, () => { clearTimeout(timer); reject(new Error('push_worker_not_ready')) })
   })
+  if (epoch !== pushEpoch) throw new Error('push_account_changed')
   let sub = await reg.pushManager.getSubscription()
   const subscribe = () => reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64(VAPID) })
   if (!sub) sub = await subscribe()
@@ -78,33 +83,43 @@ export async function enablePush(employeeId: string): Promise<PushState> {
   if (epoch !== pushEpoch) throw new Error('push_account_changed')
   let result = await persist(sub)
   // A device inherited from a different account gets a fresh subscription, never an RLS bypass.
-  if (result.error && ['42501', '23505'].includes(result.error.code)) { await bindDevice(null, reg); await sub.unsubscribe(); sub = await subscribe(); result = await persist(sub) }
+  if (epoch !== pushEpoch) throw new Error('push_account_changed')
+  if (result.error && ['42501', '23505'].includes(result.error.code)) { await bindDevice(null, reg); if (epoch !== pushEpoch) throw new Error('push_account_changed'); await sub.unsubscribe(); if (epoch !== pushEpoch) throw new Error('push_account_changed'); sub = await subscribe(); if (epoch !== pushEpoch) throw new Error('push_account_changed'); result = await persist(sub) }
   if (result.error || !result.data) { await bindDevice(null, reg); throw new Error('push_registration_failed') }
   if (epoch !== pushEpoch) throw new Error('push_account_changed')
   await bindDevice(employeeId, reg)
+  if (epoch !== pushEpoch) throw new Error('push_account_changed')
   await reportDevice(true)
+  if (epoch !== pushEpoch) throw new Error('push_account_changed')
   window.dispatchEvent(new Event('th-push-state'))
   return 'on'
 }
 export async function disablePush() {
-  pushEpoch++
+  const epoch = ++pushEpoch
   const reg = await navigator.serviceWorker.getRegistration()
+  if (epoch !== pushEpoch) return
   let failure = false
   try { await bindDevice(null, reg) } catch { failure = true }
   const sub = await reg?.pushManager.getSubscription()
+  if (epoch !== pushEpoch) return
   if (sub) {
     try { if (supabase) { const { error } = await supabase.from('push_subscriptions').delete().eq('endpoint', sub.endpoint); if (error) failure = true } } catch { failure = true }
+    if (epoch !== pushEpoch) return
     try { if (!await sub.unsubscribe()) failure = true } catch { failure = true }
   }
-  for (const n of await reg?.getNotifications() ?? []) n.close()
+  if (epoch !== pushEpoch) return
+  for (const n of await reg?.getNotifications() ?? []) { if (epoch === pushEpoch) n.close() }
   await setChatBadge(0)
+  if (epoch !== pushEpoch) return
   await reportDevice(false)
   window.dispatchEvent(new Event('th-push-state'))
   if (failure) throw new Error('push_disconnect_incomplete')
 }
 export async function reportDevice(push?: boolean) {
   if (!supabase) return
+  const epoch = pushEpoch
   const p = push ?? (await pushState()) === 'on'
+  if (epoch !== pushEpoch) return
   await supabase.rpc('report_device', { p_standalone: isStandalone(), p_push: p })
 }
 export async function testPush() {
@@ -118,8 +133,9 @@ export async function setChatBadge(n: number) {
 }
 export async function refreshChatBadge() {
   if (!supabase) return
+  const epoch = pushEpoch
   const { data, error } = await supabase.rpc('my_chat_unread_count')
-  if (!error && typeof data === 'number') await setChatBadge(data)
+  if (epoch === pushEpoch && !error && typeof data === 'number') await setChatBadge(data)
 }
 // Nach Veröffentlichen im Backoffice sofort melden statt auf den 2-Minuten-Takt zu warten
 export const notifyNow = () => supabase?.functions.invoke('notify', { body: {} }).catch(() => null)

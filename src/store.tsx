@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useAuth, type Employee } from './lib/auth'
 import { supabase } from './lib/supabase'
+import { captureAccountScope, isCurrentAccountScope, type AccountScope } from './lib/account-scope'
 
 import { tr, setCurrentLang, savedLang, locale, type Lang } from './lib/i18n'
 import { toast } from './Toast'
@@ -61,7 +62,7 @@ export const appliesOn = (t: Template, day: string, branch: string) =>
 type Ctx = {
   me: Staff; employee: Employee
   lang: Lang; setLang: (l: Lang) => void; t: (s: string, vars?: Record<string, string | number>) => string
-  loading: boolean; reload: () => Promise<void>
+  loading: boolean; loadError: boolean; progressVersion: number; reload: () => Promise<void>; refreshTickets: () => Promise<void>
   branches: Branch[]; staff: Staff[]; skillCatalog: string[]
   news: News[]; read: Set<string>; opened: Set<string>; openNews: (id: string) => void; confirm: (id: string) => Promise<void>
   newsReads: { news_id: string; employee_id: string; confirmed_at: string | null }[]
@@ -79,7 +80,7 @@ type Ctx = {
   privateChats: boolean
   quizzes: Quiz[]; attempts: Attempt[]; submitQuiz: (quizId: string, answers: Record<string, number[] | string>) => Promise<QuizResult | null>
   wiki: WikiArticle[]; reloadWiki: () => Promise<void>; catEmojis: Record<string, string>; steps: Step[]; allSteps: Step[]; obDone: Set<string>; toggleStep: (id: string) => Promise<void>
-  skills: string[]; setSkills: (s: string[]) => void
+  skills: string[]
   photo: string | null; setPhotoFile: (f: File) => Promise<void>
   myPhorest: { branch_id: string; staff_id: string }[]
   signedUrl: (bucket: string, path: string) => Promise<string | null>
@@ -94,9 +95,46 @@ const toStaff = (e: any, branches: Branch[], photos: Map<string, string>): Staff
   role: e.job_title, skills: e.skills ?? [], photo: e.photo_path ? photos.get(e.photo_path) ?? null : null, app_role: e.app_role, active: e.active, email: e.email, phone: e.phone ?? null, appInstalled: !!e.app_installed_at, pushEnabled: !!e.push_enabled, about: e.about ?? null,
 })
 
+// Fetch pagination must fail explicitly; an unavailable table is not an empty list.
+async function allRows(q: () => any, scope: AccountScope) {
+  const out: any[] = []
+  for (let from = 0; from < 50000; from += 1000) {
+    if (!isCurrentAccountScope(scope)) throw new Error('account_changed')
+    const { data, error } = await q().range(from, from + 999).abortSignal(scope.signal)
+    if (error) throw error
+    out.push(...(data ?? [])); if ((data?.length ?? 0) < 1000) break
+  }
+  return { data: out }
+}
+async function signedMap(bucket: string, paths: string[], scope: AccountScope) {
+  const result = new Map<string, string>()
+  if (!paths.length || !supabase || !isCurrentAccountScope(scope)) return result
+  const { data } = await supabase.storage.from(bucket).createSignedUrls([...new Set(paths)], 3600)
+  if (!isCurrentAccountScope(scope)) return result
+  for (const x of data ?? []) if (x.signedUrl && x.path) result.set(x.path, x.signedUrl)
+  return result
+}
+function ticketSnapshot(tks: any[], comments: any[], votes: { ticket_id: string; employee_id: string }[], photos: Map<string, string>, branches: Branch[], employeeId: string): Ticket[] {
+  return tks.map(x => ({
+    id: x.id, kind: x.kind, title: x.title, body: x.body, branch: x.all_studios ? tr('Alle Studios') : branches.find(b => b.id === x.branch_id)?.name ?? x.branch_id,
+    branchId: x.branch_id, allStudios: !!x.all_studios, status: x.status, who: x.created_by_name,
+    when: relWhen(x.created_at), assignee: x.assignee, photo: x.photo_path ? photos.get(x.photo_path) ?? null : null, mediaKind: x.media_kind ?? 'photo', viaAI: x.via_ai,
+    mine: x.created_by === employeeId, votes: votes.filter(v => v.ticket_id === x.id).length, voted: votes.some(v => v.ticket_id === x.id && v.employee_id === employeeId),
+    comments: comments.filter(c => c.ticket_id === x.id).map(c => ({ id: c.id, author: c.author_name, authorId: c.author_id, body: c.body, when: relWhen(c.created_at) })),
+  }))
+}
+
 export function AppProvider({ children }: { children: ReactNode }) {
   const { employee } = useAuth()
-  const [lang, setLangState] = useState<Lang>(savedLang)
+  const [scope] = useState(() => captureAccountScope(employee?.id))
+  const mounted = useRef(true), requestVersion = useRef(0), wikiVersion = useRef(0), ticketVersion = useRef(0), hadData = useRef(false)
+  const [loadError, setLoadError] = useState(false)
+  const [wikiError, setWikiError] = useState(false)
+  const [progressVersion, setProgressVersion] = useState(0)
+  const progressRequestVersion = useRef(0)
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; requestVersion.current++; wikiVersion.current++; ticketVersion.current++ } }, [])
+  const current = useCallback(() => mounted.current && isCurrentAccountScope(scope), [scope])
+  const [lang, setLangState] = useState<Lang>(() => employee?.lang ?? savedLang())
   setCurrentLang(lang) // Datumsformate und tr() außerhalb von Komponenten folgen der gewählten Sprache
   const t = (s: string, vars?: Record<string, string | number>) => tr(s, vars, lang)
   const [loading, setLoading] = useState(true)
@@ -126,71 +164,163 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [catEmojis, setCatEmojis] = useState<Record<string, string>>({})
   // Wissen: nur Liste laden (ohne Inhalte), einmal beim Start und nach Änderungen im Backoffice
   const reloadWiki = useCallback(async () => {
-    if (!supabase || !employee) return
-    const { data } = await supabase.from('wiki_articles').select('id, category, title, minutes, updated_at, media_kind, media_url, published, access_level, tags, intro, source_id, is_sample, i18n_en:i18n->EN, i18n_fr:i18n->FR').order('category').order('sort').order('title')
-    setWikiRows(data ?? [])
-    const { data: cats } = await supabase.from('wiki_categories').select('key, emoji')
-    setCatEmojis(Object.fromEntries((cats ?? []).map((c: { key: string; emoji: string }) => [c.key, c.emoji])))
-  }, [employee])
+    if (!supabase || !employee || !scope || !current()) return
+    const version = ++wikiVersion.current
+    const [articles, categories] = await Promise.all([
+      supabase.from('wiki_articles').select('id, category, title, minutes, updated_at, media_kind, media_url, published, access_level, tags, intro, source_id, is_sample, i18n_en:i18n->EN, i18n_fr:i18n->FR').order('category').order('sort').order('title').abortSignal(scope.signal),
+      supabase.from('wiki_categories').select('key, emoji').abortSignal(scope.signal),
+    ]).catch(() => [{ data: null, error: true }, { data: null, error: true }])
+    if (!current() || version !== wikiVersion.current) return
+    if (articles.error || categories.error) { setWikiError(true); return }
+    setWikiError(false)
+    setWikiRows(articles.data ?? [])
+    setCatEmojis(Object.fromEntries((categories.data ?? []).map((c: { key: string; emoji: string }) => [c.key, c.emoji])))
+  }, [employee, scope, current])
 
   const signedUrl = useCallback(async (bucket: string, path: string) => {
-    if (!supabase) return null
+    if (!supabase || !current()) return null
     const { data } = await supabase.storage.from(bucket).createSignedUrl(path, 3600)
-    return data?.signedUrl ?? null
-  }, [])
+    return current() ? data?.signedUrl ?? null : null
+  }, [current])
+
+  // A retry after an uncertain transport result must address the same insert.
+  // Cleared with this provider's account/session lifetime.
+  const pendingComments = useRef(new Map<string, string>())
+  const ticketInputs = useRef({ branches, demoData })
+  useEffect(() => { ticketInputs.current = { branches, demoData } }, [branches, demoData])
+  const ticketJob = useRef<{ running: Promise<void> | null; again: boolean }>({ running: null, again: false })
+  const refreshTickets = useCallback((): Promise<void> => {
+    if (!supabase || !employee || !scope || !current()) return Promise.resolve()
+    const job = ticketJob.current
+    if (job.running) { job.again = true; ticketVersion.current++; return job.running }
+    const run = async () => {
+      do {
+        job.again = false
+        const version = ++ticketVersion.current
+        const [rows, comments, votes] = await Promise.all([
+          allRows(() => supabase!.from('tickets').select('*').order('created_at', { ascending: false }), scope),
+          allRows(() => supabase!.from('ticket_comments').select('id, ticket_id, author_id, author_name, body, created_at').order('created_at'), scope),
+          allRows(() => supabase!.from('ticket_votes').select('ticket_id, employee_id').order('ticket_id'), scope),
+        ])
+        if (!current()) return
+        const input = ticketInputs.current
+        const tks = rows.data.filter(x => input.demoData || !x.is_sample)
+        const photos = await signedMap('ticket-photos', tks.map(x => x.photo_path).filter(Boolean), scope)
+        if (current() && version === ticketVersion.current) setTickets(ticketSnapshot(tks, comments.data, votes.data, photos, input.branches, employee.id))
+      } while (job.again && current())
+    }
+    const running = run().finally(() => { if (job.running === running) job.running = null })
+    job.running = running
+    return running
+  }, [employee, scope, current])
+
+  // Progress events are invalidations only. Batch bursts and refetch only the
+  // affected authorized tables; never merge a Realtime payload into user data.
+  type ProgressTable = 'event_registrations' | 'task_completions' | 'news_reads' | 'quiz_attempts' | 'onboarding_progress' | 'wiki_runs'
+  const progressJob = useRef<{ pending: Set<ProgressTable>; running: boolean; timer: ReturnType<typeof setTimeout> | null }>({ pending: new Set(), running: false, timer: null })
+  const refreshProgressRef = useRef<() => void>(() => {})
+  const refreshProgress = useCallback(() => {
+    const job = progressJob.current
+    if (!supabase || !employee || !scope || !current() || !hadData.current || job.running || !job.pending.size) return
+    const changed = new Set(job.pending); job.pending.clear(); job.running = true
+    const version = ++progressRequestVersion.current
+    const all = (table: ProgressTable, columns: string, order: string) => changed.has(table) ? allRows(() => supabase!.from(table).select(columns).order(order), scope) : Promise.resolve(null)
+    void (async () => {
+      try {
+        const [registrations, counts, completions, reads, attempts, onboarding] = await Promise.all([
+          all('event_registrations', 'event_id, employee_id, coming, waitlist, created_at', 'created_at'),
+          changed.has('event_registrations') ? supabase!.rpc('event_counts').abortSignal(scope.signal) : Promise.resolve(null),
+          changed.has('task_completions') ? supabase!.from('task_completions').select('item_id, branch_id, done_by, done_by_name, done_at, photo_path, day').eq('day', isoDay()).abortSignal(scope.signal) : Promise.resolve(null),
+          all('news_reads', 'news_id, employee_id, confirmed_at', 'news_id'),
+          all('quiz_attempts', 'quiz_id, employee_id, score_pct, passed, created_at', 'created_at'),
+          changed.has('onboarding_progress') ? supabase!.from('onboarding_progress').select('step_id').eq('employee_id', employee.id).abortSignal(scope.signal) : Promise.resolve(null),
+        ])
+        if (!current() || version !== progressRequestVersion.current) return
+        if ([registrations, counts, completions, reads, attempts, onboarding].some(r => r && 'error' in r && r.error)) throw new Error('progress_unavailable')
+        if (registrations && counts) {
+          const rows = registrations.data as Ctx['registrations']
+          const taken = new Map(((counts.data ?? []) as { event_id: string; taken: number }[]).map(c => [c.event_id, c.taken]))
+          setRegistrations(rows)
+          setEvents(events => events.map(event => ({ ...event, taken: taken.get(event.id) ?? 0, waiting: rows.filter(r => r.event_id === event.id && r.coming && r.waitlist).length })))
+        }
+        if (completions) setCompletions(completions.data ?? [])
+        if (reads) setNewsReads(reads.data as Ctx['newsReads'])
+        if (attempts) setAttempts(attempts.data.map((a: any) => ({ quizId: a.quiz_id, employeeId: a.employee_id, scorePct: a.score_pct, passed: a.passed, at: a.created_at })))
+        if (onboarding) setObDone(new Set((onboarding.data ?? []).map(x => x.step_id)))
+        // Local historical/task/wiki queries use this revision for their own
+        // account-fenced refetch. wiki_runs itself stays scoped in those views.
+        setProgressVersion(n => n + 1)
+      } catch {
+        // Preserve the last verified state; focus and the existing 120s refresh
+        // recover outages without presenting failed queries as empty progress.
+      } finally {
+        job.running = false
+        if (current() && job.pending.size && !job.timer) job.timer = setTimeout(() => { job.timer = null; refreshProgressRef.current() }, 750)
+      }
+    })()
+  }, [employee, scope, current])
+  refreshProgressRef.current = refreshProgress
 
   const reload = useCallback(async () => {
-    if (!supabase || !employee) return
+    if (!supabase || !employee || !scope || !current()) return
+    const version = ++requestVersion.current, ticketRevision = ++ticketVersion.current, progressRevision = progressRequestVersion.current
+    if (!hadData.current) setLoading(true)
+    setLoadError(false)
+    void reloadWiki()
+    const valid = () => current() && version === requestVersion.current
+    try {
     const sb = supabase
     const today = isoDay()
     // Alle Seiten holen: PostgREST gibt höchstens 1000 Zeilen je Abfrage zurück
-    const all = async (q: () => any) => { const out: any[] = []; for (let from = 0; from < 50000; from += 1000) { const { data, error } = await q().range(from, from + 999); if (error || !data) break; out.push(...data); if (data.length < 1000) break } return { data: out } }
+    const all = (q: () => any) => allRows(q, scope)
     const [br, em, sk, nw, rd, tt, ti, tc, tk, ev, cnt, rg, wk, ob, obp, mp, fl, tcm, tvt, sbd, qz, qa, pl, plq, pla] = await Promise.all([
-      sb.from('branches').select('id, name, is_office').order('sort'),
-      sb.from('employees').select('id, email, phone, first_name, last_name, job_title, app_role, branch_id, extra_branch_ids, skills, photo_path, active, app_installed_at, push_enabled, about').order('first_name'),
-      sb.from('skills').select('name').order('sort'),
-      sb.from('news').select('*').order('publish_at', { ascending: false }),
+      sb.from('branches').select('id, name, is_office').order('sort').abortSignal(scope.signal),
+      sb.from('employees').select('id, email, phone, first_name, last_name, job_title, app_role, branch_id, extra_branch_ids, skills, photo_path, active, app_installed_at, push_enabled, about').order('first_name').abortSignal(scope.signal),
+      sb.from('skills').select('name').order('sort').abortSignal(scope.signal),
+      sb.from('news').select('*').order('publish_at', { ascending: false }).abortSignal(scope.signal),
       all(() => sb.from('news_reads').select('news_id, employee_id, confirmed_at').order('news_id')),
-      sb.from('task_templates').select('*').order('sort'),
-      sb.from('task_items').select('*').order('sort'),
-      sb.from('task_completions').select('item_id, branch_id, done_by, done_by_name, done_at, photo_path, day').eq('day', today),
-      sb.from('tickets').select('*').order('created_at', { ascending: false }),
-      sb.from('events').select('*').order('starts_at'),
-      sb.rpc('event_counts'),
+      sb.from('task_templates').select('*').order('sort').abortSignal(scope.signal),
+      sb.from('task_items').select('*').order('sort').abortSignal(scope.signal),
+      sb.from('task_completions').select('item_id, branch_id, done_by, done_by_name, done_at, photo_path, day').eq('day', today).abortSignal(scope.signal),
+      sb.from('tickets').select('*').order('created_at', { ascending: false }).abortSignal(scope.signal),
+      sb.from('events').select('*').order('starts_at').abortSignal(scope.signal),
+      sb.rpc('event_counts').abortSignal(scope.signal),
       all(() => sb.from('event_registrations').select('event_id, employee_id, coming, waitlist, created_at').order('created_at')),
-      Promise.resolve({ data: null }),
-      sb.from('onboarding_steps').select('*').order('sort'),
-      sb.from('onboarding_progress').select('step_id').eq('employee_id', employee.id),
-      sb.from('employee_phorest').select('branch_id, staff_id').eq('employee_id', employee.id),
-      sb.rpc('app_flags'),
+      Promise.resolve({ data: null, error: null }),
+      sb.from('onboarding_steps').select('*').order('sort').abortSignal(scope.signal),
+      sb.from('onboarding_progress').select('step_id').eq('employee_id', employee.id).abortSignal(scope.signal),
+      sb.from('employee_phorest').select('branch_id, staff_id').eq('employee_id', employee.id).abortSignal(scope.signal),
+      sb.rpc('app_flags').abortSignal(scope.signal),
       all(() => sb.from('ticket_comments').select('id, ticket_id, author_id, author_name, body, created_at').order('created_at')),
       all(() => sb.from('ticket_votes').select('ticket_id, employee_id').order('ticket_id')),
-      sb.from('standby_days').select('employee_id, day, note').gte('day', today).order('day'),
-      sb.from('quizzes').select('id, news_id, article_id, title, pass_pct, is_sample, i18n'),
+      sb.from('standby_days').select('employee_id, day, note').gte('day', today).order('day').abortSignal(scope.signal),
+      sb.from('quizzes').select('id, news_id, article_id, title, pass_pct, is_sample, i18n').abortSignal(scope.signal),
       all(() => sb.from('quiz_attempts').select('quiz_id, employee_id, score_pct, passed, created_at').order('created_at')),
-      sb.from('polls').select('id, news_id, anonymous, show_results, closes_at'),
-      sb.from('poll_questions').select('id, poll_id, sort, kind, prompt, options, i18n').order('sort'),
-      sb.from('poll_answers').select('question_id, value').eq('employee_id', employee.id),
+      sb.from('polls').select('id, news_id, anonymous, show_results, closes_at').abortSignal(scope.signal),
+      sb.from('poll_questions').select('id, poll_id, sort, kind, prompt, options, i18n').order('sort').abortSignal(scope.signal),
+      sb.from('poll_answers').select('question_id, value').eq('employee_id', employee.id).abortSignal(scope.signal),
     ])
+    if (!valid()) return
+    const failures = [br, em, sk, nw, rd, tt, ti, tc, tk, ev, cnt, rg, ob, obp, mp, fl, tcm, tvt, sbd, qz, qa, pl, plq, pla].some(x => 'error' in x && x.error)
+    if (failures) throw new Error('app_data_unavailable')
     const demo = (fl.data as any)?.demo_data !== false
-    setDemoState(demo)
-    setPrivateChats((fl.data as any)?.chat_private === true)
     const keep = (rows: any[] | null) => (rows ?? []).filter((r: any) => demo || !r.is_sample)
     const brs = (br.data ?? []) as Branch[]
     const bname = (id: string) => brs.find(b => b.id === id)?.name ?? id
+    const tks = keep(tk.data)
+    const [photos, nImgs, tkPhotos] = await Promise.all([
+      signedMap('profile-photos', (em.data ?? []).map((e: any) => e.photo_path).filter(Boolean), scope),
+      signedMap('media', keep(nw.data).map((n: any) => n.image_path).filter(Boolean), scope),
+      signedMap('ticket-photos', tks.map((x: any) => x.photo_path).filter(Boolean), scope),
+    ])
+    if (!valid()) return
+    const progressCurrent = progressRevision === progressRequestVersion.current
+    setDemoState(demo)
+    setPrivateChats((fl.data as any)?.chat_private === true)
     setBranches(brs)
-    // Profilfotos liegen privat; signierte Links in einem Rutsch
-    const paths = (em.data ?? []).map((e: any) => e.photo_path).filter(Boolean)
-    const photos = new Map<string, string>()
-    if (paths.length) {
-      const { data } = await sb.storage.from('profile-photos').createSignedUrls(paths, 3600)
-      for (const x of data ?? []) if (x.signedUrl && x.path) photos.set(x.path, x.signedUrl)
-    }
+    ticketInputs.current = { branches: brs, demoData: demo }
     setStaff((em.data ?? []).map((e: any) => toStaff(e, brs, photos)))
     setSkillCatalog((sk.data ?? []).map((s: any) => s.name))
-    const nImgs = new Map<string, string>()
-    const np = keep(nw.data).map((n: any) => n.image_path).filter(Boolean)
-    if (np.length) { const { data } = await sb.storage.from('media').createSignedUrls(np, 3600); for (const x of data ?? []) if (x.signedUrl && x.path) nImgs.set(x.path, x.signedUrl) }
     setNews(keep(nw.data).map((n: any) => ({
       id: n.id, title: tx(n, 'title', lang), teaser: tx(n, 'teaser', lang), body: tx(n, 'body', lang), author: n.author_name || tr('Büro'), authorId: n.author_id ?? null, tag: n.tag, mustRead: n.must_read,
       date: fmtDate(n.publish_at), audience: n.audience_people?.length ? `${n.audience_people.length} ${n.audience_people.length === 1 ? tr('Person') : tr('Personen')}` : [n.audience_branches?.length ? n.audience_branches.map(bname).join(', ') : tr('Alle Studios'), ...(n.audience_groups ?? []), ...(n.audience_skills ?? [])].join(' · '),
@@ -198,58 +328,46 @@ export function AppProvider({ children }: { children: ReactNode }) {
       publishAt: n.publish_at, wikiCategory: n.wiki_category, image: n.image_path ? nImgs.get(n.image_path) ?? null : null,
       orig: lang !== 'DE' && n.i18n?.[lang] ? { title: n.title, teaser: n.teaser, body: n.body } : null,
     })))
-    setNewsReads((rd.data ?? []) as Ctx['newsReads'])
+    if (progressCurrent) setNewsReads((rd.data ?? []) as Ctx['newsReads'])
     const items = (ti.data ?? []) as any[]
     setTemplates(keep(tt.data).map((x: any) => ({
       id: x.id, name: tx(x, 'name', lang), repeat: x.repeat, weekday: x.weekday, monthday: x.monthday, branchIds: x.branch_ids ?? [],
       items: items.filter(i => i.template_id === x.id).map(i => ({ id: i.id, title: tx(i, 'title', lang), time: i.due_time ? String(i.due_time).slice(0, 5) : '', group: tx(x, 'name', lang), prio: i.prio, proof: i.proof_photo, articleId: i.article_id ?? null, linkUrl: i.link_url ?? null })),
       active: x.active, proposed: x.proposed, sample: x.is_sample,
     })))
-    setCompletions(tc.data ?? [])
+    if (progressCurrent) setCompletions(tc.data ?? [])
     const counts = new Map(((cnt.data ?? []) as any[]).map(c => [c.event_id, c.taken]))
-    setEvents(keep(ev.data).map((e: any) => ({
+    setEvents(previous => keep(ev.data).map((e: any) => ({
       id: e.id, title: tx(e, 'title', lang), kind: e.kind, description: tx(e, 'description', lang), startsAt: e.starts_at, endsAt: e.ends_at, place: tx(e, 'place', lang), link: e.link, createdBy: e.created_by ?? null, raw: { title: e.title, description: e.description ?? '', place: e.place ?? '' },
-      capacity: e.capacity, registerUntil: e.register_until, audienceBranches: e.audience_branches ?? [], audienceSkills: e.audience_skills ?? [], audiencePeople: e.audience_people ?? [], phorestSync: !!e.phorest_sync, phorestPaid: e.phorest_paid !== false, taken: counts.get(e.id) ?? 0,
-      waiting: ((rg.data ?? []) as any[]).filter(r => r.event_id === e.id && r.coming && r.waitlist).length,
+      capacity: e.capacity, registerUntil: e.register_until, audienceBranches: e.audience_branches ?? [], audienceSkills: e.audience_skills ?? [], audiencePeople: e.audience_people ?? [], phorestSync: !!e.phorest_sync, phorestPaid: e.phorest_paid !== false, taken: progressCurrent ? counts.get(e.id) ?? 0 : previous.find(x => x.id === e.id)?.taken ?? 0,
+      waiting: !progressCurrent ? previous.find(x => x.id === e.id)?.waiting ?? 0 : ((rg.data ?? []) as any[]).filter(r => r.event_id === e.id && r.coming && r.waitlist).length,
     })))
-    setRegistrations((rg.data ?? []) as Ctx['registrations'])
-    const tkPhotos = new Map<string, string>()
-    const tks = keep(tk.data)
-    const tp = tks.map((x: any) => x.photo_path).filter(Boolean)
-    if (tp.length) { const { data } = await sb.storage.from('ticket-photos').createSignedUrls(tp, 3600); for (const x of data ?? []) if (x.signedUrl && x.path) tkPhotos.set(x.path, x.signedUrl) }
-    const votes = (tvt.data ?? []) as { ticket_id: string; employee_id: string }[]
-    const coms = (tcm.data ?? []) as any[]
-    setTickets(tks.map((x: any) => ({
-      id: x.id, kind: x.kind, title: x.title, body: x.body, branch: x.all_studios ? tr('Alle Studios') : bname(x.branch_id), branchId: x.branch_id, allStudios: !!x.all_studios, status: x.status, who: x.created_by_name,
-      when: relWhen(x.created_at), assignee: x.assignee, photo: x.photo_path ? tkPhotos.get(x.photo_path) ?? null : null, mediaKind: x.media_kind ?? 'photo', viaAI: x.via_ai,
-      mine: x.created_by === employee.id, votes: votes.filter(v => v.ticket_id === x.id).length, voted: votes.some(v => v.ticket_id === x.id && v.employee_id === employee.id),
-      comments: coms.filter(c => c.ticket_id === x.id).map(c => ({ id: c.id, author: c.author_name, authorId: c.author_id, body: c.body, when: relWhen(c.created_at) })),
-    })))
+    if (progressCurrent) setRegistrations((rg.data ?? []) as Ctx['registrations'])
+    if (ticketRevision === ticketVersion.current) setTickets(ticketSnapshot(tks, tcm.data ?? [], tvt.data ?? [], tkPhotos, brs, employee.id))
     setStandby((sbd.data ?? []) as Ctx['standby'])
     setQuizzes(keep(qz.data).map((q: any) => ({ id: q.id, newsId: q.news_id, articleId: q.article_id, title: tx(q, 'title', lang), passPct: q.pass_pct, sample: q.is_sample })))
     const pqs = (plq.data ?? []) as any[]
     setPolls(((pl.data ?? []) as any[]).map(p => ({ id: p.id, newsId: p.news_id, anonymous: p.anonymous, showResults: p.show_results, closesAt: p.closes_at,
       questions: pqs.filter(q => q.poll_id === p.id).map(q => ({ id: q.id, kind: q.kind, prompt: tx(q, 'prompt', lang), options: (lang !== 'DE' && q.i18n?.[lang]?.options) || q.options || [] })) })))
     setPollAnswers(new Map(((pla.data ?? []) as any[]).map(a => [a.question_id, a.value])))
-    setAttempts((qa.data ?? []).map((a: any) => ({ quizId: a.quiz_id, employeeId: a.employee_id, scorePct: a.score_pct, passed: a.passed, at: a.created_at })))
+    if (progressCurrent) setAttempts((qa.data ?? []).map((a: any) => ({ quizId: a.quiz_id, employeeId: a.employee_id, scorePct: a.score_pct, passed: a.passed, at: a.created_at })))
     newsForWiki.current = keep(nw.data).map((n: any) => ({ ...n, title: tx(n, 'title', lang), teaser: tx(n, 'teaser', lang), body: tx(n, 'body', lang) }))
     void wk
     setAllSteps(keep(ob.data).map((s: any) => ({ id: s.id, title: tx(s, 'title', lang), minutes: s.minutes, articleId: s.article_id, proposed: !!s.proposed, branchIds: s.branch_ids ?? [] })))
-    setObDone(new Set((obp.data ?? []).map((x: any) => x.step_id)))
+    if (progressCurrent) setObDone(new Set((obp.data ?? []).map((x: any) => x.step_id)))
     setMyPhorest((mp.data ?? []) as Ctx['myPhorest'])
+    hadData.current = true
+    setProgressVersion(n => n + 1)
     setLoading(false)
-  }, [employee, lang])
+    refreshProgress()
+    } catch {
+      if (valid()) { setLoadError(true); setLoading(false) }
+    }
+  }, [employee, lang, scope, current, reloadWiki, refreshProgress])
 
-  // Sprache einmal je Anmeldung festlegen: Profil gewinnt; steht dort noch der Standard, gilt die beim Anmelden gewählte
   useEffect(() => {
     if (!employee) return
-    const chosen = savedLang()
-    if (employee.lang === 'DE' && chosen !== 'DE') { setLangState(chosen); supabase?.rpc('update_my_profile', { p_lang: chosen }).then(() => {}) }
-    else setLangState(employee.lang)
-  }, [employee?.id]) // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    if (!employee) return
-    reload(); reloadWiki()
+    void reload()
     // Frische Daten: beim Zurückkehren in die App, alle zwei Minuten im Vordergrund und nach Mitternacht
     let day = isoDay()
     const fresh = () => { if (document.visibilityState !== 'visible') return; if (isoDay() !== day) { day = isoDay() } reload() }
@@ -259,6 +377,38 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const iv = window.setInterval(fresh, 120000)
     return () => { document.removeEventListener('visibilitychange', onVis); window.removeEventListener('focus', onVis); window.clearInterval(iv) }
   }, [employee, reload, reloadWiki])
+
+  useEffect(() => {
+    if (!supabase || !employee || !current()) return
+    let active = true, timer: ReturnType<typeof setTimeout> | null = null
+    const invalidate = () => {
+      if (!active || !current() || timer) return
+      timer = setTimeout(() => { timer = null; void refreshTickets().catch(() => {}) }, 100)
+    }
+    const channel = supabase.channel('tickets:' + employee.id + ':' + scope?.version)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tickets' }, invalidate)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'ticket_comments' }, invalidate)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'ticket_votes' }, invalidate)
+      .subscribe(status => { if (status === 'SUBSCRIBED') invalidate() })
+    const fallback = window.setInterval(() => { if (document.visibilityState === 'visible') invalidate() }, 15000)
+    return () => { active = false; if (timer) clearTimeout(timer); window.clearInterval(fallback); void supabase!.removeChannel(channel) }
+  }, [employee, scope, current, refreshTickets])
+
+  useEffect(() => {
+    if (!supabase || !employee || !current()) return
+    const job = progressJob.current
+    let alive = true
+    const invalidate = (table: ProgressTable) => {
+      if (!alive || !current()) return
+      job.pending.add(table)
+      if (!job.timer && !job.running) job.timer = setTimeout(() => { job.timer = null; refreshProgressRef.current() }, 300)
+    }
+    const tables: ProgressTable[] = ['event_registrations', 'task_completions', 'news_reads', 'quiz_attempts', 'onboarding_progress', 'wiki_runs']
+    let channel = supabase.channel('progress:' + employee.id + ':' + scope?.version)
+    for (const table of tables) channel = channel.on('postgres_changes', { event: '*', schema: 'public', table }, () => invalidate(table))
+    channel.subscribe(status => { if (status === 'SUBSCRIBED') for (const table of tables) invalidate(table) })
+    return () => { alive = false; if (job.timer) clearTimeout(job.timer); job.timer = null; job.pending.clear(); void supabase!.removeChannel(channel) }
+  }, [employee, scope, current])
 
   const meStaff = useMemo<Staff>(() => staff.find(s => s.id === employee?.id) ?? {
     id: employee?.id ?? '', first: employee?.first_name ?? '', last: employee?.last_name ?? '', branch: employee?.branch_name ?? '', branch_id: employee?.branch_id ?? '',
@@ -296,102 +446,136 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const sb = supabase!
   const name = `${employee.first_name} ${employee.last_name.slice(0, 1)}.`
   const upload = async (bucket: string, file: File, stem: string) => {
+    if (!current()) return null
     const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg'
     const path = `${employee.id}/${stem}.${ext}`
     const { error } = await sb.storage.from(bucket).upload(path, file, { upsert: true, contentType: file.type || 'image/jpeg' })
-    return error ? null : path
+    return error || !current() ? null : path
   }
 
   const value: Ctx = {
-    me: meStaff, employee, lang, t, loading, reload,
-    setLang: (l) => { setLangState(l); sb.rpc('update_my_profile', { p_lang: l }).then(({ error }) => { if (error) toast(tr('Sprache nicht gespeichert', undefined, l), 'error'); else toast(tr('Sprache geändert', undefined, l)) }) },
+    me: meStaff, employee, lang, t, loading, loadError: loadError || wikiError, progressVersion, reload, refreshTickets,
+    setLang: (l) => { if (!current()) return; setLangState(l); sb.rpc('update_my_profile', { p_lang: l }).abortSignal(scope!.signal).then(({ error }) => { if (!current()) return; if (error) toast(tr('Sprache nicht gespeichert', undefined, l), 'error'); else toast(tr('Sprache geändert', undefined, l)) }) },
     branches, staff, skillCatalog, news, read, opened, newsReads,
-    openNews: (id) => { if (!opened.has(id)) sb.rpc('open_news', { p_news: id }).then(() => setNewsReads(r => [...r, { news_id: id, employee_id: employee.id, confirmed_at: null }])) },
+    openNews: (id) => { if (current() && !opened.has(id)) sb.rpc('open_news', { p_news: id }).abortSignal(scope!.signal).then(({ error }) => { if (current() && !error) setNewsReads(r => [...r, { news_id: id, employee_id: employee.id, confirmed_at: null }]) }) },
     confirm: async (id) => {
-      const { error } = await sb.rpc('confirm_news', { p_news: id })
-      if (!error) setNewsReads(r => r.map(x => x.news_id === id && x.employee_id === employee.id ? { ...x, confirmed_at: new Date().toISOString() } : x))
+      if (!current()) return
+      const { error } = await sb.rpc('confirm_news', { p_news: id }).abortSignal(scope!.signal)
+      if (current() && !error) setNewsReads(r => r.map(x => x.news_id === id && x.employee_id === employee.id ? { ...x, confirmed_at: new Date().toISOString() } : x))
     },
     templates, tasks, done, completionsToday: completions,
     toggle: async (id, photo) => {
+      if (!current()) return
       if (done.has(id)) {
-        await sb.from('task_completions').delete().match({ item_id: id, branch_id: myBranch, day: today })
+        await sb.from('task_completions').delete().match({ item_id: id, branch_id: myBranch, day: today }).abortSignal(scope!.signal)
       } else {
         const path = photo ? await upload('task-proofs', photo, `${today}-${id}-${Date.now()}`) : null
-        if (photo && !path) return
-        await sb.from('task_completions').insert({ item_id: id, branch_id: myBranch, day: today, done_by: employee.id, done_by_name: name, photo_path: path })
+        if (!current() || (photo && !path)) return
+        await sb.from('task_completions').insert({ item_id: id, branch_id: myBranch, day: today, done_by: employee.id, done_by_name: name, photo_path: path }).abortSignal(scope!.signal)
       }
       await reload()
     },
     tickets,
     addTicket: async ({ kind, title, body = '', photo, viaAI = false, branchId, allStudios = false }) => {
+      if (!current()) return false
       const path = photo ? await upload('ticket-photos', photo, `${Date.now()}`) : null
-      if (photo && !path) return false
-      const { error } = await sb.from('tickets').insert({ kind, title, body, branch_id: branchId ?? myBranch, all_studios: kind === 'Anliegen' ? false : allStudios, created_by: employee.id, created_by_name: name, via_ai: viaAI, photo_path: path, media_kind: photo?.type.startsWith('video') ? 'video' : 'photo' })
-      if (!error) { await reload(); toast(tr(kind === 'Idee' ? 'Idee gesendet' : kind === 'Learning' ? 'Mit dem Team geteilt' : kind === 'Anliegen' ? 'Anliegen vertraulich gesendet' : 'Meldung gesendet')) } else toast(tr('Senden hat nicht geklappt'), 'error')
+      if (!current() || (photo && !path)) return false
+      const { error } = await sb.from('tickets').insert({ kind, title, body, branch_id: branchId ?? myBranch, all_studios: kind === 'Anliegen' ? false : allStudios, created_by: employee.id, created_by_name: name, via_ai: viaAI, photo_path: path, media_kind: photo?.type.startsWith('video') ? 'video' : 'photo' }).abortSignal(scope!.signal)
+      if (!current()) return false
+      if (!error) { await reload(); if (!current()) return false; toast(tr(kind === 'Idee' ? 'Idee gesendet' : kind === 'Learning' ? 'Mit dem Team geteilt' : kind === 'Anliegen' ? 'Anliegen vertraulich gesendet' : 'Meldung gesendet')) } else toast(tr('Senden hat nicht geklappt'), 'error')
       return !error
     },
     addComment: async (ticketId, body) => {
-      const { error } = await sb.from('ticket_comments').insert({ ticket_id: ticketId, author_id: employee.id, author_name: `${employee.first_name} ${employee.last_name}`, body: body.trim() })
-      if (!error) await reload()
-      return !error
+      const text = body.trim()
+      if (!current() || !text) return false
+      const retryKey = JSON.stringify([ticketId, text])
+      let id = pendingComments.current.get(retryKey)
+      if (!id) { id = crypto.randomUUID(); pendingComments.current.set(retryKey, id) }
+      const fields = 'id, ticket_id, author_id, author_name, body, created_at'
+      let row: { id: string; ticket_id: string; author_id: string; author_name: string; body: string; created_at: string } | null = null
+      try {
+        const { data, error } = await sb.from('ticket_comments').insert({ id, ticket_id: ticketId, author_id: employee.id, author_name: `${employee.first_name} ${employee.last_name}`, body: text }).select(fields).abortSignal(scope!.signal).single()
+        if (!current()) return false
+        if (!error) row = data
+      } catch { /* An insert may have committed even if its acknowledgement was lost. */ }
+      if (!current()) return false
+      if (!row) {
+        try {
+          const { data, error } = await sb.from('ticket_comments').select(fields).eq('id', id).abortSignal(scope!.signal).maybeSingle()
+          if (!current()) return false
+          if (!error) row = data
+        } catch { /* Keep the UUID and draft for an idempotent retry. */ }
+      }
+      if (!current() || !row || row.id !== id || row.ticket_id !== ticketId || row.author_id !== employee.id || row.body !== text) return false
+      const saved = row
+      pendingComments.current.delete(retryKey)
+      ticketVersion.current++
+      setTickets(rows => rows.map(tk => tk.id !== ticketId || tk.comments.some(c => c.id === saved.id) ? tk : { ...tk, comments: [...tk.comments, { id: saved.id, authorId: saved.author_id, author: saved.author_name, body: saved.body, when: relWhen(saved.created_at) }] }))
+      void refreshTickets().catch(() => {})
+      return true
     },
     toggleVote: async (ticketId) => {
+      if (!current()) return
       const tk = tickets.find(x => x.id === ticketId)
-      if (tk?.voted) await sb.from('ticket_votes').delete().match({ ticket_id: ticketId, employee_id: employee.id })
-      else await sb.from('ticket_votes').insert({ ticket_id: ticketId, employee_id: employee.id })
+      if (tk?.voted) await sb.from('ticket_votes').delete().match({ ticket_id: ticketId, employee_id: employee.id }).abortSignal(scope!.signal)
+      else await sb.from('ticket_votes').insert({ ticket_id: ticketId, employee_id: employee.id }).abortSignal(scope!.signal)
       await reload()
     },
     assign: async (id, a) => {
+      if (!current()) return
       const cur = tickets.find(x => x.id === id)?.status
       const status = a && cur === 'Neu' ? 'Zugewiesen' : !a && cur === 'Zugewiesen' ? 'Neu' : cur
-      await sb.from('tickets').update({ assignee: a || null, status }).eq('id', id); await reload()
+      await sb.from('tickets').update({ assignee: a || null, status }).eq('id', id).abortSignal(scope!.signal); await reload()
     },
-    setStatus: async (id, s) => { await sb.from('tickets').update({ status: s }).eq('id', id); await reload() },
+    setStatus: async (id, s) => { if (!current()) return; await sb.from('tickets').update({ status: s }).eq('id', id).abortSignal(scope!.signal); await reload() },
     events, joined, declined, waiting, registrations, standby, demoData, privateChats, quizzes, attempts, polls, pollAnswers,
     submitPoll: async (pollId, answers) => {
+      if (!current()) return false
       const rows = Object.entries(answers).filter(([, v]) => v !== '' && !(Array.isArray(v) && !v.length)).map(([question_id, value]) => ({ question_id, poll_id: pollId, employee_id: employee.id, value }))
       if (!rows.length) return false
-      const { error } = await sb.from('poll_answers').upsert(rows, { onConflict: 'question_id,employee_id' })
+      const { error } = await sb.from('poll_answers').upsert(rows, { onConflict: 'question_id,employee_id' }).abortSignal(scope!.signal)
       if (!error) await reload()
       return !error
     },
     submitQuiz: async (quizId, answers) => {
+      if (!current()) return { error: 'session_changed' } as QuizResult
       // Auswertung in der Function `quiz` (Freitext bewertet die KI); Lösungen bleiben auf dem Server
-      const { data, error } = await sb.functions.invoke('quiz', { body: { quiz_id: quizId, answers } })
+      const { data, error } = await sb.functions.invoke('quiz', { body: { quiz_id: quizId, answers }, signal: scope!.signal })
+      if (!current()) return { error: 'session_changed' } as QuizResult
       if (error) { let e = 'failed'; try { e = (await (error as { context?: Response }).context?.json())?.error ?? e } catch { /* egal */ } return { error: e } as QuizResult }
       await reload()
-      return data as QuizResult
+      return current() ? data as QuizResult : { error: 'session_changed' } as QuizResult
     },
     toggleEvent: async (id) => {
+      if (!current()) return 'Die Sitzung hat sich geändert.'
       const { data, error } = joined.has(id)
-        ? await sb.from('event_registrations').delete().match({ event_id: id, employee_id: employee.id }).then(r => ({ data: null, error: r.error }))
-        : await sb.rpc('register_event', { p_event: id })
+        ? await sb.from('event_registrations').delete().match({ event_id: id, employee_id: employee.id }).abortSignal(scope!.signal).then(r => ({ data: null, error: r.error }))
+        : await sb.rpc('register_event', { p_event: id }).abortSignal(scope!.signal)
       await reload()
+      if (!current()) return 'Die Sitzung hat sich geändert.'
       if (!error) { toast(joined.has(id) ? (waiting.has(id) ? tr('Von der Warteliste genommen') : tr('Abgemeldet')) : data === 'waitlist' ? tr('Auf der Warteliste') : tr('Angemeldet')); return null }
       return /full/.test(error.message) ? 'Leider ausgebucht.' : /deadline/.test(error.message) ? 'Die Anmeldefrist ist vorbei.' : 'Das hat nicht geklappt.'
     },
-    declineEvent: async (id) => { const { error } = await sb.rpc('decline_event', { p_event: id }); await reload(); toast(error ? tr('Das hat nicht geklappt') : tr('Abgesagt'), error ? 'error' : 'ok') },
+    declineEvent: async (id) => { if (!current()) return; const { error } = await sb.rpc('decline_event', { p_event: id }).abortSignal(scope!.signal); await reload(); if (!current()) return; toast(error ? tr('Das hat nicht geklappt') : tr('Abgesagt'), error ? 'error' : 'ok') },
     toggleStandby: async (day) => {
+      if (!current()) return
       const had = standby.some(x => x.employee_id === employee.id && x.day === day)
-      const { error } = had ? await sb.from('standby_days').delete().match({ employee_id: employee.id, day }) : await sb.from('standby_days').insert({ employee_id: employee.id, day })
+      const { error } = had ? await sb.from('standby_days').delete().match({ employee_id: employee.id, day }).abortSignal(scope!.signal) : await sb.from('standby_days').insert({ employee_id: employee.id, day }).abortSignal(scope!.signal)
       await reload()
+      if (!current()) return
       toast(error ? tr('Das hat nicht geklappt') : had ? tr('Aushilfe-Tag entfernt') : tr('Aushilfe-Tag eingetragen'), error ? 'error' : 'ok')
     },
-    setDemoData: async (on) => { await sb.from('app_settings').upsert({ key: 'demo_data', value: on, updated_at: new Date().toISOString() }); await reload(); await reloadWiki() },
+    setDemoData: async (on) => { if (!current()) return; await sb.from('app_settings').upsert({ key: 'demo_data', value: on, updated_at: new Date().toISOString() }).abortSignal(scope!.signal); await reload(); await reloadWiki() },
     wiki, reloadWiki, catEmojis, steps, allSteps, obDone,
     toggleStep: async (id) => {
-      if (obDone.has(id)) await sb.from('onboarding_progress').delete().match({ step_id: id, employee_id: employee.id })
-      else await sb.from('onboarding_progress').insert({ step_id: id, employee_id: employee.id })
+      if (!current()) return
+      if (obDone.has(id)) await sb.from('onboarding_progress').delete().match({ step_id: id, employee_id: employee.id }).abortSignal(scope!.signal)
+      else await sb.from('onboarding_progress').insert({ step_id: id, employee_id: employee.id }).abortSignal(scope!.signal)
       await reload()
     },
     skills: meStaff.skills,
-    setSkills: (s) => {
-      const before = meStaff.skills
-      setStaff(list => list.map(x => x.id === employee.id ? { ...x, skills: s } : x))
-      sb.rpc('update_my_profile', { p_skills: s }).then(({ error }) => { if (error) setStaff(list => list.map(x => x.id === employee.id ? { ...x, skills: before } : x)) })
-    },
     photo: meStaff.photo,
-    setPhotoFile: async (f) => { const p = await upload('profile-photos', f, `avatar-${Date.now()}`); if (p) { await sb.rpc('update_my_profile', { p_photo_path: p }); await reload(); toast(tr('Profilbild gespeichert')) } else toast(tr('Das Bild liess sich nicht hochladen'), 'error') },
+    setPhotoFile: async (f) => { const p = await upload('profile-photos', f, `avatar-${Date.now()}`); if (!current()) return; if (p) { await sb.rpc('update_my_profile', { p_photo_path: p }).abortSignal(scope!.signal); await reload(); if (!current()) return; toast(tr('Profilbild gespeichert')) } else toast(tr('Das Bild liess sich nicht hochladen'), 'error') },
     myPhorest, signedUrl,
   }
   return <C.Provider value={value}>{children}</C.Provider>

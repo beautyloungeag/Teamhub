@@ -1,3 +1,4 @@
+import { captureAccountScope, isCurrentAccountScope, onAccountScopeChange, type AccountScope } from './lib/account-scope'
 import { scrollInPane } from './lib/mobile-viewport'
 import { ViewportOverlay } from './ViewportOverlay'
 import { useEffect, useRef, useState, useSyncExternalStore, type ClipboardEvent, type DragEvent, type ReactNode } from 'react'
@@ -32,55 +33,69 @@ type Tier = 'schnell' | 'standard' | 'stark'
 type Attach = { id: string; name: string; kind: 'image' | 'file'; preview?: string; payload: { name: string; mime: string; data?: string; text?: string } }
 
 /* ---------- Zustand ausserhalb der Komponenten: Antworten laufen weiter, auch wenn man den Chat wechselt ---------- */
-const S = { owner: '', chats: [] as Chat[], loaded: false, active: null as string | null, ver: 0, creating: false }
+const S = { owner: '', scopeVersion: 0, chats: [] as Chat[], loaded: false, active: null as string | null, ver: 0, creating: false }
 const subs = new Set<() => void>()
 // Text drafts stay in this session and belong to one employee/conversation.
 // Switching history must never carry an unsent question into another chat.
 const drafts = new Map<string, string>()
 const bump = () => { S.ver++; subs.forEach(f => f()) }
 const subscribe = (f: () => void) => { subs.add(f); return () => { subs.delete(f) } }
-function useBenni() { useSyncExternalStore(subscribe, () => S.ver); return S }
+function useBenni() { useSyncExternalStore(subscribe, () => S.ver); return captureAccountScope()?.version === S.scopeVersion ? S : { ...S, chats: [], active: null, loaded: false, creating: false } }
 let pendingAsk: string | null = null
+let chatsVersion = 0
+onAccountScopeChange(() => {
+  chatsVersion++; drafts.clear(); pendingAsk = null
+  S.owner = ''; S.scopeVersion = 0; S.chats = []; S.loaded = false; S.active = null; S.creating = false; bump()
+})
 
 const toMsg = (r: { id: string; role: string; text: string; data: MsgData | null; created_at: string }): ChatMsg => ({ id: r.id, me: r.role === 'user', t: r.text, data: r.data ?? {}, at: r.created_at })
 
 async function loadChats(owner: string) {
-  if (S.owner !== owner) { drafts.clear(); S.owner = owner; S.chats = []; S.loaded = false; S.active = null; bump() }
-  if (S.loaded || !supabase) return
-  S.loaded = true
-  const { data } = await supabase.from('benni_chats').select('id, title, updated_at').order('updated_at', { ascending: false }).limit(60)
+  const scope = captureAccountScope(owner)
+  if (!scope || !supabase || S.loaded) return
+  const version = ++chatsVersion
+  S.owner = owner; S.scopeVersion = scope.version; S.loaded = true
+  const { data, error } = await supabase.from('benni_chats').select('id, title, updated_at').order('updated_at', { ascending: false }).limit(60).abortSignal(scope.signal)
+  if (!isCurrentAccountScope(scope) || version !== chatsVersion) return
+  if (error) { S.loaded = false; bump(); return }
   const known = new Set(S.chats.map(c => c.id))
   S.chats = [...S.chats, ...(data ?? []).filter(r => !known.has(r.id)).map(r => ({ id: r.id, title: r.title, updated: r.updated_at, msgs: null, busy: false, steps: [] }))]
   bump()
 }
 async function openChat(id: string | null) {
+  const scope = captureAccountScope(S.owner); if (!scope) return
   S.active = id; bump()
   const c = S.chats.find(x => x.id === id)
   if (!c || c.msgs || c.loading || !supabase) return
   c.loading = true; bump()
-  const { data } = await supabase.from('benni_messages').select('id, role, text, data, created_at').eq('chat_id', c.id).order('created_at').limit(300)
-  c.msgs = (data ?? []).map(toMsg); c.loading = false; bump()
+  const { data, error } = await supabase.from('benni_messages').select('id, role, text, data, created_at').eq('chat_id', c.id).order('created_at').limit(300).abortSignal(scope.signal)
+  if (!isCurrentAccountScope(scope) || !S.chats.includes(c)) return
+  c.msgs = error ? null : (data ?? []).map(toMsg); c.loading = false; bump()
 }
 async function deleteChat(id: string) {
-  S.chats = S.chats.filter(c => c.id !== id)
-  if (S.active === id) S.active = null
-  bump()
-  const { error } = await supabase!.from('benni_chats').delete().eq('id', id)
+  const scope = captureAccountScope(S.owner); if (!scope) return false
+  const { error } = await supabase!.from('benni_chats').delete().eq('id', id).abortSignal(scope.signal)
+  if (!isCurrentAccountScope(scope)) return false
+  if (!error) { S.chats = S.chats.filter(c => c.id !== id); if (S.active === id) S.active = null; bump() }
   return !error
 }
 /** Neuen Chat öffnen, optional gleich mit einer Frage (z. B. „Mit Marc lernen“ aus dem Onboarding). */
 export function openNewBenniChat(question?: string) {
+  if (!captureAccountScope()) return
   S.active = null; pendingAsk = question ?? null; bump()
   window.dispatchEvent(new Event('th-benni'))
 }
 
 async function sendMessage(owner: string, text: string, files: Attach[], opts: { model: Tier; web: boolean }, failText: string, after: () => void) {
-  if (!supabase) return
+  const scope = captureAccountScope(owner)
+  if (!supabase || !scope) return
+  S.owner = owner; S.scopeVersion = scope.version
   let chat = S.chats.find(c => c.id === S.active)
   if (!chat) {
     if (S.creating) return
     S.creating = true
-    const { data, error } = await supabase.from('benni_chats').insert({ employee_id: owner }).select('id, title, updated_at').single()
+    const { data, error } = await supabase.from('benni_chats').insert({ employee_id: owner }).select('id, title, updated_at').abortSignal(scope.signal).single()
+    if (!isCurrentAccountScope(scope)) return
     S.creating = false
     if (error || !data) { toast(failText, 'error'); return }
     chat = { id: data.id, title: '', updated: data.updated_at, msgs: [], busy: false, steps: [] }
@@ -92,9 +107,11 @@ async function sendMessage(owner: string, text: string, files: Attach[], opts: {
   c.busy = true; c.steps = [{ step: 'think' }]; c.updated = now()
   S.chats = [c, ...S.chats.filter(x => x !== c)]; bump()
   const ans: BenniAnswer = await askBenni({ chat_id: c.id, message: text, files: files.map(f => f.payload), model: opts.model, web: opts.web }, e => {
+    if (!isCurrentAccountScope(scope) || !S.chats.includes(c)) return
     if ('title' in e && e.title) c.title = e.title; else c.steps = [...c.steps, e as Step]
     bump()
-  }).catch(() => ({ ok: false }))
+  }, scope).catch(() => ({ ok: false }))
+  if (!isCurrentAccountScope(scope) || !S.chats.includes(c)) return
   const { ok, text: answer, message_id, title, ...data } = ans
   void ok
   c.msgs = [...(c.msgs ?? []), { id: message_id ?? 'a' + Date.now(), me: false, t: ans.ok && answer ? answer : failText, data: ans.ok ? data : {}, at: now() }]
@@ -104,18 +121,21 @@ async function sendMessage(owner: string, text: string, files: Attach[], opts: {
 }
 
 /** Fragt Marc; meldet Arbeitsschritte und den Chat-Titel, sobald sie da sind (NDJSON-Stream der Function). */
-async function askBenni(body: Record<string, unknown>, onEvent: (e: Step | { title: string }) => void): Promise<BenniAnswer> {
+async function askBenni(body: Record<string, unknown>, onEvent: (e: Step | { title: string }) => void, scope: AccountScope | null = captureAccountScope()): Promise<BenniAnswer> {
+  if (!isCurrentAccountScope(scope)) return { ok: false }
   const { data: { session } } = await supabase!.auth.getSession()
+  if (!session || !isCurrentAccountScope(scope)) return { ok: false }
   const r = await fetch(`${SUPABASE_URL}/functions/v1/assistant`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${session?.access_token ?? SUPABASE_ANON}`, apikey: SUPABASE_ANON, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...body, stream: true }),
+    body: JSON.stringify({ ...body, stream: true }), signal: scope.signal,
   })
-  if (!r.ok || !r.body) return { ok: false }
+  if (!isCurrentAccountScope(scope) || !r.ok || !r.body) return { ok: false }
   const reader = r.body.getReader(), dec = new TextDecoder()
   let buf = '', done: BenniAnswer | null = null
   for (;;) {
     const { value, done: end } = await reader.read()
+    if (!isCurrentAccountScope(scope)) { await reader.cancel(); return { ok: false } }
     if (value) buf += dec.decode(value, { stream: true })
     let i: number
     while ((i = buf.indexOf('\n')) >= 0) {
@@ -125,13 +145,14 @@ async function askBenni(body: Record<string, unknown>, onEvent: (e: Step | { tit
     }
     if (end) break
   }
-  return done ?? { ok: false }
+  return isCurrentAccountScope(scope) ? done ?? { ok: false } : { ok: false }
 }
 
 /** Einzelne Frage ohne gespeicherten Chat (z. B. in der Kundenhistorie). */
 export async function askBenniOnce(message: string, history: { me: boolean; t: string }[], onStep: (s: Step) => void) {
-  const r = await askBenni({ message, history }, e => { if ('step' in e) onStep(e) }).catch(() => ({ ok: false } as BenniAnswer))
-  return { ok: r.ok && !!r.text, text: r.text ?? '' }
+  const scope = captureAccountScope()
+  const r = await askBenni({ message, history }, e => { if (isCurrentAccountScope(scope) && 'step' in e) onStep(e) }, scope).catch(() => ({ ok: false } as BenniAnswer))
+  return isCurrentAccountScope(scope) ? { ok: r.ok && !!r.text, text: r.text ?? '' } : { ok: false, text: '' }
 }
 
 /* ---------- Dateien ---------- */
@@ -160,17 +181,20 @@ async function prepareFile(f: File): Promise<Attach | 'size' | 'format'> {
 }
 
 /* ---------- Diktat: Live-Text alle paar Sekunden, am Ende genauer ---------- */
-async function transcribe(blob: Blob, lang: string, fast: boolean): Promise<string | null> {
+async function transcribe(blob: Blob, lang: string, fast: boolean, scope: AccountScope | null): Promise<string | null> {
+  if (!isCurrentAccountScope(scope)) return null
   const { data: { session } } = await supabase!.auth.getSession()
+  if (!session || !isCurrentAccountScope(scope)) return null
   const fd = new FormData()
   fd.append('file', blob, 'diktat.' + (blob.type.includes('mp4') ? 'mp4' : blob.type.includes('ogg') ? 'ogg' : 'webm'))
   fd.append('lang', lang); if (fast) fd.append('fast', '1')
   try {
-    const r = await fetch(`${SUPABASE_URL}/functions/v1/transcribe`, { method: 'POST', headers: { Authorization: `Bearer ${session?.access_token ?? SUPABASE_ANON}`, apikey: SUPABASE_ANON }, body: fd })
-    const j = await r.json(); return j.ok ? String(j.text ?? '') : null
+    const r = await fetch(`${SUPABASE_URL}/functions/v1/transcribe`, { method: 'POST', headers: { Authorization: `Bearer ${session?.access_token ?? SUPABASE_ANON}`, apikey: SUPABASE_ANON }, body: fd, signal: scope.signal })
+    const j = await r.json(); return isCurrentAccountScope(scope) && j.ok ? String(j.text ?? '') : null
   } catch { return null }
 }
 function useDictation(lang: string, onText: (s: string) => void, onError: (key: string) => void) {
+  const [scope] = useState(() => captureAccountScope())
   const [state, setState] = useState<'idle' | 'rec' | 'final'>('idle')
   const [live, setLive] = useState(''), [levels, setLevels] = useState<number[]>(() => Array(32).fill(0)), [secs, setSecs] = useState(0)
   const r = useRef<{ rec: MediaRecorder; stream: MediaStream; ctx: AudioContext; chunks: Blob[]; raf: number; timer: number; busy: boolean; sent: number; cancel: boolean; t0: number } | null>(null)
@@ -180,10 +204,11 @@ function useDictation(lang: string, onText: (s: string) => void, onError: (key: 
   }
   useEffect(() => () => { if (r.current) { r.current.cancel = true; try { r.current.rec.stop() } catch { /* schon zu */ } cleanup() } }, [])
   const start = async () => {
-    if (state !== 'idle') return
+    if (state !== 'idle' || !isCurrentAccountScope(scope)) return
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') { onError('Diktieren geht in diesem Browser nicht'); return }
     let stream: MediaStream
     try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }) } catch { onError('Mikrofon ist nicht erlaubt'); return }
+    if (!isCurrentAccountScope(scope)) { stream.getTracks().forEach(track => track.stop()); return }
     const type = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'].find(m => MediaRecorder.isTypeSupported(m)) ?? ''
     const rec = new MediaRecorder(stream, type ? { mimeType: type } : undefined)
     const ctx = new AudioContext(), an = ctx.createAnalyser(); an.fftSize = 512
@@ -197,7 +222,8 @@ function useDictation(lang: string, onText: (s: string) => void, onError: (key: 
       cleanup()
       if (cancelled) { setState('idle'); setLive(''); return }
       setState('final')
-      const text = blob.size > 800 ? await transcribe(blob, lang, false) : ''
+      const text = blob.size > 800 ? await transcribe(blob, lang, false, scope) : ''
+      if (!isCurrentAccountScope(scope)) return
       setState('idle'); setLive('')
       if (text) onText(text); else if (text === null) onError('Das Diktat liess sich nicht umwandeln')
     }
@@ -219,7 +245,7 @@ function useDictation(lang: string, onText: (s: string) => void, onError: (key: 
       if (el >= 180) { stop(); return }
       if (x.busy || x.chunks.length === x.sent || el < 2) return
       x.busy = true; x.sent = x.chunks.length
-      transcribe(new Blob(x.chunks, { type: rec.mimeType || type }), lang, true).then(t => { if (t && r.current === x) setLive(t) }).finally(() => { x.busy = false })
+      transcribe(new Blob(x.chunks, { type: rec.mimeType || type }), lang, true, scope).then(t => { if (isCurrentAccountScope(scope) && t && r.current === x) setLive(t) }).finally(() => { x.busy = false })
     }, 1000)
     setSecs(0); setLive(''); setState('rec')
   }
@@ -429,9 +455,11 @@ const TIERS: { k: Tier; name: string; hint: string; model: string }[] = [
 let tierPref: Tier = (() => { try { const v = localStorage.getItem('th-benni-model'); return v === 'schnell' || v === 'stark' ? v : 'standard' } catch { return 'standard' } })()
 
 function Composer({ busy, variant, onSend, draftKey }: { busy: boolean; variant: 'app' | 'panel'; draftKey: string; onSend: (text: string, files: Attach[], opts: { model: Tier; web: boolean }) => void }) {
-  const { t, lang } = useApp()
+  const { t, lang, employee } = useApp()
+  const [scope] = useState(() => captureAccountScope(employee.id))
   const [v, setV] = useState(() => drafts.get(draftKey) ?? ''), [files, setFiles] = useState<Attach[]>([]), [tier, setTier] = useState<Tier>(tierPref), [web, setWeb] = useState(false), [menu, setMenu] = useState(false)
   useEffect(() => {
+    if (!isCurrentAccountScope(scope)) return
     if (v) { drafts.set(draftKey, v); if (drafts.size > 20) drafts.delete(drafts.keys().next().value!) }
     else drafts.delete(draftKey)
   }, [draftKey, v])
@@ -448,13 +476,14 @@ function Composer({ busy, variant, onSend, draftKey }: { busy: boolean; variant:
   const add = async (list: FileList | File[]) => {
     for (const f of [...list].slice(0, 4 - files.length)) {
       const r = await prepareFile(f)
+      if (!isCurrentAccountScope(scope)) { if (typeof r !== 'string' && r.preview) URL.revokeObjectURL(r.preview); return }
       if (r === 'size') toast(t('Datei ist grösser als 10 MB'), 'error')
       else if (r === 'format') toast(t('Bitte als Foto, PDF, Word (.docx), Excel (.xlsx) oder Text anhängen'), 'error')
       else setFiles(x => [...x, r])
     }
   }
   const send = () => {
-    if (busy || dict.state !== 'idle' || (!v.trim() && !files.length)) return
+    if (!isCurrentAccountScope(scope) || busy || dict.state !== 'idle' || (!v.trim() && !files.length)) return
     onSend(v.trim(), files, { model: tier, web }); setV(''); setFiles([])
   }
   const setModel = (k: Tier) => { setTier(k); tierPref = k; setMenu(false); try { localStorage.setItem('th-benni-model', k) } catch { /* privat */ } }
@@ -465,7 +494,7 @@ function Composer({ busy, variant, onSend, draftKey }: { busy: boolean; variant:
   const chip = 'h-8 px-2.5 rounded-full text-[14.5px] flex items-center gap-1.5 transition'
   return (
     <div onDragOver={e => e.preventDefault()} onDrop={onDrop} className={`relative rounded-[20px] bg-white ${variant === 'app' ? 'shadow-[0_1px_2px_rgba(29,34,28,.06),0_8px_24px_-12px_rgba(29,34,28,.18)]' : 'border border-line'}`}>
-      {files.length > 0 && <div className="px-3 pt-3 flex flex-wrap gap-2">{files.map(f => (
+      {files.length > 0 && <div className="chat-composer-attachments px-3 pt-3 flex flex-wrap gap-2">{files.map(f => (
         <span key={f.id} className="relative group">
           {f.preview ? <img src={f.preview} alt="" className="w-12 h-12 rounded-[10px] object-cover" />
             : <span className="h-12 px-3 rounded-[10px] bg-sage-50 text-[14.5px] flex items-center gap-2 max-w-[200px]">{fileIcon(f.name)}<span className="truncate">{f.name}</span></span>}

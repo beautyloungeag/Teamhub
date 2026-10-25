@@ -1,3 +1,4 @@
+import { captureAccountScope, isCurrentAccountScope } from '../lib/account-scope'
 import { useEffect, useState } from 'react'
 import { BookOpen, Camera, ChevronLeft, ChevronRight, Flag, Link2, Plus, Trash2, X } from 'lucide-react'
 import { useApp, isoDay, addDays, appliesOn, fmtDate, type Template, type Staff } from '../store'
@@ -47,15 +48,15 @@ const todoStatus = (x: Todo, due: (s: string | null) => string) => x.done_at ? <
 
 /* ---------- Heute ---------- */
 function Today({ studios, onOpenList, onOpenTodo }: { studios: { id: string; name: string }[]; onOpenList: (id: string) => void; onOpenTodo: (x: Todo) => void }) {
-  const { templates, staff, branches } = useApp()
+  const { templates, staff, branches, me, progressVersion } = useApp()
   const due = useDue()
   const [pick, setBr] = useState<string | null>(null), [day, setDay] = useState(isoDay())
   const br = pick ?? studios[0]?.id ?? ''
   const [comps, setComps] = useState<Comp[] | null>(null), [photo, setPhoto] = useState<string | null>(null)
   const todos = useTodos()
-  useEffect(() => { if (!br) return; let alive = true; setComps(null)
-    supabase!.from('task_completions').select('item_id, done_by, done_by_name, done_at, photo_path').eq('branch_id', br).eq('day', day).then(({ data }) => { if (alive) setComps((data ?? []) as Comp[]) })
-    return () => { alive = false } }, [br, day])
+  useEffect(() => { const scope = captureAccountScope(me.id); if (!br || !scope) return; let alive = true; setComps(null)
+    supabase!.from('task_completions').select('item_id, done_by, done_by_name, done_at, photo_path').eq('branch_id', br).eq('day', day).abortSignal(scope.signal).then(({ data, error }) => { if (alive && isCurrentAccountScope(scope) && !error) setComps((data ?? []) as Comp[]) })
+    return () => { alive = false } }, [br, day, me.id, progressVersion])
   const lists = templates.filter(t => t.active && !t.proposed && appliesOn(t, day, br))
   const items = lists.flatMap(t => t.items)
   const done = new Map((comps ?? []).map(c => [c.item_id, c]))

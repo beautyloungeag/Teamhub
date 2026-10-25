@@ -1,3 +1,7 @@
+// Keep this query aligned with the md variant and mobile media blocks in index.css.
+// A landscape phone remains the employee app; width alone does not make it a desktop.
+export const DESKTOP_MEDIA = '(min-width: 768px) and (hover: hover) and (pointer: fine)'
+
 // A keyboard can both resize AND pan iOS's visual viewport. Keep these values
 // together; nested panes must scroll themselves, never scroll the document.
 export type ViewportReading = { height: number; offsetTop: number; scale: number }

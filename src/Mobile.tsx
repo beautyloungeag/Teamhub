@@ -1,4 +1,5 @@
-import { scrollInPane } from './lib/mobile-viewport'
+import { captureAccountScope, isCurrentAccountScope, onAccountScopeChange } from './lib/account-scope'
+import { DESKTOP_MEDIA, scrollInPane } from './lib/mobile-viewport'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { motion } from 'motion/react'
 import {
@@ -353,7 +354,7 @@ function Today({ open, go }: { open: (s: Sub) => void; go: (t: Tab) => void }) {
 function TodayChats({ go, open }: { go: (t: Tab) => void; open: (s: Sub) => void }) {
   const { me, staff, t } = useApp()
   const [list, setList] = useState<Awaited<ReturnType<typeof loadChatSummaries>> | null>(null)
-  useEffect(() => { loadChatSummaries(me.id).then(setList) }, [me.id])
+  useEffect(() => { let alive = true; const scope = captureAccountScope(me.id); setList(null); if (scope) void loadChatSummaries(me.id).then(rows => { if (alive && isCurrentAccountScope(scope)) setList(rows) }).catch(() => { if (alive && isCurrentAccountScope(scope)) setList([]) }); return () => { alive = false } }, [me.id])
   const recent = (list ?? []).filter(x => x.last).sort((a, b) => b.last!.created_at.localeCompare(a.last!.created_at)).slice(0, 3)
   return <>
     <Label action={<button onClick={() => go('ai')} className="text-[14.5px] text-sage-800">{t('Alle Chats')}</button>}>{t('Chats')}</Label>
@@ -383,10 +384,29 @@ const newsWhen = (iso: string, t: (s: string) => string) => {
 }
 /** Bestätigungsstand der Pflicht-News („8 von 12“), für alle sichtbar ohne Namen */
 let progressCache: Map<string, { confirmed: number; total: number }> | null = null
+let progressScopeVersion: number | null = null
+let progressRequest: { key: string; promise: Promise<Map<string, { confirmed: number; total: number }> | null> } | null = null
+onAccountScopeChange(() => { progressCache = null; progressScopeVersion = null; progressRequest = null })
 function useNewsProgress() {
-  const [p, setP] = useState(progressCache ?? new Map<string, { confirmed: number; total: number }>())
-  const { read } = useApp()
-  useEffect(() => { supabase?.rpc('news_progress').then(({ data }) => { progressCache = new Map(((data ?? []) as { news_id: string; confirmed: number; total: number }[]).map(r => [r.news_id, { confirmed: r.confirmed, total: r.total }])); setP(progressCache) }) }, [read.size])
+  const [p, setP] = useState(progressScopeVersion === captureAccountScope()?.version && progressCache ? progressCache : new Map<string, { confirmed: number; total: number }>())
+  const { read, me, progressVersion } = useApp()
+  useEffect(() => {
+    let alive = true
+    const scope = captureAccountScope(me.id)
+    if (!scope || !supabase) return
+    const key = `${scope.version}:${progressVersion}:${read.size}`
+    if (progressRequest?.key !== key) {
+      const promise = Promise.resolve(supabase.rpc('news_progress').abortSignal(scope.signal)).then(({ data, error }) => {
+        if (!isCurrentAccountScope(scope) || error || progressRequest?.key !== key) return null
+        progressScopeVersion = scope.version
+        progressCache = new Map(((data ?? []) as { news_id: string; confirmed: number; total: number }[]).map(r => [r.news_id, { confirmed: r.confirmed, total: r.total }]))
+        return progressCache
+      }).catch(() => null)
+      progressRequest = { key, promise }
+    }
+    void progressRequest.promise.then(rows => { if (alive && isCurrentAccountScope(scope) && rows) setP(rows) })
+    return () => { alive = false }
+  }, [read.size, me.id, progressVersion])
   return p
 }
 /** News als grosse Bildkarte (Vorlage der Inhaberin 20.10.): Etikett, Zeit, Titel, Kurztext, bei Pflicht der Bestätigungsstand */
@@ -598,15 +618,16 @@ function usePopular() {
 // Artikel mit Test gelten erst nach bestandenem Test als gelesen (Wunsch der Inhaberin 22.10.), das trägt der Test ein.
 const reloadRuns = () => window.dispatchEvent(new Event('th-wiki-runs'))
 function useWikiRuns() {
-  const { me, quizzes, attempts } = useApp()
+  const { me, quizzes, attempts, progressVersion } = useApp()
   const [v, setV] = useState<{ employeeId: string; rows: { article_id: string; kind: string }[] }>({ employeeId: '', rows: [] })
   useEffect(() => {
     let active = true
-    const load = () => { supabase?.from('wiki_runs').select('article_id, kind').eq('employee_id', me.id).then(({ data }) => {
-      if (active) setV({ employeeId: me.id, rows: data ?? [] })
+    const scope = captureAccountScope(me.id); if (!scope) return
+    const load = () => { supabase?.from('wiki_runs').select('article_id, kind').eq('employee_id', me.id).abortSignal(scope.signal).then(({ data, error }) => {
+      if (active && isCurrentAccountScope(scope) && !error) setV({ employeeId: me.id, rows: data ?? [] })
     }) }
     load(); window.addEventListener('th-wiki-runs', load); return () => { active = false; window.removeEventListener('th-wiki-runs', load) }
-  }, [me.id])
+  }, [me.id, progressVersion])
   return useMemo(() => wikiProgress(v.employeeId === me.id ? v.rows : [], quizzes, attempts, me.id), [v, quizzes, attempts, me.id])
 }
 export const AREA_LOOK: Record<string, { tone: Tone; icon: typeof Home }> = {
@@ -1431,7 +1452,7 @@ function ReadyCard({ open }: { open: (s: Sub) => void }) {
   const [st] = usePush()
   const key = `th-ready-later-${me.id}`
   const [hide, setHide] = useState(() => { try { return sessionStorage.getItem(key) === '1' } catch { return false } })
-  if (hide || st === null || matchMedia('(min-width: 768px)').matches || (isStandalone() && st === 'on')) return null
+  if (hide || st === null || matchMedia(DESKTOP_MEDIA).matches || (isStandalone() && st === 'on')) return null
   return <div className="mt-3 rounded-[16px] bg-white px-4 py-3.5 flex gap-3 items-center">
     <Smartphone size={20} className="text-olive-700 shrink-0" />
     <button onClick={() => open({ k: 'install' })} className="flex-1 text-left"><span className="block text-[17px] text-olive-700 font-medium">{t('TeamHub als App einrichten')}</span><span className="block text-[13px] text-mute mt-0.5">{t('Mit eigenem Symbol und Mitteilungen auf deinem Handy')}</span></button>

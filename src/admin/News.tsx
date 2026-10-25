@@ -8,10 +8,11 @@ import { BMark } from '../Logo'
 import { Avatar } from '../People'
 import { PollResults, usePollResults } from '../Poll'
 import { toast } from '../Toast'
-import { H, New, Th, Field, inpStone, btn, btn2, Err, retranslate, real, isTest, inBranch, Select, Seg, Modal, Chips, Back, Section, Status, Empty, DataRow, Tag, ToneBar, TONE_HEX } from './kit'
+import { H, New, Th, Field, inpStone, btn, btn2, Err, retranslate, isTest, inBranch, Select, Seg, Modal, Chips, Back, Section, Status, Empty, DataRow, Tag, ToneBar, TONE_HEX } from './kit'
 import { newsCat, newsPhoto } from '../Mobile'
 import { toneOf } from '../tones'
 import { Donut } from './charts'
+import { adminNewsAudience, adminPickerPeople } from '../lib/admin-audience'
 
 // Kategorien wie in der App (Inhaberin 21.10.)
 const NEWS_CATS = ['Wichtig', 'Schulung', 'Team', 'Salon']
@@ -20,9 +21,9 @@ const NEWS_CATS = ['Wichtig', 'Schulung', 'Team', 'Salon']
 // Pflicht mit Lesebestätigung, zeitgesteuert, Entwurf und Bild von Marc, Umfrage anhängen, nachträglich bearbeiten.
 
 export function useAudience() {
-  const { staff } = useApp()
+  const { staff, me } = useApp()
   return (n: Pick<News, 'audienceBranches' | 'audienceGroups' | 'audienceSkills' | 'audiencePeople'>) =>
-    staff.filter(s => real(s) && (n.audiencePeople.length || n.audienceGroups.includes('Büro') ? true : s.branch_id !== 'buero') && inNewsAudience(s, n))
+    adminNewsAudience(staff, me, n, inNewsAudience)
 }
 
 export function NewsAdmin() {
@@ -83,7 +84,7 @@ function NewsPage({ n, people, onBack, onEdit }: { n: News; people: Staff[]; onB
         <div className="mb-3"><Seg value={who} onChange={setWho} items={[['alle', 'Alle'], ['ok', `Bestätigt ${ok}`], ['offen', `Offen ${people.length - ok}`]]} /></div>
         <table className="tbl w-full text-[14px] table-fixed"><thead><tr><Th>Person</Th><th className="w-[180px] text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">Studio</th><th className="w-[260px] text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">Stand</th></tr></thead>
           <tbody className="divide-y divide-line">{list.map(({ s, r }) => <tr key={s.id}>
-            <td className="px-4 py-2.5"><span className="flex items-center gap-3 min-w-0"><Avatar s={s} photo={s.photo} size="w-8 h-8 text-[12px]" /><span className="truncate">{s.first} {s.last}</span></span></td>
+            <td className="px-4 py-2.5"><span className="flex items-center gap-3 min-w-0"><Avatar s={s} photo={s.photo} size="w-8 h-8 text-[12px]" /><span className="truncate">{s.first} {s.last}{isTest(s) ? ' · Testkonto' : ''}</span></span></td>
             <td className="px-4 text-mute">{s.branch}</td>
             <td className="px-4">{r?.confirmed_at ? <Status kind="done">Bestätigt am {fmtDate(r.confirmed_at, { day: 'numeric', month: 'numeric' })}</Status> : r ? <Status kind="wait">Geöffnet, nicht bestätigt</Status> : <Status kind="none">Noch nicht geöffnet</Status>}</td></tr>)}</tbody></table>
       </Section>}
@@ -204,7 +205,7 @@ function Compose({ edit, onClose }: { edit: News | null; onClose: () => void }) 
     if (error) { setErr(edit ? 'Speichern hat nicht geklappt.' : 'Veröffentlichen hat nicht geklappt.'); return }
     toast(edit ? 'News gespeichert' : f.when ? 'News eingeplant' : 'News veröffentlicht'); await reload(); if (!edit) notifyNow(); retranslate(); onClose()
   }
-  const pool = staff.filter(s => s.active && !f.people.includes(s.id) && (office || mine.some(b => inBranch(s, b))) && `${s.first} ${s.last}`.toLowerCase().includes(pq.toLowerCase()))
+  const pool = adminPickerPeople(staff, me).filter(s => !f.people.includes(s.id) && `${s.first} ${s.last}`.toLowerCase().includes(pq.toLowerCase()))
   const setQ = (i: number, q: Partial<QDraft>) => poll && setPoll({ ...poll, questions: poll.questions.map((x, j) => j === i ? { ...x, ...q } : x) })
   const toggle = (on: boolean, label: string, onClick: () => void, disabled = false) => <button type="button" disabled={disabled} onClick={onClick} className={`h-9 px-3 rounded-[9px] flex items-center gap-2 text-[13px] transition disabled:opacity-50 ${on ? 'bg-olive-700 text-white' : 'bg-white text-ink/80'}`}>{on && <Check size={13} strokeWidth={2.6} />}{label}</button>
   return (

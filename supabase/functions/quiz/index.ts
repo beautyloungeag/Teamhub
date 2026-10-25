@@ -4,6 +4,7 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 import { aiJson } from '../_shared/openai.ts'
 
+// Persistence contract: pilot-quiz-atomic-v1 (migration 20261025230806).
 const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type', 'Access-Control-Allow-Methods': 'POST, OPTIONS' }
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { ...cors, 'Content-Type': 'application/json' } })
 
@@ -64,16 +65,16 @@ Deno.serve(async (req) => {
       return json({ ok: false, error: 'ai_unavailable' }, 503)
     }
   }
-  const total = qs.length, ok = Object.values(results).filter(Boolean).length
-  const pct = Math.round(ok * 100 / total), passed = pct >= quiz.pass_pct
-  await admin.from('quiz_attempts').insert({ quiz_id: quizId, employee_id: me.id, score_pct: pct, passed, answers, results })
-  if (passed && quiz.news_id) {
-    await admin.from('news_reads').upsert({ news_id: quiz.news_id, employee_id: me.id, confirmed_at: new Date().toISOString() }, { onConflict: 'news_id,employee_id', ignoreDuplicates: false })
+  // Commit the attempt and read markers together. The RPC rechecks active
+  // authorization and rejects quiz edits made while grading was in flight.
+  const questionSnapshot = Object.fromEntries(qs.map(({ id, ...question }) => [id, question]))
+  const { data: saved, error: saveError } = await Promise.resolve(admin.rpc('record_quiz_attempt', {
+    p_employee: me.id, p_quiz: quizId, p_answers: answers, p_results: results,
+    p_quiz_snapshot: quiz, p_question_snapshot: questionSnapshot,
+  })).catch(() => ({ data: null, error: { code: 'transport_error' } }))
+  if (saveError || !saved?.ok) {
+    const code = saveError?.code
+    return json({ ok: false, error: code === '42501' ? 'not_visible' : code === '40001' ? 'quiz_changed' : 'save_failed' }, code === '42501' ? 403 : code === '40001' ? 409 : 503)
   }
-  // Artikel im Wissen gilt erst mit bestandenem Test als gelesen (Wunsch der Inhaberin 22.10.)
-  if (passed && quiz.article_id) {
-    // Teilindex „einmal gelesen“: ein zweites Bestehen ergibt nur einen Duplikat-Fehler, der hier nicht zählt
-    await admin.from('wiki_runs').insert({ article_id: quiz.article_id, employee_id: me.id, kind: 'gelesen' })
-  }
-  return json({ ok: true, score_pct: pct, passed, pass_pct: quiz.pass_pct, correct: ok, total, results, feedback })
+  return json({ ...saved, feedback })
 })

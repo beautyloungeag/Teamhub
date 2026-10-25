@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { captureAccountScope, isCurrentAccountScope } from '../lib/account-scope'
+import { postgresTextArray, profilePatch, type EditableProfile, type ProfileDraft } from '../lib/person-profile-draft'
 import { ArrowLeft, ChevronLeft, ChevronRight, Search, Smartphone, Bell, X } from 'lucide-react'
 import { useApp, addDays, fmtDate, inNewsAudience, type Staff } from '../store'
 import { supabase } from '../lib/supabase'
@@ -36,7 +38,7 @@ export function TeamAdmin() {
   const idx = list.findIndex(s => s.id === sel)
   const person = visible.find(s => s.id === sel)
 
-  if (person) return <PersonPage p={person} pos={idx >= 0 ? { i: idx, n: list.length } : null}
+  if (person) return <PersonPage key={person.id} p={person} pos={idx >= 0 ? { i: idx, n: list.length } : null}
     onBack={() => setSel(null)} onStep={d => { const n = list[idx + d]; if (n) setSel(n.id) }} />
 
   return (<>
@@ -112,31 +114,71 @@ function SkillCatalog({ onClose }: { onClose: () => void }) {
 
 /* ---------- Seite einer Person ---------- */
 function PersonPage({ p, pos, onBack, onStep }: { p: Staff; pos: { i: number; n: number } | null; onBack: () => void; onStep: (d: number) => void }) {
-  const { skillCatalog, reload, me, branches, standby, quizzes, attempts, steps, news, newsReads } = useApp()
+  const { skillCatalog, reload, me, branches, standby, quizzes, attempts, steps, news, newsReads, progressVersion } = useApp()
   const office = me.app_role === 'buero', self = p.id === me.id
   const studios = branches.filter(b => office || [me.branch_id, ...(me.extra ?? [])].includes(b.id))
-  const [skills, setSkills] = useState(p.skills)
-  const [d, setD] = useState({ job_title: p.role, app_role: p.app_role, branch_id: p.branch_id })
+  const canEditProfile = office || (me.app_role === 'filialleitung' && !self && p.app_role !== 'buero' && p.branch_id !== 'buero' && [me.branch_id, ...(me.extra ?? [])].includes(p.branch_id))
+  const [pendingSkills, setPendingSkills] = useState<string[] | null>(null), [skillBusy, setSkillBusy] = useState(false), [skillError, setSkillError] = useState('')
+  const skillFlight = useRef(false), saveFlight = useRef(false)
+  const skills = pendingSkills ?? p.skills
+  const [draft, setDraft] = useState<ProfileDraft>({}), [saving, setSaving] = useState(false), [saveError, setSaveError] = useState('')
+  const currentProfile: EditableProfile = { job_title: p.role, branch_id: p.branch_id }
+  const d = { job_title: draft.job_title?.value ?? p.role, branch_id: draft.branch_id?.value ?? p.branch_id }
+  const change = (field: keyof EditableProfile, value: string) => { setSaveError(''); setDraft(old => ({ ...old, [field]: value === currentProfile[field] ? undefined : { base: old[field]?.base ?? currentProfile[field], value } })) }
   const [ob, setOb] = useState<Set<string> | null>(null), [week, setWeek] = useState<StaffWeek | null>(null)
-  useEffect(() => { setSkills(p.skills); setD({ job_title: p.role, app_role: p.app_role, branch_id: p.branch_id }) }, [p.id]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
-    setOb(null); setWeek(null)
-    supabase!.from('onboarding_progress').select('step_id').eq('employee_id', p.id).then(({ data }) => setOb(new Set((data ?? []).map(x => x.step_id))))
-    phorest<StaffWeek>({ action: 'staff_week', employee_id: p.id }).then(setWeek)
-  }, [p.id])
+    const scope = captureAccountScope(me.id); let live = true
+    if (!scope) return
+    supabase!.from('onboarding_progress').select('step_id').eq('employee_id', p.id).abortSignal(scope.signal).then(({ data, error }) => { if (live && isCurrentAccountScope(scope) && !error) setOb(new Set((data ?? []).map(x => x.step_id))) })
+    return () => { live = false }
+  }, [p.id, me.id, progressVersion])
+  useEffect(() => {
+    const scope = captureAccountScope(me.id); let live = true
+    setWeek(null)
+    if (!scope) return
+    phorest<StaffWeek>({ action: 'staff_week', employee_id: p.id }).then(value => { if (live && isCurrentAccountScope(scope)) setWeek(value) })
+    return () => { live = false }
+  }, [p.id, me.id])
   // Blättern mit den Pfeiltasten
   useEffect(() => { const k = (e: KeyboardEvent) => { if ((e.target as HTMLElement)?.closest('input,textarea')) return; if (e.key === 'ArrowLeft') onStep(-1); if (e.key === 'ArrowRight') onStep(1) }; document.addEventListener('keydown', k); return () => document.removeEventListener('keydown', k) }, [onStep])
-  const dirty = d.job_title !== p.role || d.app_role !== p.app_role || d.branch_id !== p.branch_id
+  const dirty = Object.entries(draft).some(([field, edit]) => edit && edit.value !== currentProfile[field as keyof EditableProfile])
   const tog = async (k: string) => {
-    const next = skills.includes(k) ? skills.filter(x => x !== k) : [...skills, k]
-    setSkills(next)
-    const { error } = await supabase!.from('employees').update({ skills: next, updated_at: new Date().toISOString() }).eq('id', p.id)
-    if (error) { setSkills(skills); toast('Speichern hat nicht geklappt', 'error') } else { toast('Skills gespeichert'); reload() }
+    const scope = captureAccountScope(me.id)
+    if (!scope || !canEditProfile || skillFlight.current) return
+    skillFlight.current = true; setSkillBusy(true); setSkillError('')
+    const baseline = [...p.skills]
+    const next = baseline.includes(k) ? baseline.filter(x => x !== k) : [...baseline, k]
+    setPendingSkills(next)
+    try {
+      const { data, error } = await supabase!.from('employees').update({ skills: next, updated_at: new Date().toISOString() }).eq('id', p.id)
+        .eq('skills', postgresTextArray(baseline)).select('id').abortSignal(scope.signal).maybeSingle()
+      if (!isCurrentAccountScope(scope)) return
+      if (error || !data) {
+        setSkillError(error ? 'Skills konnten nicht gespeichert werden. Bitte erneut versuchen.' : 'Das Profil wurde inzwischen geändert oder ist nicht mehr bearbeitbar. Bitte den aktuellen Stand prüfen und erneut auswählen.')
+        await reload(); return
+      }
+      toast('Skills gespeichert'); await reload()
+    } catch { if (isCurrentAccountScope(scope)) setSkillError('Skills konnten nicht gespeichert werden. Bitte erneut versuchen.') }
+    finally { skillFlight.current = false; if (isCurrentAccountScope(scope)) { setPendingSkills(null); setSkillBusy(false) } }
   }
   const save = async () => {
-    const patch = office ? d : { job_title: d.job_title }
-    const { error } = await supabase!.from('employees').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', p.id)
-    toast(error ? 'Speichern hat nicht geklappt' : 'Gespeichert', error ? 'error' : 'ok'); if (!error) reload()
+    const scope = captureAccountScope(me.id)
+    if (!scope || !canEditProfile || saveFlight.current) return
+    const { conflict, patch } = profilePatch(draft, currentProfile, office && !self)
+    if (conflict) { setSaveError('Das Profil wurde inzwischen geändert. Bitte prüfe den aktuellen Stand oder verwirf deinen Entwurf.'); return }
+    if (!Object.keys(patch).length) return
+    saveFlight.current = true; setSaving(true); setSaveError('')
+    try {
+      let query = supabase!.from('employees').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', p.id)
+      // Only dirty fields are written. Their original values protect against a
+      // concurrent edit occurring after the last visible profile refresh.
+      for (const field of Object.keys(patch) as (keyof EditableProfile)[]) query = query.eq(field, draft[field]!.base)
+      const { data, error } = await query.select('id').abortSignal(scope.signal).maybeSingle()
+      if (!isCurrentAccountScope(scope)) return
+      if (error || !data) { setSaveError(error ? 'Speichern hat nicht geklappt. Dein Entwurf bleibt erhalten.' : 'Das Profil wurde inzwischen geändert. Bitte prüfe den aktuellen Stand oder verwirf deinen Entwurf.'); await reload(); return }
+      setDraft({}); toast('Gespeichert'); await reload()
+    } catch { if (isCurrentAccountScope(scope)) setSaveError('Speichern hat nicht geklappt. Dein Entwurf bleibt erhalten.') }
+    finally { saveFlight.current = false; if (isCurrentAccountScope(scope)) setSaving(false) }
   }
   const must = news.filter(n => n.mustRead && new Date(n.publishAt) <= new Date() && inNewsAudience(p, n))
   const mustOk = must.filter(n => newsReads.some(r => r.news_id === n.id && r.employee_id === p.id && r.confirmed_at)).length
@@ -175,16 +217,17 @@ function PersonPage({ p, pos, onBack, onStep }: { p: Staff; pos: { i: number; n:
           <DataRow label="Rolle" value={me.app_role === 'buero' && p.id !== me.id ? <RoleSelect p={p} /> : ROLE[p.app_role] ?? p.app_role} />
         </Section>
         <section><p className="text-[15px] font-medium mb-2">Skills</p>
-          <div className="flex flex-wrap gap-1.5">{skillCatalog.map(k => <button key={k} onClick={() => tog(k)} className={`px-3 h-9 rounded-[10px] text-[13.5px] transition ${skills.includes(k) ? 'bg-olive-700 text-white' : 'bg-sage-50 text-ink/80 hover:bg-sage-100'}`}>{k}</button>)}</div>
-          <p className="mt-2 text-[12.5px] text-mute">Antippen zum Vergeben oder Entfernen. Wird sofort gespeichert.</p></section>
-        <section><p className="text-[15px] font-medium mb-2">Funktion{office ? ' und Rechte' : ''}</p>
+          <div className="flex flex-wrap gap-1.5">{skillCatalog.map(k => <button key={k} onClick={() => tog(k)} disabled={!canEditProfile || skillBusy} className={`disabled:opacity-60 px-3 h-9 rounded-[10px] text-[13.5px] transition ${skills.includes(k) ? 'bg-olive-700 text-white' : 'bg-sage-50 text-ink/80 hover:bg-sage-100'}`}>{k}</button>)}</div>
+          <p className="mt-2 text-[12.5px] text-mute">{canEditProfile ? 'Antippen zum Vergeben oder Entfernen. Wird sofort gespeichert.' : 'Funktion und Skills pflegt eine andere berechtigte Leitung oder das Büro.'}</p>
+          {skillError && <p role="alert" className="mt-2 text-[14px] text-alert">{skillError}</p>}</section>
+        <section><p className="text-[15px] font-medium mb-2">Funktion{office ? ' und Studio' : ''}</p>
           <div className="grid grid-cols-2 gap-3">
-            {office ? <Field label="Funktion"><input value={d.job_title} onChange={e => setD({ ...d, job_title: e.target.value })} className={inpStone} /></Field>
-              : <input value={d.job_title} onChange={e => setD({ ...d, job_title: e.target.value })} aria-label="Funktion" className={inpStone} />}
-            {office && <Select label="Studio" tone="stone" value={d.branch_id} onChange={v => setD({ ...d, branch_id: v })} options={studios.map(x => ({ value: x.id, label: x.name }))} />}
-            {office && <Select label="Rechte" tone="stone" disabled={self} value={d.app_role} onChange={v => setD({ ...d, app_role: v as Staff['app_role'] })} options={[{ value: 'mitarbeiterin', label: 'Mitarbeiterin' }, { value: 'filialleitung', label: 'Filialleitung' }, { value: 'buero', label: 'Büro' }]} />}
+            {office ? <Field label="Funktion"><input value={d.job_title} disabled={!canEditProfile || saving} onChange={e => change('job_title', e.target.value)} className={inpStone} /></Field>
+              : <input value={d.job_title} disabled={!canEditProfile || saving} onChange={e => change('job_title', e.target.value)} aria-label="Funktion" className={inpStone} />}
+            {office && <Select label="Studio" tone="stone" disabled={self || saving} value={d.branch_id} onChange={v => change('branch_id', v)} options={studios.map(x => ({ value: x.id, label: x.name }))} />}
           </div>
-          {dirty && <div className="mt-3 flex gap-2"><button onClick={save} className={btn}>Speichern</button><button onClick={() => setD({ job_title: p.role, app_role: p.app_role, branch_id: p.branch_id })} className={btn2}>Verwerfen</button></div>}
+          {saveError && <p role="alert" className="mt-3 text-[14px] text-alert">{saveError}</p>}
+          {dirty && <div className="mt-3 flex gap-2"><button disabled={saving} onClick={save} className={btn}>{saving ? 'Speichert …' : 'Speichern'}</button><button disabled={saving} onClick={() => { setDraft({}); setSaveError('') }} className={btn2}>Verwerfen</button></div>}
         </section>
       </div>
 
@@ -209,7 +252,7 @@ function PersonPage({ p, pos, onBack, onStep }: { p: Staff; pos: { i: number; n:
 
     {p.app_role !== 'buero' && <div className="mt-10 pt-6 border-t border-line"><PersonPerformance key={p.id} person={p} /></div>}
 
-    {!self && (office || p.app_role !== 'buero') && <div className="mt-10 pt-5 border-t border-line flex items-center gap-3 text-[14px]">
+    {!self && canEditProfile && <div className="mt-10 pt-5 border-t border-line flex items-center gap-3 text-[14px]">
       <button onClick={async () => { if (!confirm(p.active ? `${p.first} ${p.last} deaktivieren? Sie kann sich dann nicht mehr anmelden. Ihr Verlauf bleibt.` : `${p.first} ${p.last} wieder aktivieren?`)) return; const r = await call({ action: 'set_active', employee_id: p.id, active: !p.active }); toast(r?.ok ? (p.active ? 'Deaktiviert' : 'Aktiviert') : 'Das hat nicht geklappt', r?.ok ? 'ok' : 'error'); await reload() }} className={btn2}>{p.active ? 'Deaktivieren' : 'Wieder aktivieren'}</button>
       {office && <button onClick={async () => { if (!confirm(`${p.first} ${p.last} endgültig löschen? Profil, Lesebestätigungen, Quiz-Ergebnisse und Login werden entfernt. Meldungen und Nachweise behalten ihren Namen. Das lässt sich nicht rückgängig machen.`)) return; const r = await call({ action: 'delete', employee_id: p.id }); toast(r?.ok ? 'Gelöscht' : 'Löschen hat nicht geklappt', r?.ok ? 'ok' : 'error'); if (r?.ok) { onBack(); await reload() } }} className="h-10 px-4 rounded-[10px] text-alert/80 hover:text-alert hover:bg-alert/5 transition">Endgültig löschen</button>}
       <span className="ml-auto"><InfoTip side="left" text="Deaktivierte Personen können sich nicht mehr anmelden, ihr Verlauf bleibt. Löschen kann nur das Büro." /></span>
@@ -219,11 +262,18 @@ function PersonPage({ p, pos, onBack, onStep }: { p: Staff; pos: { i: number; n:
 
 /** Rolle einer Person ändern (nur Büro, nie die eigene). Was jede Rolle darf: Einstellungen → Rollen. */
 export function RoleSelect({ p }: { p: Staff }) {
-  const { reload } = useApp()
+  const { reload, me } = useApp()
+  const [busy, setBusy] = useState(false), flight = useRef(false)
   const set = async (v: string) => {
-    if (v === p.app_role || !confirm(`${p.first} ${p.last} bekommt die Rolle ${ROLE[v]}. Fortfahren?`)) return
-    const r = await call({ action: 'set_role', employee_id: p.id, app_role: v })
-    toast(r?.ok ? `Rolle ist jetzt ${ROLE[v]}` : 'Das hat nicht geklappt', r?.ok ? 'ok' : 'error'); await reload()
+    const scope = captureAccountScope(me.id)
+    if (!scope || flight.current || me.app_role !== 'buero' || p.id === me.id || v === p.app_role || !confirm(`${p.first} ${p.last} bekommt die Rolle ${ROLE[v]}. Fortfahren?`)) return
+    flight.current = true; setBusy(true)
+    try {
+      const r = await call({ action: 'set_role', employee_id: p.id, app_role: v })
+      if (!isCurrentAccountScope(scope)) return
+      toast(r?.ok ? `Rolle ist jetzt ${ROLE[v]}` : 'Das hat nicht geklappt', r?.ok ? 'ok' : 'error'); await reload()
+    } catch { if (isCurrentAccountScope(scope)) toast('Das hat nicht geklappt', 'error') }
+    finally { flight.current = false; if (isCurrentAccountScope(scope)) setBusy(false) }
   }
-  return <Select compact className="w-44" value={p.app_role} onChange={set} options={Object.entries(ROLE).map(([value, label]) => ({ value, label }))} />
+  return <Select compact className="w-44" disabled={busy || me.app_role !== 'buero' || p.id === me.id} value={p.app_role} onChange={set} options={Object.entries(ROLE).map(([value, label]) => ({ value, label }))} />
 }

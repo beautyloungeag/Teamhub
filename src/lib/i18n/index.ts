@@ -5,9 +5,10 @@ import common from './common'
 import mobile from './mobile'
 import calendar from './calendar'
 import login from './login'
+import chat from './chat'
 
 export type Lang = 'DE' | 'EN' | 'FR'
-export const DICT: Record<string, [string, string]> = { ...common, ...mobile, ...calendar, ...login }
+export const DICT: Record<string, [string, string]> = { ...common, ...mobile, ...calendar, ...login, ...chat }
 
 let current: Lang = 'DE'
 export const setCurrentLang = (l: Lang) => { current = l; try { localStorage.setItem('th-lang', l); document.documentElement.lang = l.toLowerCase() } catch { /* privat */ } }

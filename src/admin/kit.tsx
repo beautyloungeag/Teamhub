@@ -6,6 +6,7 @@ import { toast } from '../Toast'
 import { tr } from '../lib/i18n'
 import { supabase } from '../lib/supabase'
 import type { Staff } from '../store'
+import { isTestAccount, staffInBranch } from '../lib/admin-audience'
 import { TONE, type Tone } from '../tones'
 import { Donut } from './charts'
 
@@ -30,10 +31,11 @@ export const btn2 = 'h-10 px-4 rounded-[10px] bg-sage-50 hover:bg-sage-100 trans
 export const Err = ({ m }: { m: string }) => m ? <p className="text-[13px] text-alert">{m}</p> : null
 // Neue oder geänderte Inhalte sofort übersetzen lassen (sonst übernimmt der 10-Minuten-Takt)
 export const retranslate = () => { supabase?.functions.invoke('translate', { body: { action: 'sync' } }) }
-// Testkonten der Entwicklung zählen in Zielgruppen, Quoten und Ranglisten nicht mit
-export const real = (s: Staff) => s.active && !/@aleksa\.ai$/i.test(s.email)
-export const isTest = (s: Staff) => /@aleksa\.ai$/i.test(s.email)
-export const inBranch = (s: Staff, b: string) => s.branch_id === b || (s.extra ?? []).includes(b)
+// Breite Standardstatistiken schliessen Testkonten aus. Explizite Zielgruppen
+// und bestehende Teilnahmen verwenden die Regeln in admin-audience.
+export const real = (s: Staff) => s.active && !isTestAccount(s)
+export const isTest = isTestAccount
+export const inBranch = staffInBranch
 
 /** Kleines (i) mit Erklärung beim Darüberfahren statt eines Textblocks. */
 export function InfoTip({ text, side = 'bottom' }: { text: string; side?: 'bottom' | 'left' }) {

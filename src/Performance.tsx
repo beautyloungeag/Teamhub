@@ -1,3 +1,4 @@
+import { captureAccountScope, isCurrentAccountScope, onAccountScopeChange } from './lib/account-scope'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ArrowDownRight, ArrowUpRight, Star, Target, Trash2 } from 'lucide-react'
 import { useApp, isoDay, addDays, type Staff } from './store'
@@ -40,15 +41,20 @@ export function period(k: PeriodKey): { from: string; to: string } {
 export const PERIODS: [PeriodKey, string][] = [['week', 'Diese Woche'], ['lastweek', 'Letzte Woche'], ['month', 'Dieser Monat'], ['lastmonth', 'Letzter Monat'], ['q', 'Letzte 90 Tage']]
 
 const cache = new Map<string, Promise<Perf>>()
+const cacheTimers = new Map<string, ReturnType<typeof setTimeout>>()
+onAccountScopeChange(() => { cache.clear(); for (const timer of cacheTimers.values()) clearTimeout(timer); cacheTimers.clear() })
 export function loadPerf(body: Record<string, unknown>) {
-  const key = JSON.stringify(body)
-  if (!cache.has(key)) { const p = phorest<Perf>({ action: 'performance', ...body }); cache.set(key, p); p.then(r => { if (!r?.ok) cache.delete(key) }); setTimeout(() => cache.delete(key), 5 * 60_000) }
+  const scope = captureAccountScope()
+  if (!scope) return Promise.resolve({ ok: false, error: 'session_changed' } as Perf)
+  const key = scope.version + ':' + JSON.stringify(body)
+  if (!cache.has(key)) { const p = phorest<Perf>({ action: 'performance', ...body }).then(r => isCurrentAccountScope(scope) ? r : { ok: false, error: 'session_changed' } as Perf).catch(() => ({ ok: false, error: 'phorest_unavailable' } as Perf)); cache.set(key, p); p.then(r => { if (!r?.ok) cache.delete(key) }); cacheTimers.set(key, setTimeout(() => { cache.delete(key); cacheTimers.delete(key) }, 5 * 60_000)) }
   return cache.get(key)!
 }
 export function usePerf(body: Record<string, unknown> | null) {
   const [r, setR] = useState<Perf | null>(null)
-  const key = body ? JSON.stringify(body) : ''
-  useEffect(() => { if (!body) return; let alive = true; setR(null); loadPerf(body).then(x => { if (alive) setR(x) }); return () => { alive = false } }, [key]) // eslint-disable-line react-hooks/exhaustive-deps
+  const scope = captureAccountScope()
+  const key = scope?.version + ':' + (body ? JSON.stringify(body) : '')
+  useEffect(() => { if (!body) return; let alive = true; setR(null); loadPerf(body).then(x => { if (alive && isCurrentAccountScope(scope)) setR(x) }); return () => { alive = false } }, [key]) // eslint-disable-line react-hooks/exhaustive-deps
   return r
 }
 

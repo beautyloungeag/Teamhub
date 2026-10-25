@@ -1,6 +1,8 @@
 import { scrollInPane } from './lib/mobile-viewport'
 import { ViewportOverlay } from './ViewportOverlay'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { captureAccountScope, isCurrentAccountScope, onAccountScopeChange } from './lib/account-scope'
+import { ChatTimeline, type ChatMessage } from './lib/chat-timeline'
 import { ChevronLeft, ChevronRight, SquarePen, Send, Users, Search, Check, X } from 'lucide-react'
 import { supabase } from './lib/supabase'
 import { useApp, type Staff } from './store'
@@ -16,24 +18,41 @@ import { toast } from './Toast'
 // Marc steht oben angeheftet, damit der Assistent ein eigener Eintrag bleibt.
 type Room = { id: string; kind: 'studio' | 'team' | 'direkt' | 'gruppe'; branch_id: string | null; title: string | null; last_message_at: string }
 type Member = { room_id: string; employee_id: string; last_read_at: string }
-type Msg = { id: string; room_id: string; sender_id: string; body: string; created_at: string }
+type Msg = ChatMessage
 export type ChatSummary = { room: Room; members: string[]; last: Msg | null; unread: boolean }
 
 export async function loadChatSummaries(meId: string): Promise<ChatSummary[]> {
-  if (!supabase) return []
-  const { data: rooms } = await supabase.from('chat_rooms').select('id, kind, branch_id, title, last_message_at').order('last_message_at', { ascending: false })
-  const ids = (rooms ?? []).map(r => r.id)
-  if (!ids.length) return []
-  const [{ data: mem }, { data: msgs }] = await Promise.all([
-    supabase.from('chat_members').select('room_id, employee_id, last_read_at').in('room_id', ids),
-    supabase.from('chat_messages').select('id, room_id, sender_id, body, created_at').in('room_id', ids).order('created_at', { ascending: false }).limit(300),
-  ])
-  return (rooms as Room[]).map(room => {
-    const ms = ((mem ?? []) as Member[]).filter(m => m.room_id === room.id)
-    const last = ((msgs ?? []) as Msg[]).find(m => m.room_id === room.id) ?? null
-    const mine = ms.find(m => m.employee_id === meId)
-    return { room, members: ms.map(m => m.employee_id), last, unread: !!last && last.sender_id !== meId && (!mine || last.created_at > mine.last_read_at) }
-  })
+  const scope = captureAccountScope(meId)
+  if (!supabase || !scope) throw new Error('chat_session_unavailable')
+  const rooms: Room[] = []
+  for (let offset = 0; ; offset += 100) {
+    const result = await supabase.from('chat_rooms').select('id, kind, branch_id, title, last_message_at').order('last_message_at', { ascending: false }).range(offset, offset + 99).abortSignal(scope.signal)
+    if (!isCurrentAccountScope(scope)) throw new Error('chat_session_changed')
+    if (result.error) throw result.error
+    const batch = (result.data ?? []) as Room[]
+    rooms.push(...batch)
+    if (batch.length < 100) break
+  }
+  const summaries = new Map<string, ChatSummary>()
+  let cursor = 0
+  // Latest message is fetched per room. A busy room cannot evict a quiet room's
+  // last message/unread state from a global 300-row window.
+  await Promise.all(Array.from({ length: Math.min(4, rooms.length) }, async () => {
+    while (cursor < rooms.length) {
+      const room = rooms[cursor++]
+      const [members, messages] = await Promise.all([
+        supabase!.from('chat_members').select('room_id, employee_id, last_read_at').eq('room_id', room.id).abortSignal(scope.signal),
+        supabase!.from('chat_messages').select('id, room_id, sender_id, body, created_at').eq('room_id', room.id).order('created_at', { ascending: false }).order('id', { ascending: false }).limit(1).abortSignal(scope.signal),
+      ])
+      if (!isCurrentAccountScope(scope)) throw new Error('chat_session_changed')
+      if (members.error || messages.error) throw members.error ?? messages.error
+      const ms = (members.data ?? []) as Member[], last = (messages.data?.[0] as Msg | undefined) ?? null
+      const mine = ms.find(m => m.employee_id === meId)
+      summaries.set(room.id, { room, members: ms.map(m => m.employee_id), last, unread: !!last && last.sender_id !== meId && (!mine || last.created_at > mine.last_read_at) })
+    }
+  }))
+  if (!isCurrentAccountScope(scope)) throw new Error('chat_session_changed')
+  return rooms.map(room => summaries.get(room.id)!)
 }
 
 /** Ungelesene Team-Chats (für den Punkt in der Navigation), alle 60 s neu */
@@ -41,15 +60,30 @@ export function useChatUnread() {
   const { me } = useApp()
   const [n, setN] = useState(0)
   useEffect(() => {
-    if (!me.id) return
-    let live = true
-    const tick = () => { void refreshChatBadge(); return loadChatSummaries(me.id).then(s => { if (live) setN(s.filter(x => x.unread).length) }) }
-    tick(); const iv = setInterval(tick, 30000)
-    const visible = () => { if (document.visibilityState === 'visible') tick() }
+    const scope = captureAccountScope(me.id)
+    if (!scope) return
+    let live = true, running = false, again = false
+    const current = () => live && isCurrentAccountScope(scope)
+    const tick = async () => {
+      if (!current()) return
+      if (running) { again = true; return }
+      running = true
+      try {
+        const rows = await loadChatSummaries(me.id)
+        if (current()) { setN(rows.filter(x => x.unread).length); void refreshChatBadge() }
+      } catch { /* Keep last confirmed count; ChatHub exposes retry/errors. */ }
+      finally { running = false; if (again && current()) { again = false; void tick() } }
+    }
+    void tick(); const iv = setInterval(tick, 30000)
+    const visible = () => { if (document.visibilityState === 'visible') void tick() }
     document.addEventListener('visibilitychange', visible)
-    const ch = supabase?.channel(`chat-unread-${me.id}`).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages' }, () => { tick(); window.dispatchEvent(new Event('th-chat-change')) }).subscribe()
-    const on = () => tick(); window.addEventListener('th-chat-read', on)
-    return () => { live = false; clearInterval(iv); window.removeEventListener('th-chat-read', on); document.removeEventListener('visibilitychange', visible); if (ch) supabase?.removeChannel(ch) }
+    const ch = supabase?.channel(`chat-unread-${scope.version}`).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages' }, () => {
+      if (!current()) return
+      void tick(); window.dispatchEvent(new Event('th-chat-change'))
+    }).subscribe(status => { if (status === 'SUBSCRIBED' && current()) void tick() })
+    const on = () => { void tick() }; window.addEventListener('th-chat-read', on)
+    const stop = onAccountScopeChange(() => { if (!current()) setN(0) })
+    return () => { live = false; stop(); clearInterval(iv); window.removeEventListener('th-chat-read', on); document.removeEventListener('visibilitychange', visible); if (ch) void supabase?.removeChannel(ch) }
   }, [me.id])
   return n
 }
@@ -72,14 +106,26 @@ function roomName(r: Room, members: string[], staff: Staff[], meId: string, t: (
 export function ChatHub({ onOpenMarc, onOpenRoom }: { onOpenMarc: () => void; onOpenRoom: (id: string) => void }) {
   const { me, staff, branches, t, privateChats } = useApp()
   const [list, setList] = useState<ChatSummary[] | null>(null)
-  const [picking, setPicking] = useState(false)
+  const [picking, setPicking] = useState(false), [loadError, setLoadError] = useState(false)
   const bname = (id: string) => branches.find(b => b.id === id)?.name ?? id
   useEffect(() => {
-    let live = true
-    const load = () => loadChatSummaries(me.id).then(rows => { if (live) setList(rows) })
+    const scope = captureAccountScope(me.id)
+    if (!scope) return
+    let live = true, running = false, again = false
+    const current = () => live && isCurrentAccountScope(scope)
+    const load = async () => {
+      if (!current()) return
+      if (running) { again = true; return }
+      running = true
+      try { const rows = await loadChatSummaries(me.id); if (current()) { setList(rows); setLoadError(false) } }
+      catch { if (current()) setLoadError(true) }
+      finally { running = false; if (again && current()) { again = false; void load() } }
+    }
     const visible = () => { if (document.visibilityState === 'visible') void load() }
+    const stop = onAccountScopeChange(() => { if (!current()) setList(null) })
     void load(); window.addEventListener('th-chat-change', load); window.addEventListener('th-chat-read', load); document.addEventListener('visibilitychange', visible)
-    return () => { live = false; window.removeEventListener('th-chat-change', load); window.removeEventListener('th-chat-read', load); document.removeEventListener('visibilitychange', visible) }
+    const timer = setInterval(load, 30000)
+    return () => { live = false; stop(); clearInterval(timer); window.removeEventListener('th-chat-change', load); window.removeEventListener('th-chat-read', load); document.removeEventListener('visibilitychange', visible) }
   }, [me.id])
   // Studio-Räume erst, eigene zuerst; danach nach letzter Nachricht
   const sorted = useMemo(() => [...(list ?? [])].filter(x => privateChats || x.room.kind === 'studio' || x.room.kind === 'team').sort((a, b) => {
@@ -100,7 +146,8 @@ export function ChatHub({ onOpenMarc, onOpenRoom }: { onOpenMarc: () => void; on
           <ChevronRight size={18} className="text-sage-400 shrink-0" />
         </button>
         <div className="rounded-[20px] bg-white overflow-hidden divide-y divide-line">
-          {!list && <p className="px-4 py-4 text-[15.5px] text-mute">{t('Lädt …')}</p>}
+          {loadError && <p role="alert" className="px-4 py-4 text-[15px] text-alert">{t('Chats konnten nicht geladen werden.')} <button onClick={() => window.dispatchEvent(new Event('th-chat-change'))} className="underline underline-offset-2">{t('Erneut versuchen')}</button></p>}
+          {!list && !loadError && <p className="px-4 py-4 text-[15.5px] text-mute">{t('Lädt …')}</p>}
           {sorted.map(s => { const o = other(s), name = roomName(s.room, s.members, staff, me.id, t, bname)
             const sender = s.last && s.last.sender_id !== me.id ? staff.find(x => x.id === s.last!.sender_id)?.first : null
             return <button key={s.room.id} onClick={() => onOpenRoom(s.room.id)} className="w-full px-4 py-3.5 flex items-center gap-3 text-left">
@@ -114,7 +161,10 @@ export function ChatHub({ onOpenMarc, onOpenRoom }: { onOpenMarc: () => void; on
         </div>
       </div>
       {picking && <PeoplePicker onClose={() => setPicking(false)} onStart={async (ids, title) => {
-        const { data, error } = await supabase!.rpc('start_chat', { p_people: ids, p_title: title || null })
+        const scope = captureAccountScope(me.id)
+        if (!scope) return
+        const { data, error } = await supabase!.rpc('start_chat', { p_people: ids, p_title: title || null }).abortSignal(scope.signal)
+        if (!isCurrentAccountScope(scope)) return
         if (error || !data) { toast(t('Das hat nicht geklappt'), 'error'); return }
         setPicking(false); onOpenRoom(data as string)
       }} />}
@@ -141,7 +191,7 @@ function PeoplePicker({ onClose, onStart }: { onClose: () => void; onStart: (ids
         </div></div>
         <div className="px-5 pt-2 pb-7 space-y-2 border-t border-line bg-paper">
           {sel.length > 1 && <input value={title} onChange={e => setTitle(e.target.value)} placeholder={t('Name der Gruppe (optional)')} className="w-full h-11 rounded-2xl bg-white px-4 text-[17px] outline-none placeholder:text-mute" />}
-          <button disabled={!sel.length || busy} onClick={async () => { setBusy(true); await onStart(sel, title.trim()); setBusy(false) }} className="w-full h-12 rounded-2xl bg-olive-700 text-white font-medium disabled:opacity-50">
+          <button disabled={!sel.length || busy} onClick={async () => { const scope = captureAccountScope(me.id); if (!scope || busy) return; setBusy(true); try { await onStart(sel, title.trim()) } catch { if (isCurrentAccountScope(scope)) toast(t('Das hat nicht geklappt'), 'error') } finally { if (isCurrentAccountScope(scope)) setBusy(false) } }} className="w-full h-12 rounded-2xl bg-olive-700 text-white font-medium disabled:opacity-50">
             {sel.length > 1 ? t('Gruppe mit {n} Personen starten', { n: sel.length }) : t('Chat starten')}</button>
         </div>
       </div>
@@ -150,58 +200,161 @@ function PeoplePicker({ onClose, onStart }: { onClose: () => void; onStart: (ids
 }
 
 export function ChatRoom({ id, onBack }: { id: string; onBack: () => void }) {
-  const messagesPane = useRef<HTMLDivElement>(null)
-  const input = useRef<HTMLTextAreaElement>(null)
-  useEffect(() => {
-    const pane = messagesPane.current
-    if (!pane) return
-    const observer = new ResizeObserver(() => scrollInPane(pane, end.current, 'end'))
-    observer.observe(pane)
-    return () => observer.disconnect()
-  }, [])
+  const { me } = useApp()
+  const version = useSyncExternalStore(onAccountScopeChange, () => captureAccountScope(me.id)?.version ?? -1)
+  if (version < 0) return null
+  return <ChatRoomSession key={`${version}:${id}`} id={id} onBack={onBack} />
+}
+
+function ChatRoomSession({ id, onBack }: { id: string; onBack: () => void }) {
   const { me, staff, branches, t } = useApp()
-  const [roomReady, setRoomReady] = useState(false)
+  const messagesPane = useRef<HTMLDivElement>(null), input = useRef<HTMLTextAreaElement>(null), end = useRef<HTMLDivElement>(null), roomRoot = useRef<HTMLDivElement>(null)
+  const [roomReady, setRoomReady] = useState(false), [readReady, setReadReady] = useState(false)
   const [room, setRoom] = useState<Room | null>(null), [members, setMembers] = useState<string[]>([])
   const [msgs, setMsgs] = useState<Msg[] | null>(null)
   const [text, setText] = useState(''), [busy, setBusy] = useState(false)
+  const [loadError, setLoadError] = useState(false), [connectionError, setConnectionError] = useState(false), [sendError, setSendError] = useState(false), [readError, setReadError] = useState(false), [newBelow, setNewBelow] = useState(false)
+  const atBottom = useRef(true), sending = useRef(false), rendered = useRef<Msg[]>([])
+  const uncertainSend = useRef<{ id: string; body: string } | null>(null)
+  const life = useRef<{ current: () => boolean; reload: () => Promise<void>; receive: (m: Msg) => void; queueRead: () => void; signal: AbortSignal } | null>(null)
   useEffect(() => { const area = input.current; if (area) { area.style.height = 'auto'; area.style.height = Math.min(area.scrollHeight, 144) + 'px' } }, [text])
-  const end = useRef<HTMLDivElement>(null), roomRoot = useRef<HTMLDivElement>(null)
-  const markRead = () => { if (document.visibilityState !== 'visible' || !roomRoot.current?.getClientRects().length) return; return supabase?.from('chat_members').upsert({ room_id: id, employee_id: me.id, last_read_at: new Date().toISOString() }).then(({ error }) => { if (!error) window.dispatchEvent(new Event('th-chat-read')) }) }
+
   useEffect(() => {
-    if (!supabase) return
-    setRoomReady(false); setRoom(null)
-    supabase.from('chat_rooms').select('id, kind, branch_id, title, last_message_at').eq('id', id).maybeSingle().then(({ data }) => { setRoom(data as Room | null); setRoomReady(true) })
-    supabase.from('chat_members').select('employee_id').eq('room_id', id).then(({ data }) => setMembers((data ?? []).map(x => x.employee_id)))
-    let live = true, loading = false
-    const load = async () => {
-      if (loading) return
-      loading = true
-      try {
-        const { data, error } = await supabase!.from('chat_messages').select('id, room_id, sender_id, body, created_at').eq('room_id', id).order('created_at', { ascending: false }).limit(200)
-        if (!live || error) return
-        setMsgs(current => [...new Map([...(current ?? []), ...((data ?? []) as Msg[])].map(m => [m.id, m])).values()].sort((a, b) => a.created_at.localeCompare(b.created_at)).slice(-200))
-        markRead()
-      } finally { loading = false }
+    const scope = captureAccountScope(me.id)
+    if (!supabase || !scope) return
+    const controller = new AbortController(), timeline = new ChatTimeline()
+    let live = true, loading = false, rerun = false, snapshotReady = false, readFrame = 0
+    let reading = false, wantedRead: Msg | null = null, acknowledged: Msg | null = null
+    const current = () => live && !controller.signal.aborted && isCurrentAccountScope(scope)
+    const abort = () => controller.abort()
+    scope.signal.addEventListener('abort', abort, { once: true })
+    const displayed = () => {
+      const pane = messagesPane.current, root = roomRoot.current
+      if (!current() || !snapshotReady || document.visibilityState !== 'visible' || !root?.getClientRects().length || root.closest('[inert]') || !pane) return null
+      const bounds = pane.getBoundingClientRect()
+      const visible = [...pane.querySelectorAll<HTMLElement>('[data-chat-message-id]')].reverse().find(node => {
+        const r = node.getBoundingClientRect()
+        return r.height > 0 && r.bottom > bounds.top && r.top < bounds.bottom
+      })
+      return rendered.current.find(message => message.id === visible?.dataset.chatMessageId) ?? null
     }
-    setMsgs(null); void load()
-    const ch = supabase.channel('chat-' + id).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages', filter: `room_id=eq.${id}` }, p => {
-      const m = p.new as Msg
-      setMsgs(x => x && !x.some(y => y.id === m.id) ? [...x, m] : x); markRead()
-    }).subscribe()
+    const acknowledge = async () => {
+      if (reading) return
+      reading = true
+      try {
+        while (wantedRead && current()) {
+          const message = wantedRead; wantedRead = null
+          if (!snapshotReady || (acknowledged && (message.id === acknowledged.id || Date.parse(message.created_at) < Date.parse(acknowledged.created_at)))) continue
+          const { error } = await supabase!.rpc('mark_chat_read', { p_room: id, p_message: message.id }).abortSignal(controller.signal)
+          if (!current()) return
+          if (error) { setReadError(true); break }
+          acknowledged = message; setReadError(false)
+          window.dispatchEvent(new Event('th-chat-read'))
+        }
+      } catch { if (current()) setReadError(true) }
+      finally { reading = false }
+    }
+    const queueRead = () => {
+      if (!current() || readFrame) return
+      readFrame = requestAnimationFrame(() => {
+        readFrame = 0
+        const message = displayed()
+        if (message) { wantedRead = message; void acknowledge() }
+      })
+    }
+    const receive = (message: Msg) => {
+      if (!current() || message.room_id !== id) return
+      const rows = timeline.upsert(message)
+      if (rows) { setMsgs(rows); if (!atBottom.current) setNewBelow(true) }
+      // No read acknowledgement here: React must commit and expose the bubble first.
+    }
+    const load = async () => {
+      if (!current()) return
+      if (loading) { rerun = true; return }
+      loading = true; snapshotReady = false; setReadReady(false)
+      const startedAt = timeline.beginSnapshot(), request = new AbortController()
+      const cancel = () => request.abort()
+      controller.signal.addEventListener('abort', cancel, { once: true })
+      const timeout = window.setTimeout(cancel, 15000)
+      try {
+        const [r, people, messages] = await Promise.all([
+          supabase!.from('chat_rooms').select('id, kind, branch_id, title, last_message_at').eq('id', id).abortSignal(request.signal).maybeSingle(),
+          supabase!.from('chat_members').select('employee_id').eq('room_id', id).abortSignal(request.signal),
+          supabase!.from('chat_messages').select('id, room_id, sender_id, body, created_at').eq('room_id', id).order('created_at', { ascending: false }).order('id', { ascending: false }).limit(200).abortSignal(request.signal),
+        ])
+        if (!current()) return
+        if (r.error || people.error || messages.error) throw r.error ?? people.error ?? messages.error
+        setRoomReady(true); setRoom(r.data as Room | null)
+        if (!r.data) { setMsgs([]); setMembers([]); setLoadError(false); return }
+        setMembers((people.data ?? []).map(x => x.employee_id))
+        setMsgs(timeline.acceptSnapshot((messages.data ?? []) as Msg[], startedAt))
+        snapshotReady = true; setReadReady(true); setLoadError(false)
+      } catch { if (current()) setLoadError(true) }
+      finally {
+        window.clearTimeout(timeout); controller.signal.removeEventListener('abort', cancel); loading = false
+        if (rerun && current()) { rerun = false; void load() }
+      }
+    }
+    life.current = { current, reload: load, receive, queueRead, signal: controller.signal }
+    const channel = supabase.channel(`chat-${scope.version}-${id}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages', filter: `room_id=eq.${id}` }, payload => receive(payload.new as Msg))
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'chat_messages', filter: `room_id=eq.${id}` }, payload => receive(payload.new as Msg))
+      .subscribe(status => {
+        if (!current()) return
+        if (status === 'SUBSCRIBED') { setConnectionError(false); void load() }
+        else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') { snapshotReady = false; setReadReady(false); setConnectionError(true) }
+      })
+    if (!loading) void load()
     const visible = () => { if (document.visibilityState === 'visible') void load() }
-    const observer = new IntersectionObserver(entries => { if (entries.some(e => e.isIntersecting)) void load() })
+    const observer = new IntersectionObserver(entries => { if (entries.some(entry => entry.isIntersecting)) void load() })
     if (roomRoot.current) observer.observe(roomRoot.current)
     document.addEventListener('visibilitychange', visible)
-    return () => { live = false; observer.disconnect(); document.removeEventListener('visibilitychange', visible); supabase!.removeChannel(ch) }
-  }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { scrollInPane(messagesPane.current, end.current, 'end') }, [msgs?.length])
+    const interval = window.setInterval(() => { if (document.visibilityState === 'visible' && roomRoot.current?.getClientRects().length) void load() }, 30000)
+    return () => {
+      live = false; controller.abort(); scope.signal.removeEventListener('abort', abort); life.current = null
+      if (readFrame) cancelAnimationFrame(readFrame)
+      window.clearInterval(interval); observer.disconnect(); document.removeEventListener('visibilitychange', visible); void supabase!.removeChannel(channel)
+    }
+  }, [id, me.id])
+
+  useEffect(() => { rendered.current = msgs ?? []; life.current?.queueRead() }, [msgs, readReady])
+  useEffect(() => { if (atBottom.current) scrollInPane(messagesPane.current, end.current, 'end') }, [msgs?.length])
+  useEffect(() => {
+    const pane = messagesPane.current
+    if (!pane) return
+    const observer = new ResizeObserver(() => { if (atBottom.current) scrollInPane(pane, end.current, 'end'); life.current?.queueRead() })
+    observer.observe(pane)
+    return () => observer.disconnect()
+  }, [])
+  const scroll = () => {
+    const pane = messagesPane.current
+    if (pane) { atBottom.current = pane.scrollHeight - pane.scrollTop - pane.clientHeight < 48; if (atBottom.current) setNewBelow(false) }
+    life.current?.queueRead()
+  }
   const send = async () => {
-    const body = text.trim(); if (!body || !supabase) return
-    setBusy(true)
-    const { data, error } = await supabase.from('chat_messages').insert({ room_id: id, sender_id: me.id, body }).select('id, room_id, sender_id, body, created_at').single()
-    setBusy(false)
-    if (error) { toast(t('Senden hat nicht geklappt'), 'error'); return }
-    setText(''); setMsgs(x => x && !x.some(y => y.id === data.id) ? [...x, data as Msg] : x)
+    const body = text.trim(), active = life.current
+    if (sending.current || !body || !supabase || !room || msgs === null || !active?.current()) return
+    sending.current = true; setBusy(true); setSendError(false)
+    const attempt = uncertainSend.current?.body === body ? uncertainSend.current : { id: crypto.randomUUID(), body }
+    uncertainSend.current = attempt
+    try {
+      const result = await supabase.from('chat_messages').insert({ id: attempt.id, room_id: id, sender_id: me.id, body }).select('id, room_id, sender_id, body, created_at').abortSignal(active.signal).single()
+      if (!active.current()) return
+      let message = result.data as Msg | null
+      if (result.error) {
+        // A lost acknowledgement may mean the insert already succeeded. Reusing
+        // the same message id makes retry idempotent; verify its owned contents.
+        const check = await supabase.from('chat_messages').select('id, room_id, sender_id, body, created_at').eq('id', attempt.id).abortSignal(active.signal).maybeSingle()
+        if (!active.current()) return
+        message = check.data as Msg | null
+        if (check.error || !message || message.room_id !== id || message.sender_id !== me.id || message.body !== body) throw result.error
+      }
+      if (!message) throw new Error('missing_message')
+      uncertainSend.current = null; atBottom.current = true; setNewBelow(false); active.receive(message)
+      setText(value => value.trim() === body ? '' : value)
+      window.dispatchEvent(new Event('th-chat-change'))
+    } catch { if (active.current()) setSendError(true) }
+    finally { sending.current = false; if (active.current()) setBusy(false) }
   }
   const name = room ? roomName(room, members, staff, me.id, t, b => branches.find(x => x.id === b)?.name ?? b) : ''
   const sub = room?.kind === 'team' ? t('Alle Studios') : room?.kind === 'studio' ? t('Alle im Studio') : members.length > 2 ? t('{n} Personen', { n: members.length }) : ''
@@ -213,9 +366,10 @@ export function ChatRoom({ id, onBack }: { id: string; onBack: () => void }) {
         <button onClick={onBack} className="h-11 px-1 flex items-center gap-0.5 text-sage-800 text-[17px]"><ChevronLeft size={22} />{t('Chats')}</button>
         <div className="flex-1 min-w-0 text-center pr-16"><p className="text-[17px] font-semibold truncate">{name}</p>{sub && <p className="text-[13px] text-mute">{sub}</p>}</div>
       </div>
-      <div ref={messagesPane} className="min-h-0 flex-1 overflow-y-auto no-scrollbar bg-sage-50">
+      <div ref={messagesPane} onScroll={scroll} className="min-h-0 flex-1 overflow-y-auto no-scrollbar bg-sage-50">
         <div className="max-w-[760px] mx-auto px-4 py-4 space-y-1.5">
-          {msgs === null && <p className="text-mute text-[15.5px]">{t('Lädt …')}</p>}
+          {(loadError || connectionError || readError) && <p role="alert" className="mb-3 text-[14px] text-alert">{t(loadError ? 'Nachrichten konnten nicht geladen werden.' : connectionError ? 'Die Chatverbindung wird wiederhergestellt.' : 'Der Lesestatus konnte nicht aktualisiert werden.')} <button onClick={() => void life.current?.reload()} className="underline underline-offset-2">{t('Erneut versuchen')}</button></p>}
+          {msgs === null && !loadError && <p className="text-mute text-[15.5px]">{t('Lädt …')}</p>}
           {msgs?.length === 0 && <p className="text-center text-[15.5px] text-mute pt-10">{t('Schreib die erste Nachricht.')}</p>}
           {msgs?.map((m, i) => { const mine = m.sender_id === me.id, s = staff.find(x => x.id === m.sender_id), prev = msgs[i - 1]
             const newDay = !prev || new Date(prev.created_at).toDateString() !== new Date(m.created_at).toDateString()
@@ -224,7 +378,7 @@ export function ChatRoom({ id, onBack }: { id: string; onBack: () => void }) {
               {newDay && <p className="text-center text-[13px] text-mute py-2">{day(m.created_at)}</p>}
               <div className={`flex items-end gap-2 ${mine ? 'justify-end' : ''} ${showName ? 'pt-2' : ''}`}>
                 {!mine && <span className="w-8 shrink-0">{showName && s && <Avatar s={s} photo={s.photo} size="w-8 h-8 text-[12px]" />}</span>}
-                <div className={`max-w-[78%] rounded-[18px] px-3.5 py-2.5 ${mine ? 'bg-olive-700 text-white rounded-br-[6px]' : 'bg-white rounded-bl-[6px]'}`}>
+                <div data-chat-message-id={m.id} className={`max-w-[78%] rounded-[18px] px-3.5 py-2.5 ${mine ? 'bg-olive-700 text-white rounded-br-[6px]' : 'bg-white rounded-bl-[6px]'}`}>
                   {showName && room?.kind !== 'direkt' && <p className="text-[13px] font-semibold text-studio mb-0.5">{s ? `${s.first} ${s.last}` : t('Ehemalige Person')}</p>}
                   <p className="text-[17px] leading-snug whitespace-pre-wrap break-words">{m.body}</p>
                   <p className={`text-[12px] mt-1 text-right ${mine ? 'text-white/70' : 'text-mute'}`}>{new Intl.DateTimeFormat(locale(), { hour: '2-digit', minute: '2-digit' }).format(new Date(m.created_at))}</p>
@@ -234,12 +388,14 @@ export function ChatRoom({ id, onBack }: { id: string; onBack: () => void }) {
           <div ref={end} />
         </div>
       </div>
+      {newBelow && <button onClick={() => { atBottom.current = true; setNewBelow(false); scrollInPane(messagesPane.current, end.current, 'end'); life.current?.queueRead() }} className="shrink-0 h-11 bg-sage-100 text-olive-800 text-[14px]">{t('Neue Nachrichten')}</button>}
       <div className="shrink-0 px-3 pt-2 pb-3 md:pb-5 bg-paper border-t border-line">
+        {sendError && <p role="alert" className="max-w-[760px] mx-auto mb-2 text-[14px] text-alert">{t('Senden wurde nicht bestätigt. Dein Entwurf bleibt erhalten. Bitte erneut versuchen.')}</p>}
         <div className="max-w-[760px] mx-auto flex items-end gap-2">
           <textarea ref={input} value={text} onChange={e => setText(e.target.value)} rows={1} aria-label={t('Nachricht')} placeholder={t('Nachricht')}
-            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && window.matchMedia('(hover: hover)').matches) { e.preventDefault(); send() } }}
+            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && window.matchMedia('(hover: hover)').matches) { e.preventDefault(); send() } }}
             className="team-chat-input flex-1 max-h-36 min-h-[46px] rounded-[22px] bg-white px-4 py-3 text-[17px] outline-none resize-none placeholder:text-mute" />
-          <button disabled={busy || !text.trim()} onClick={send} aria-label={t('Senden')} className="w-[46px] h-[46px] rounded-full bg-olive-700 text-white flex items-center justify-center disabled:opacity-40 shrink-0"><Send size={18} /></button>
+          <button disabled={busy || !text.trim() || !room || msgs === null} onClick={send} aria-label={t('Senden')} className="w-[46px] h-[46px] rounded-full bg-olive-700 text-white flex items-center justify-center disabled:opacity-40 shrink-0"><Send size={18} /></button>
         </div>
       </div>
     </div>

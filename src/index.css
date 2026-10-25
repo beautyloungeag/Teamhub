@@ -1,4 +1,9 @@
 @import "tailwindcss";
+/* Same desktop predicate as DESKTOP_MEDIA in mobile-viewport.ts. All md: layouts
+   stay mobile on a primary touch device, including landscape iPhones. */
+@custom-variant md {
+  @media (min-width: 768px) and (hover: hover) and (pointer: fine) { @slot; }
+}
 @theme {
   /* Beautylounge Design System (19.10.2026): Olive aus der Website, Stein statt Creme, Messing nur für „heute wichtig“ */
   --color-sage-50: #F5F5F2;
@@ -64,11 +69,11 @@ input[type=checkbox]{accent-color:#495940}
 .app-top-space{height:max(20px,env(safe-area-inset-top))}
 .app-bottom-nav{padding-bottom:max(10px,env(safe-area-inset-bottom))}
 .chat-app-header{padding-top:max(12px,env(safe-area-inset-top))}
-@media(max-width:767px){.teamhub-app-shell{height:var(--app-height,100dvh);padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right)}}
-@media(min-width:768px){.app-top-space{height:32px}}
+@media not all and (min-width: 768px) and (hover: hover) and (pointer: fine){.teamhub-app-shell{height:var(--app-height,100dvh);padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right)}}
+@media (min-width: 768px) and (hover: hover) and (pointer: fine){.app-top-space{height:32px}}
 
 /* Mobile has one fixed viewport; only content panes and explicit carousels scroll. */
-@media(max-width:767px){
+@media not all and (min-width: 768px) and (hover: hover) and (pointer: fine){
   html,body{width:100%;max-width:100%;height:100%;margin:0;overflow:hidden;overscroll-behavior:none}
   body{position:static}
   #root{position:absolute;inset:0;width:100%;min-width:0;max-width:100%;overflow:hidden;overscroll-behavior:none}
@@ -85,10 +90,15 @@ input[type=checkbox]{accent-color:#495940}
 
 /* Every signed-in screen and sheet shares the same visible, possibly panned
    viewport. In particular, a keyboard must not move navigation above a form. */
-@media(max-width:767px){
+@media not all and (min-width: 768px) and (hover: hover) and (pointer: fine){
   :root{--color-mute:#626d5c}
   .app-mobile-root,.app-column,.app-content-scroll,.chat-screen{min-height:0}
-  .chat-screen{overflow:hidden;overflow-wrap:anywhere}
+  /* Normally only the transcript scrolls. If a very short landscape keyboard
+     leaves less room than header + composer, retain a scrollable escape instead
+     of clipping the fixed-height controls. The model menu keeps its normal parent. */
+  .chat-screen{overflow-x:hidden;overflow-y:auto;overflow-wrap:anywhere}
+  .chat-composer-attachments{flex-wrap:nowrap;overflow-x:auto;overscroll-behavior-x:contain;max-width:100%;padding-bottom:8px}
+  .chat-composer-attachments>span{flex-shrink:0}
   .chat-screen button[aria-label]{min-width:44px;min-height:44px}
   .chat-composer-input{min-height:44px;max-height:min(168px,calc(var(--app-height,100dvh)*.28));overflow-y:auto;scroll-margin-block:12px}
   .team-chat-input{max-height:min(144px,calc(var(--app-height,100dvh)*.3));overflow-y:auto}
@@ -128,7 +138,7 @@ input[type=checkbox]{accent-color:#495940}
 
 /* Login is a native document flow, not the fixed authenticated app canvas.
    Its layout must not depend on the keyboard-adjusted --app-height. */
-@media(max-width:767px){
+@media not all and (min-width: 768px) and (hover: hover) and (pointer: fine){
   html.teamhub-login-mode{height:auto;min-height:100%;overflow-x:hidden;overflow-y:auto;overscroll-behavior-x:none}
   html.teamhub-login-mode body{position:static;inset:auto;height:auto;min-height:100%;overflow-x:hidden;overflow-y:auto;background:#fff}
   html.teamhub-login-mode #root{position:static;inset:auto;height:auto;min-height:100%;overflow:visible}

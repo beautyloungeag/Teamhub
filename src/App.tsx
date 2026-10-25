@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useState } from 'react'
-import { AppProvider } from './store'
+import { AppProvider, useApp } from './store'
 import { AuthProvider, useAuth } from './lib/auth'
 import Mobile from './Mobile'
 import Backoffice from './Backoffice'
@@ -7,24 +7,27 @@ import { startParams } from './lib/start'
 import Login from './Login'
 import { tr } from './lib/i18n'
 import { Toaster } from './Toast'
+import { DESKTOP_MEDIA } from './lib/mobile-viewport'
 
 export default function App() {
   return (
     <AuthProvider>
-      <AppProvider>
-        <Gate />
-        <Toaster />
-      </AppProvider>
+      <AccountBoundary />
     </AuthProvider>
   )
 }
 
-// Ab 768 px Breite gilt die Desktop-Ansicht (Seitenleiste statt Leiste unten, Backoffice als Startseite).
-const DESKTOP = '(min-width: 768px)'
+function AccountBoundary() {
+  const { scopeKey } = useAuth()
+  return <AppProvider key={scopeKey ?? 'signed-out'}><Gate /><Toaster /></AppProvider>
+}
+
+// Desktop requires enough width and a primary mouse/trackpad. Rotating a phone
+// must not switch the employee app into Backoffice or bypass keyboard sizing.
 function useDesktop() {
-  const [d, setD] = useState(() => window.matchMedia(DESKTOP).matches)
+  const [d, setD] = useState(() => window.matchMedia(DESKTOP_MEDIA).matches)
   useEffect(() => {
-    const m = window.matchMedia(DESKTOP); const on = () => setD(m.matches)
+    const m = window.matchMedia(DESKTOP_MEDIA); const on = () => setD(m.matches)
     m.addEventListener('change', on); return () => m.removeEventListener('change', on)
   }, [])
   return d
@@ -47,7 +50,8 @@ function LoginFrame({ children }: { children: React.ReactNode }) {
 }
 
 function Gate() {
-  const { ready, employee, orphan, offline, retry, signOut } = useAuth()
+  const { ready, employee, orphan, offline, retry } = useAuth()
+  const data = useApp()
   const desktop = useDesktop()
   // Direktlink: ?open=… zeigt die App, ?bo=… das Backoffice
   const [mode, setMode] = useState<'app' | 'office' | null>(() => startParams.has('open') ? 'app' : startParams.has('bo') ? 'office' : null)
@@ -61,9 +65,10 @@ function Gate() {
   )
   if (!employee) {
     // Angemeldet, aber nicht (mehr) freigeschaltet: sofort wieder abmelden.
-    if (orphan) signOut()
     return <LoginFrame><Login notice={orphan ? 'Dein Zugang ist nicht mehr aktiv. Bitte melde dich im Büro.' : undefined} /></LoginFrame>
   }
+  if (data?.loading) return <div className="min-h-full flex items-center justify-center text-mute">{tr('Lädt …')}</div>
+  if (data?.loadError) return <div className="min-h-full flex flex-col items-center justify-center gap-3 p-6 text-center"><p>{tr('Keine Verbindung zum TeamHub.')}</p><button onClick={() => void data.reload()} className="h-11 px-5 rounded-[10px] bg-olive-700 text-white">{tr('Erneut versuchen')}</button></div>
   // Backoffice nur für Filialleitung und Büro am Desktop (Rechte prüft zusätzlich die Datenbank per RLS).
   // Am Desktop starten sie im Backoffice, am Handy immer in der App.
   const office = employee.app_role !== 'mitarbeiterin' && desktop

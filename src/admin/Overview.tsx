@@ -1,3 +1,4 @@
+import { captureAccountScope, isCurrentAccountScope } from '../lib/account-scope'
 import { useEffect, useMemo, useState } from 'react'
 import { useApp, isoDay, addDays, appliesOn, fmtDate, fmtTime, zurichHour } from '../store'
 import { supabase } from '../lib/supabase'
@@ -14,7 +15,7 @@ const hm = (d = new Date()) => new Intl.DateTimeFormat('de-CH', { timeZone: 'Eur
 const pctChange = (a: number, b: number) => !b ? null : Math.round((a - b) / b * 100)
 
 export function Overview({ go, can }: { go: Go; can: (v: string) => boolean }) {
-  const { me, branches, staff, templates, tickets, news, newsReads, events, registrations } = useApp()
+  const { me, branches, staff, templates, tickets, news, newsReads, events, registrations, progressVersion } = useApp()
   const audience = useAudience()
   const office = me.app_role === 'buero'
   const studios = branches.filter(b => !b.is_office && (office || [me.branch_id, ...(me.extra ?? [])].includes(b.id)))
@@ -27,9 +28,9 @@ export function Overview({ go, can }: { go: Go; can: (v: string) => boolean }) {
 
   /* Checklisten der letzten 14 Tage */
   const [comps, setComps] = useState<{ item_id: string; branch_id: string; day: string }[] | null>(null)
-  useEffect(() => { let alive = true; setComps(null)
-    supabase!.from('task_completions').select('item_id, branch_id, day').gte('day', addDays(-13)).in('branch_id', ids).then(({ data }) => { if (alive) setComps(data ?? []) })
-    return () => { alive = false } }, [key]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { const account = captureAccountScope(me.id); if (!account) return; let alive = true; setComps(null)
+    supabase!.from('task_completions').select('item_id, branch_id, day').gte('day', addDays(-13)).in('branch_id', ids).abortSignal(account.signal).then(({ data, error }) => { if (alive && isCurrentAccountScope(account) && !error) setComps(data ?? []) })
+    return () => { alive = false } }, [key, me.id, progressVersion]) // eslint-disable-line react-hooks/exhaustive-deps
   const dayStats = (d: string) => {
     let total = 0, done = 0, late = 0
     for (const b of ids) for (const t of templates.filter(x => x.active && !x.proposed && appliesOn(x, d, b))) for (const it of t.items) {
@@ -78,7 +79,7 @@ export function Overview({ go, can }: { go: Go; can: (v: string) => boolean }) {
   const [team, setTeam] = useState<Record<string, TeamToday['team']> | null>(null)
   useEffect(() => { let alive = true; setTeam(null)
     Promise.all(ids.map(b => phorest<TeamToday>({ action: 'team_today', branch: b }).then(r => [b, r?.ok ? r.team : []] as const))).then(r => { if (alive) setTeam(Object.fromEntries(r)) })
-    return () => { alive = false } }, [key]) // eslint-disable-line react-hooks/exhaustive-deps
+    return () => { alive = false } }, [key, me.id, progressVersion]) // eslint-disable-line react-hooks/exhaustive-deps
 
   /* Startbereitschaft */
   const ready = studios.filter(s => ids.includes(s.id)).map(s => { const p = staff.filter(x => real(x) && inBranch(x, s.id)); return { s, n: p.length, app: p.filter(x => x.appInstalled).length, push: p.filter(x => x.pushEnabled).length } })

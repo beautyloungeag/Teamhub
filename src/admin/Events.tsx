@@ -1,14 +1,15 @@
 import { useEffect, useState } from 'react'
 import { Bell, ChevronRight, Pencil, Trash2 } from 'lucide-react'
-import { useApp, isoDay, fmtDate, fmtTime, type Ev, type Staff } from '../store'
+import { useApp, isoDay, fmtDate, fmtTime, type Ev } from '../store'
 import { supabase } from '../lib/supabase'
 import { notifyNow } from '../lib/push'
 import { downloadCsv } from '../lib/csv'
 import { Avatar } from '../People'
 import { phorest } from '../lib/phorest'
 import { toast } from '../Toast'
-import { H, New, Th, Field, inpStone, btn, btn2, Err, retranslate, real, inBranch, Seg, Modal, Chips, Back, Section, Status, Empty, DataRow } from './kit'
+import { H, New, Th, Field, inpStone, btn, btn2, Err, retranslate, isTest, Seg, Modal, Chips, Back, Section, Status, Empty, DataRow } from './kit'
 import { DonutParts, STEPS } from './charts'
+import { adminEventReport, adminPickerPeople, eventParticipantCsv } from '../lib/admin-audience'
 
 // Schulungen & Events: Liste der Termine, ein Klick öffnet die Seite des Termins mit allen Angaben,
 // den Antworten je Person und Erinnerungen an einzelne oder alle ohne Antwort.
@@ -16,17 +17,9 @@ import { DonutParts, STEPS } from './charts'
 const KINDS = ['Schulung', 'Meeting', 'Team']
 const KIND_TONE: Record<string, string> = { Schulung: 'bg-brass', Meeting: 'bg-olive-700', Team: 'bg-ok' }
 
-function useEventPeople() {
-  const { staff, me } = useApp()
-  const office = me.app_role === 'buero'
-  return (ev: Ev) => staff.filter(s => real(s) && s.branch_id !== 'buero' && (ev.audienceBranches.length === 0 || ev.audienceBranches.some(b => inBranch(s, b)))
-    && (!ev.audiencePeople.length || ev.audiencePeople.includes(s.id)) && (ev.audienceSkills.length === 0 || s.skills.some(k => ev.audienceSkills.includes(k))) && (office || [me.branch_id, ...(me.extra ?? [])].some(b => inBranch(s, b))))
-}
 function useStats() {
-  const { registrations } = useApp()
-  const audience = useEventPeople()
-  return (ev: Ev) => { const regs = registrations.filter(r => r.event_id === ev.id), aud = audience(ev)
-    return { regs, aud, yes: regs.filter(r => r.coming && !r.waitlist).length, wait: regs.filter(r => r.coming && r.waitlist).length, no: regs.filter(r => !r.coming).length, open: aud.filter(s => !regs.some(r => r.employee_id === s.id)).length } }
+  const { staff, me, registrations } = useApp()
+  return (ev: Ev) => adminEventReport(staff, me, ev, registrations)
 }
 
 export function EventsAdmin() {
@@ -51,7 +44,7 @@ export function EventsAdmin() {
             <td className="px-4 py-3"><span className="block font-display text-[22px] leading-none">{fmtDate(x.startsAt, { day: 'numeric' })}</span><span className="block text-[11.5px] text-mute uppercase tracking-wide mt-1">{fmtDate(x.startsAt, { month: 'short' })}</span></td>
             <td className="px-4"><span className="flex items-center gap-2 min-w-0"><span className={`w-2 h-2 rounded-full shrink-0 ${KIND_TONE[x.kind] ?? 'bg-sage-400'}`} /><span className="truncate font-medium">{x.title}</span></span>
               <span className="block text-[12.5px] text-mute truncate pl-4">{x.kind} · {fmtDate(x.startsAt, { weekday: 'short' })} {fmtTime(x.startsAt)}{x.endsAt ? `–${fmtTime(x.endsAt)}` : ''} · {x.link ? 'Online' : x.place || 'Ort offen'}</span></td>
-            <td className="px-4">{x.capacity ? <span className="flex items-center gap-3"><span className="flex-1 h-1.5 rounded-full bg-line overflow-hidden"><span className="block h-full rounded-full bg-olive-700" style={{ width: `${Math.min(100, st.yes / x.capacity * 100)}%` }} /></span><span className="text-[13px] tabular-nums">{st.yes}/{x.capacity}</span></span> : <span className="text-mute text-[13px]">unbegrenzt · {st.yes}</span>}</td>
+            <td className="px-4">{x.capacity ? <span className="flex items-center gap-3"><span className="flex-1 h-1.5 rounded-full bg-line overflow-hidden"><span className="block h-full rounded-full bg-olive-700" style={{ width: `${Math.min(100, x.taken / x.capacity * 100)}%` }} /></span><span className="text-[13px] tabular-nums">{x.taken}/{x.capacity}</span></span> : <span className="text-mute text-[13px]">unbegrenzt · {st.yes}</span>}</td>
             <td className="px-4"><span className="flex items-center gap-3 text-[13px] tabular-nums"><span className="text-ok">{st.yes} kommen</span>{st.wait > 0 && <span className="text-brass">{st.wait} warten</span>}<span className="text-mute">{st.open} offen</span></span></td>
             <td className="px-2 text-right text-mute"><ChevronRight size={15} className="inline" /></td>
           </tr> })}</tbody></table>)}
@@ -69,20 +62,16 @@ function EventPage({ e, onBack, onEdit }: { e: Ev; onBack: () => void; onEdit: (
   const past = new Date(e.endsAt ?? e.startsAt) < new Date()
   const [who, setWho] = useState<Who>('alle'), [busy, setBusy] = useState<string | null>(null)
   const creator = staff.find(s => s.id === e.createdBy)
-  const people: { s: Staff; kind: Exclude<Who, 'alle'>; at?: string; pos?: number }[] = []
-  const waitOrder = st.regs.filter(r => r.coming && r.waitlist).map(r => r.employee_id)
-  for (const r of st.regs) { const s = staff.find(x => x.id === r.employee_id); if (s) people.push({ s, kind: !r.coming ? 'nein' : r.waitlist ? 'warten' : 'kommen', at: r.created_at, pos: r.waitlist ? waitOrder.indexOf(r.employee_id) + 1 : undefined }) }
-  for (const s of st.aud) if (!st.regs.some(r => r.employee_id === s.id)) people.push({ s, kind: 'offen' })
-  const order = { kommen: 0, warten: 1, offen: 2, nein: 3 }
-  const list = people.filter(p => who === 'alle' || p.kind === who).sort((a, b) => order[a.kind] - order[b.kind] || (a.pos ?? 0) - (b.pos ?? 0) || a.s.first.localeCompare(b.s.first))
+  const people = st.people
+  const list = people.filter(p => who === 'alle' || p.kind === who)
   const remind = async (ids?: string[]) => {
     setBusy(ids?.[0] ?? 'alle')
-    const { data } = await supabase!.functions.invoke('notify', { body: { action: 'remind_event', event_id: e.id, ...(ids ? { employee_ids: ids } : {}) } })
+    const { data } = await supabase!.functions.invoke('notify', { body: { action: 'remind_event', event_id: e.id, employee_ids: ids ?? people.filter(p => p.kind === 'offen').map(p => p.s.id) } })
     setBusy(null)
     toast(data?.ok ? (data.sent ? `Erinnerung an ${data.people} ${data.people === 1 ? 'Person' : 'Personen'} geschickt` : 'Erinnerung gesendet, aber noch hat niemand davon Mitteilungen eingeschaltet') : 'Das hat nicht geklappt', data?.ok ? 'ok' : 'error')
   }
   const del = async () => { if (!confirm('Diesen Termin löschen? Zu- und Absagen gehen verloren.')) return; const { error } = await supabase!.from('events').delete().eq('id', e.id); toast(error ? 'Löschen hat nicht geklappt' : 'Gelöscht', error ? 'error' : 'ok'); if (!error) { await reload(); onBack() } }
-  const csv = () => downloadCsv(`Teilnehmende ${e.title} ${isoDay(new Date(e.startsAt))}`, list.map(p => ({ Name: `${p.s.first} ${p.s.last}`, Studio: p.s.branch, Funktion: p.s.role, Antwort: { kommen: 'kommt', warten: `Warteliste ${p.pos}`, nein: 'kommt nicht', offen: 'keine Antwort' }[p.kind] })))
+  const csv = () => downloadCsv(`Teilnehmende ${e.title} ${isoDay(new Date(e.startsAt))}`, eventParticipantCsv(list))
   const statusOf = (p: typeof people[number]) => p.kind === 'kommen' ? <Status kind="yes">Kommt</Status> : p.kind === 'warten' ? <Status kind="wait">Warteliste, Platz {p.pos}</Status> : p.kind === 'nein' ? <Status kind="no">Kommt nicht</Status> : <Status kind="none">Keine Antwort</Status>
   return (
     <div className="max-w-[1100px]">
@@ -102,8 +91,8 @@ function EventPage({ e, onBack, onEdit }: { e: Ev; onBack: () => void; onEdit: (
           <DataRow label="Zeit" value={`${fmtTime(e.startsAt)}${e.endsAt ? ` – ${fmtTime(e.endsAt)}` : ''}`} />
           {e.place && <DataRow label="Ort" value={e.place} copy={e.place} />}
           {e.link && <DataRow label="Online-Link" value={<span className="truncate inline-block max-w-[360px] align-bottom">{e.link}</span>} href={e.link} copy={e.link} />}
-          <DataRow label="Für" value={[e.audienceBranches.length ? e.audienceBranches.map(id => branches.find(b => b.id === id)?.name).join(', ') : 'Alle Studios', ...e.audienceSkills].join(' · ')} />
-          <DataRow label="Plätze" value={e.capacity ? `${st.yes} von ${e.capacity} vergeben${st.wait ? ` · ${st.wait} auf der Warteliste` : ''}` : 'unbegrenzt'} />
+          <DataRow label="Für" value={[...(e.audiencePeople.length ? [`${e.audiencePeople.length} ausgewählte Personen`] : []), e.audienceBranches.length ? e.audienceBranches.map(id => branches.find(b => b.id === id)?.name).join(', ') : 'Alle Studios', ...e.audienceSkills].join(' · ')} />
+          <DataRow label="Plätze" value={e.capacity ? `${e.taken} von ${e.capacity} vergeben${e.waiting ? ` · ${e.waiting} auf der Warteliste` : ''}` : 'unbegrenzt'} />
           {e.registerUntil && <DataRow label="Anmeldung bis" value={fmtDate(e.registerUntil, { weekday: 'short', day: 'numeric', month: 'long' })} />}
           {creator && <DataRow label="Angelegt von" value={`${creator.first} ${creator.last}`} muted />}
           {can && <PhorestEventStatus e={e} />}
@@ -118,11 +107,11 @@ function EventPage({ e, onBack, onEdit }: { e: Ev; onBack: () => void; onEdit: (
       </div>
 
       <Section className="mt-12" title="Teilnehmende" count={people.length} action={<button onClick={csv} className="text-[13px] text-olive-700">Als CSV</button>}>
-        <div className="mb-3"><Seg value={who} onChange={setWho} items={[['alle', 'Alle'], ['kommen', `Kommen ${st.yes}`], ...(st.wait ? [['warten', `Warteliste ${st.wait}`] as [Who, string]] : []), ['nein', `Absagen ${st.no}`], ['offen', `Ohne Antwort ${st.open}`]]} /></div>
+        <div className="mb-3">{st.excludedTests > 0 && <p className="mb-3 text-[13px] text-mute">{st.excludedTests} Testantwort(en) sind in der Liste enthalten, aber nicht in der Standardstatistik.</p>}<Seg value={who} onChange={setWho} items={[['alle', 'Alle'], ['kommen', `Kommen ${people.filter(p => p.kind === 'kommen').length}`], ...(people.some(p => p.kind === 'warten') ? [['warten', `Warteliste ${people.filter(p => p.kind === 'warten').length}`] as [Who, string]] : []), ['nein', `Absagen ${people.filter(p => p.kind === 'nein').length}`], ['offen', `Ohne Antwort ${st.open}`]]} /></div>
         {list.length === 0 ? <Empty>Niemand in dieser Auswahl.</Empty> :
         <table className="tbl w-full text-[14px] table-fixed"><thead><tr><Th>Person</Th><th className="w-[160px] text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">Studio</th><th className="w-[230px] text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">Antwort</th><th className="w-[140px] text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">Seit</th><th className="w-[120px] border-b border-line" /></tr></thead>
           <tbody className="divide-y divide-line">{list.map(p => <tr key={p.s.id}>
-            <td className="px-4 py-2.5"><span className="flex items-center gap-3 min-w-0"><Avatar s={p.s} photo={p.s.photo} size="w-8 h-8 text-[12px]" /><span className="min-w-0"><span className="block truncate">{p.s.first} {p.s.last}</span><span className="block text-[12.5px] text-mute truncate">{p.s.role}</span></span></span></td>
+            <td className="px-4 py-2.5"><span className="flex items-center gap-3 min-w-0"><Avatar s={p.s} photo={p.s.photo} size="w-8 h-8 text-[12px]" /><span className="min-w-0"><span className="block truncate">{p.s.first} {p.s.last}{isTest(p.s) ? ' · Testkonto' : ''}</span><span className="block text-[12.5px] text-mute truncate">{p.s.role}</span></span></span></td>
             <td className="px-4 text-mute">{p.s.branch}</td><td className="px-4">{statusOf(p)}</td>
             <td className="px-4 text-mute text-[13px]">{p.at ? fmtDate(p.at, { day: 'numeric', month: 'numeric' }) : '–'}</td>
             <td className="px-4 text-right">{p.kind === 'offen' && !past && <button disabled={!!busy} onClick={() => remind([p.s.id])} className="h-8 px-3 rounded-[8px] text-[13px] text-olive-700 hover:bg-sage-50 inline-flex items-center gap-1.5"><Bell size={13} />{busy === p.s.id ? 'Sendet …' : 'Erinnern'}</button>}</td>
@@ -213,7 +202,7 @@ function EventForm({ ev, onClose }: { ev: Ev | null; onClose: () => void }) {
       <div className="mt-3"><Field label="Beschreibung"><textarea value={f.description} onChange={x => setF({ ...f, description: x.target.value })} rows={3} placeholder="Inhalt, was mitbringen, für wen" className="w-full rounded-[10px] bg-sage-50 px-3 py-2.5 text-[14px] outline-none resize-none" /></Field></div>
       <div className="mt-4 rounded-[12px] bg-sage-50 p-3 text-[13px]"><label className="flex gap-2 items-center"><input type="checkbox" checked={f.phorestSync} onChange={x => setF({ ...f, phorestSync: x.target.checked })} />Bestätigte Teilnahmen in Phorest eintragen</label><p className="mt-1 text-mute">Schulungen und Meetings erscheinen als interne Kalendersperre, ohne Kundenbuchung. Änderungen und Absagen werden abgeglichen. Eine Endzeit ist erforderlich.</p>{f.phorestSync && <label className="mt-3 flex gap-2 items-center"><input type="checkbox" checked={f.phorestPaid} onChange={x => setF({ ...f, phorestPaid: x.target.checked })} />In Phorest als bezahlte Zeit markieren</label>}</div>
       <div className="mt-4"><span className="block text-xs text-mute mb-1.5">Für {office ? '(kein Studio = alle)' : ''}</span><Chips tone="stone" items={own.map(b => ({ value: b.id, label: b.name }))} value={f.branches} onChange={v => setF({ ...f, branches: v })} /></div>
-      <details className="mt-4 text-[13px]"><summary className="cursor-pointer text-ink">Einzelne Personen zuteilen (optional){f.people.length ? ` · ${f.people.length} ausgewählt` : ''}</summary><input aria-label="Personen suchen" placeholder="Personen suchen …" value={personQuery} onChange={e => setPersonQuery(e.target.value)} className={`${inpStone} mt-3`} /><div className="mt-2 max-h-36 overflow-y-auto"><Chips tone="stone" items={staff.filter(s => real(s) && (office || [me.branch_id, ...(me.extra ?? [])].includes(s.branch_id)) && `${s.first} ${s.last}`.toLowerCase().includes(personQuery.toLowerCase())).map(s => ({ value: s.id, label: `${s.first} ${s.last}` }))} value={f.people} onChange={v => setF({ ...f, people: v })} /></div></details><p className="mt-2 text-xs text-mute">Schulungen sehen alle. Anmelden können sich nur Personen, auf die alle gewählten Kriterien zutreffen. Ohne Auswahl gilt die gesamte Zielgruppe.</p>
+      <details className="mt-4 text-[13px]"><summary className="cursor-pointer text-ink">Einzelne Personen zuteilen (optional){f.people.length ? ` · ${f.people.length} ausgewählt` : ''}</summary><input aria-label="Personen suchen" placeholder="Personen suchen …" value={personQuery} onChange={e => setPersonQuery(e.target.value)} className={`${inpStone} mt-3`} /><div className="mt-2 max-h-36 overflow-y-auto"><Chips tone="stone" items={adminPickerPeople(staff, me).filter(s => `${s.first} ${s.last}`.toLowerCase().includes(personQuery.toLowerCase())).map(s => ({ value: s.id, label: `${s.first} ${s.last}${isTest(s) ? ' (Testkonto)' : ''}` }))} value={f.people} onChange={v => setF({ ...f, people: v })} /></div></details><p className="mt-2 text-xs text-mute">Schulungen sehen alle. Anmelden können sich nur Personen, auf die alle gewählten Kriterien zutreffen. Ohne Auswahl gilt die gesamte Zielgruppe.</p>
       {skillCatalog.length > 0 && <div className="mt-3"><span className="block text-xs text-mute mb-1.5">Nur mit diesen Skills (optional)</span><Chips tone="stone" items={skillCatalog.map(k => ({ value: k, label: k }))} value={f.skills} onChange={v => setF({ ...f, skills: v })} /></div>}
       <div className="mt-3"><Err m={err} /></div>
     </Modal>
