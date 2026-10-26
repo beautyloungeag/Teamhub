@@ -184,8 +184,12 @@ function Shell({ onLogout, onSwitch }: { onLogout: () => void; onSwitch?: () => 
             <div className="app-top-space md:h-8" />
             {sub && <div className="px-3 pb-1 flex items-center justify-between">
               <button onClick={back} className="h-11 px-1 flex items-center gap-0.5 text-sage-800 text-[17px]"><ChevronLeft size={22} />{t('Zurück')}</button>
-              {/* Schnell zurück zur Startseite (Renée 20.10.) */}
-              <button onClick={() => go('home')} aria-label={t('Zur Startseite')} className="w-11 h-11 rounded-full bg-white text-olive-800 flex items-center justify-center"><Home size={20} /></button>
+              <div className="flex items-center gap-2">
+                {/* Im Artikel: Marc als Symbol oben statt eigenem Knopf unten (Aleksa 26.10.) */}
+                {sub.k === 'wiki' && !sub.item.fromNews && <button onClick={() => openNewBenniChat(t('Ich lese gerade „{title}“. Fass mir die wichtigsten Punkte kurz zusammen, danach habe ich eine Frage.', { title: sub.item.title }))} aria-label={t('Frage an Marc')} title={t('Frage an Marc')} className={`w-11 h-11 rounded-full flex items-center justify-center ${TONE.note.bg} ${TONE.note.fg}`}><Sparkles size={19} /></button>}
+                {/* Schnell zurück zur Startseite (Renée 20.10.) */}
+                <button onClick={() => go('home')} aria-label={t('Zur Startseite')} className="w-11 h-11 rounded-full bg-white text-olive-800 flex items-center justify-center"><Home size={20} /></button>
+              </div>
             </div>}
             {loading ? <p className="px-5 pt-10 text-mute">{t('Lädt …')}</p> :
               <motion.div key={key} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
@@ -979,41 +983,34 @@ function WikiDetail({ a }: { a: WikiArticle }) {
             {timesDone > 0 && <span className={`px-2.5 py-1 rounded-full text-[13px] font-semibold ${TONE.done.bg} ${TONE.done.fg}`}>{t('{n}× durchgemacht', { n: timesDone })}</span>}
             <span className="text-[13px] text-mute">{t('aktualisiert {date}', { date: a.updated })}</span>
           </div>
-          {(banner || (quiz && !quizPassed)) && <div className="mt-4 rounded-[20px] bg-[#232821] px-4 py-3.5">
+          {banner && <div className="mt-4 rounded-[20px] bg-[#232821] px-4 py-3.5">
             <p className="flex items-center gap-2 text-[14px] font-semibold uppercase tracking-[.05em] text-[#F2A99C]"><AlertTriangle size={17} />{t('Wichtig')}</p>
-            {banner && <div className="mt-1.5 space-y-1.5 text-[16.5px] leading-snug text-white/90">{banner.show.map((x, i) => x.t === 'ul' || x.t === 'ol'
+            <div className="mt-1.5 space-y-1.5 text-[16.5px] leading-snug text-white/90">{banner.show.map((x, i) => x.t === 'ul' || x.t === 'ol'
               ? <ul key={i} className="space-y-1">{x.items?.map((y, j) => <li key={j} className="flex gap-2"><span className="mt-[9px] w-1.5 h-1.5 rounded-full bg-white/60 shrink-0" /><span><Rich text={y} /></span></li>)}</ul>
-              : <p key={i}><Rich text={x.text ?? ''} /></p>)}</div>}
-            {quiz && !quizPassed && <p className={`${banner ? 'mt-2 text-[14.5px] text-white/65' : 'mt-1.5 text-[16.5px] text-white/90'} leading-snug`}>{t('Gilt erst als gelesen, wenn du den Test am Ende bestanden hast.')}</p>}
+              : <p key={i}><Rich text={x.text ?? ''} /></p>)}</div>
           </div>}
           {lang !== 'DE' && !a.fromNews && <p className="mt-2 text-[14.5px] text-mute">{tr8 === 'loading' ? t('Wird übersetzt …') : tr8 === 'failed' ? t('Übersetzung gerade nicht möglich, Original wird angezeigt.') : <button onClick={() => setOrig(!orig)} className="text-olive-700">{orig ? t('Übersetzung anzeigen') : t('Automatisch übersetzt · Original')}</button>}</p>}
           {yt ? <iframe className="mt-4 w-full aspect-video rounded-[18px]" src={`https://www.youtube-nocookie.com/embed/${yt}`} title={a.title} allow="encrypted-media; picture-in-picture" allowFullScreen />
             : a.mediaKind === 'video' && own ? <video className="mt-4 w-full rounded-[18px] bg-olive-700" src={own} controls playsInline /> : null}
           {!full && <p className="mt-6 text-mute">{t('Lädt …')}</p>}
-          {slides.length > 1 && <p className="mt-4 flex items-center gap-2 text-[15px] text-mute"><ChevronRight size={16} />{t('Nach links wischen für die nächste Folie')}</p>}
         </>}
         {cur.stepKey && total > 0 && <p className="mt-4 text-[14px] text-mute tabular-nums">{t('{a} von {b} erledigt', { a: doneN, b: total })}</p>}
         {cur.body.length > 0 && <div className="mt-4 space-y-3 text-[17.5px] leading-relaxed">{cur.body.map(bodyItem)}</div>}
         {cur.stepKey && <div className="mt-4 flex justify-end"><button onClick={() => { const was = on; tick(cur.stepKey!); if (!was && next) setTimeout(() => go(idx + 1, true), 350) }} className={`h-11 px-4 rounded-full text-[15.5px] font-medium flex items-center gap-1.5 ${on ? `${TONE.done.bg} ${TONE.done.fg}` : 'bg-white text-ink/80'}`}>{on ? <><Check size={16} />{t('Erledigt')}</> : <><Circle size={16} />{t('Als erledigt markieren')}</>}</button></div>}
         {cur.kind === 'quiz' && quiz && <QuizRunner quiz={quiz} onPassed={reloadRuns} />}
-        {slides.length > 1 && <div className="mt-5 grid grid-cols-2 gap-2">
-          <button disabled={idx === 0} onClick={() => go(idx - 1, true)} className="h-12 px-3 rounded-[16px] bg-white text-[15.5px] font-medium flex items-center justify-center gap-1.5 disabled:opacity-40"><ChevronLeft size={17} />{idx === 1 ? t('Zum Anfang') : t('Zurück')}</button>
-          <button disabled={!next} onClick={() => go(idx + 1, true)} className="h-12 px-3 rounded-[16px] bg-olive-800 text-white text-[15.5px] font-semibold flex items-center justify-center gap-1.5 min-w-0 disabled:opacity-40"><span className="truncate">{next ? next.kind === 'quiz' ? t('Zum Test') : next.kicker?.k === 'step' ? t('Zu Schritt {n}', { n: next.kicker.no }) : t('Weiter') : t('Ende')}</span><ChevronRight size={17} className="shrink-0" /></button>
+        {/* Eine Zeile am Ende: zurück, weiter, auf der letzten Folie bestätigen (Aleksa 26.10.: nichts doppelt, nichts fest am Rand) */}
+        {(next || !a.fromNews) && <div className={`mt-6 grid gap-2 ${idx > 0 && (next || isRead || !quiz || quizPassed) ? 'grid-cols-2' : 'grid-cols-1'}`}>
+          {idx > 0 && <button onClick={() => go(idx - 1, true)} className="h-12 px-3 rounded-[16px] bg-white text-[15.5px] font-medium flex items-center justify-center gap-1.5"><ChevronLeft size={17} />{idx === 1 ? t('Zum Anfang') : t('Zurück')}</button>}
+          {next ? <button onClick={() => go(idx + 1, true)} className="h-12 px-3 rounded-[16px] bg-olive-800 text-white text-[15.5px] font-semibold flex items-center justify-center gap-1.5 min-w-0"><span className="truncate">{next.kind === 'quiz' ? t('Zum Test') : next.kicker?.k === 'step' ? t('Zu Schritt {n}', { n: next.kicker.no }) : t('Weiter')}</span><ChevronRight size={17} className="shrink-0" /></button>
+            : isRead ? <div className={`h-12 rounded-[16px] flex items-center justify-center gap-2 font-semibold ${TONE.done.bg} ${TONE.done.fg}`}><Check size={18} />{t('Bestätigt')}</div>
+            : quiz && !quizPassed ? null
+            : full && <button disabled={busy} onClick={confirmRead} className="h-12 px-3 rounded-[16px] bg-olive-800 text-white text-[15.5px] font-semibold flex items-center justify-center gap-1.5 disabled:opacity-60"><Check size={17} />{t('Gelesen & bestätigen')}</button>}
         </div>}
       </div>
       {zoom && <ViewportOverlay label={t('Bild')} onClose={() => setZoom(null)} className="bg-black/92 flex items-center justify-center">
         <img src={zoom} alt="" className="max-w-full max-h-full object-contain" />
         <button onClick={() => setZoom(null)} aria-label={t('Schliessen')} className="absolute top-[max(12px,env(safe-area-inset-top))] right-3 w-11 h-11 rounded-full bg-white/15 text-white flex items-center justify-center"><X size={22} /></button>
       </ViewportOverlay>}
-      {/* Unten fest: bestätigen und Marc fragen (Vorlage der Inhaberin) */}
-      {!a.fromNews && full && <div className="sticky bottom-0 mt-6 px-4 pt-3 pb-3 bg-gradient-to-t from-sage-50 via-sage-50 to-sage-50/0">
-        <div className="grid grid-cols-2 gap-2">
-          {isRead ? <div className={`h-12 rounded-[16px] flex items-center justify-center gap-2 font-semibold whitespace-nowrap ${TONE.done.bg} ${TONE.done.fg}`}><Check size={18} />{t('Bestätigt')}</div>
-            : quiz && !quizPassed ? <button onClick={() => go(slides.length - 1, true)} className="h-12 rounded-[16px] bg-olive-800 text-white font-semibold flex items-center justify-center gap-2 whitespace-nowrap"><GraduationCap size={18} />{t('Zum Test')}</button>
-            : <button disabled={busy} onClick={confirmRead} className="h-12 px-2 rounded-[16px] bg-olive-800 text-white text-[15.5px] font-semibold flex items-center justify-center gap-1.5 whitespace-nowrap disabled:opacity-60">{t('Gelesen & bestätigen')}</button>}
-          <button onClick={() => openNewBenniChat(t('Ich lese gerade „{title}“. Fass mir die wichtigsten Punkte kurz zusammen, danach habe ich eine Frage.', { title: a.title }))} className={`h-12 px-2 rounded-[16px] text-[15.5px] font-semibold flex items-center justify-center gap-1.5 whitespace-nowrap ${TONE.note.bg} ${TONE.note.fg}`}><MessageCircle size={17} />{t('Frage an Marc')}</button>
-        </div>
-      </div>}
     </article>
   )
 }
