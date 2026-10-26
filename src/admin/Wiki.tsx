@@ -294,6 +294,7 @@ function ArticleEditor({ id, category, onBack, onSaved }: { id: string | null; c
       <article className="min-w-0 pb-24">
         <Editable rich={false} value={title} onChange={v => { setTitle(v); setDirty(true) }} placeholder="Titel" className="text-[30px] font-medium tracking-tight leading-tight" />
         <Editable rich={false} value={intro} onChange={v => { setIntro(v); setDirty(true) }} placeholder="Kurzfassung in einem Satz (optional)" className="mt-2 text-[16px] text-mute leading-snug" />
+        <p className="mt-4 text-[13.5px] text-mute">In der App wird daraus eine Wischgalerie: Jede Überschrift beginnt eine Folie, das Bild darunter ist ihr Foto, der erste kurze Satz steht im grauen Balken.</p>
         <div className="mt-6">
           <Insert onAdd={(t) => t === 'img' || t === 'video' || t === 'file' ? pickFile(0, t) : t === 'yt' ? insertAt(0, { t: 'video', url: '' }) : insertAt(0, t === 'ul' || t === 'ol' ? { t, items: [''] } : { t, text: '', ...(t === 'h' ? { level: 2 } : {}) })} />
           {blocks.map((b, i) => <div key={b.k}>

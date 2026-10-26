@@ -6,7 +6,7 @@ import {
   Home, ListChecks, BookOpen, LayoutGrid, Sparkles, ChevronLeft, ChevronRight, Check, Camera, MapPin, Users,
   Search, Lightbulb, AlertTriangle, CalendarDays, Send, Newspaper, Plane, Play, Video,
   ArrowUp, ArrowUpRight, LogOut, Phone, ArrowBigUp, GraduationCap, Link2, Lock, FileText, Smartphone, ExternalLink, Monitor,
-  TrendingUp, MessageCircle, Clock, Share2, Circle, ShieldAlert, Mail,
+  TrendingUp, MessageCircle, Clock, Share2, Circle, ShieldAlert, Mail, X,
 } from 'lucide-react'
 import { useAuth } from './lib/auth'
 import { supabase } from './lib/supabase'
@@ -18,6 +18,8 @@ import { TONE, toneOf, type Tone } from './tones'
 import { tr, locale } from './lib/i18n'
 import { emojiOf, AREAS, areaOf } from './lib/wiki'
 import { wikiProgress } from './lib/wiki-progress'
+import { buildSlides, type Slide, type SlideBody, type SlideItem } from './lib/wiki-slides'
+import { ViewportOverlay } from './ViewportOverlay'
 import { ChatHub, ChatRoom, useChatUnread, loadChatSummaries } from './Chats'
 import { TimeView } from './Time'
 import { Inbox, MailRead, useMailUnread, type MailItem } from './Mail'
@@ -783,7 +785,6 @@ function WikiDetail({ a }: { a: WikiArticle }) {
   const quiz = quizzes.find(q => a.fromNews ? q.newsId === a.id.slice(5) : q.articleId === a.id)
   // Artikel mit Test gelten erst nach bestandenem Test als gelesen (Wunsch der Inhaberin 22.10.)
   const quizPassed = !!quiz && attempts.some(x => x.quizId === quiz.id && x.employeeId === me.id && x.passed)
-  const quizRef = useRef<HTMLDivElement>(null)
   const [full, setFull] = useState<{ body: string; blocks: WikiBlock[] | null; title?: string; intro?: string } | null>(a.fromNews ? { body: a.body.join('\n\n'), blocks: null } : null)
   const [urls, setUrls] = useState<Record<string, string>>({})
   useEffect(() => {
@@ -813,7 +814,8 @@ function WikiDetail({ a }: { a: WikiArticle }) {
   // „Wichtige Facts …“ der importierten Protokolle oder ein Absatz, der mit „Wichtig“ beginnt. Er fehlt dann unten.
   const allBlocks = shown?.blocks ?? null
   const banner = useMemo(() => wichtig(allBlocks), [allBlocks])
-  const blocks = allBlocks && banner ? allBlocks.filter(x => !banner.used.has(x)) : allBlocks
+  // Die Überschrift bleibt als Grenze stehen, damit Bilder danach nicht an der Folie davor hängen
+  const blocks = allBlocks && banner ? allBlocks.filter(x => !banner.used.has(x) || x.t === 'h') : allBlocks
   // Schritt-Modus (Wunsch der Inhaberin 21.10.): nummerierte Listen werden zu Schritten, sonst ab zwei Zwischentiteln
   // jeder Abschnitt ein Schritt. Aufzählungen werden dann zur Checkliste, Hinweise zur roten Regel.
   type Step = { key: string; title: string | null; body: WikiBlock[] | null; text: string | null; parts?: string[] }
@@ -898,74 +900,132 @@ function WikiDetail({ a }: { a: WikiArticle }) {
       default: return null
     }
   }
-  const stepCard = (x: Step, n: number) => { const on = ticked.has(x.key)
-    return <div key={x.key} className={`rounded-[20px] p-4 transition ${on ? 'bg-done-50' : 'bg-white'}`}>
-      <div className="flex items-start gap-3">
-        <span className={`w-8 h-8 rounded-[10px] font-display text-[16px] flex items-center justify-center shrink-0 ${on ? 'bg-done text-white' : 'bg-olive-800 text-white'}`}>{on ? <Check size={16} strokeWidth={3} /> : n}</span>
-        <div className={`flex-1 min-w-0 text-[16.5px] leading-relaxed ${on ? 'text-mute' : ''}`}>
-          {x.title && <p className={`text-[17.5px] font-semibold leading-snug ${on ? 'line-through' : ''}`}>{x.title}</p>}
-          {x.text && <p className={x.title ? 'mt-1' : ''}><Rich text={x.text} /></p>}
-          {x.parts && <ul className="mt-1.5 space-y-1">{x.parts.map((y, j) => <li key={j} className="flex gap-2"><span className="mt-[11px] w-1.5 h-1.5 rounded-full bg-sage-400 shrink-0" /><span><Rich text={y} /></span></li>)}</ul>}
-          {x.body && <div className="mt-1.5 space-y-2.5">{x.body.map((bb, j) => block(bb, j, true))}</div>}
-        </div>
-      </div>
-      <div className="mt-3 flex justify-end"><button onClick={() => tick(x.key)} className={`h-10 px-3.5 rounded-full text-[15px] font-medium flex items-center gap-1.5 ${on ? `${TONE.done.bg} ${TONE.done.fg}` : 'bg-sage-50 text-ink/80'}`}>{on ? <><Check size={15} />{t('Erledigt')}</> : <><Circle size={15} />{t('Als erledigt markieren')}</>}</button></div>
-    </div>
-  }
   const isRead = read.has(a.id)
-  const look = AREA_LOOK[areaOf(a.catKey, a.title)] ?? AREA_LOOK.studio, LookIcon = look.icon
+  const area = areaOf(a.catKey, a.title)
+  const look = AREA_LOOK[area] ?? AREA_LOOK.studio, LookIcon = look.icon
+  // Folien (Vorlage der Inhaberin 26.10.): Galerie oben, wichtigste Info im Balken, Text und Video darunter
+  const items: SlideItem[] = !blocks ? (shown ? shown.body.split(/\n\n+/).filter(Boolean).map(text => ({ k: 'block' as const, b: { t: 'p' as const, text } })) : [])
+    : mode === 'sections' ? blocks.map((b, i): SlideItem => b.t === 'h' ? { k: 'section', key: 'h' + i, no: plan.steps.findIndex(x => x.key === 'h' + i) + 1, title: b.text ?? '' } : { k: 'block', b })
+    : mode === 'steps' ? plan.flow.flatMap((f): SlideItem[] => 'from' in f ? plan.steps.slice(f.from, f.to).map((step, j) => ({ k: 'step', step, no: f.from + j + 1 }))
+      : f.t === 'check' ? [{ k: 'check', key: f.key, title: f.title, items: f.items }] : [{ k: 'block', b: f }])
+    : blocks.map((b): SlideItem => ({ k: 'block', b }))
+  const slides = buildSlides(items, { title, intro }, total)
+  if (quiz && full) slides.push({ key: 'quiz', kind: 'quiz', title: t('Wissenstest'), sub: t('Gilt erst als gelesen, wenn du den Test bestanden hast.'), body: [] })
+  const [idx, setIdx] = useState(0)
+  const [zoom, setZoom] = useState<string | null>(null)
+  const rail = useRef<HTMLDivElement>(null), topRef = useRef<HTMLDivElement>(null)
+  useEffect(() => { setIdx(0); rail.current?.scrollTo({ left: 0 }) }, [a.id])
+  const cur = slides[Math.min(idx, slides.length - 1)]
+  // Hochformat nur, wenn die meisten Folien ein Foto haben; sonst rückt der Text näher
+  const tall = slides.filter(x => x.photo).length * 2 >= slides.length
+  const go = (i: number, up = false) => {
+    const el = rail.current, n = Math.max(0, Math.min(slides.length - 1, i))
+    if (el) el.scrollTo({ left: n * el.clientWidth, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
+    setIdx(n)
+    if (up) scrollInPane(topRef.current?.closest<HTMLElement>('.app-content-scroll') ?? null, topRef.current, 'start', true)
+  }
+  const photoOf = (s: Slide) => s.photo ? urls[s.photo] ?? (/^https?:/.test(s.photo) ? s.photo : null) : s.kind === 'cover' ? (own && a.mediaKind === 'photo' ? own : COVER_PHOTO[area] ?? '/hero-studio.jpg') : null
+  const kicker = (s: Slide) => !s.kicker ? (s.kind === 'cover' ? catName(a.cat) : null)
+    : s.kicker.k === 'step' ? t('Schritt {a} von {b}', { a: s.kicker.no, b: s.kicker.total })
+    : s.kicker.k === 'photo' ? t('Bild {a} von {b}', { a: s.kicker.no, b: s.kicker.total })
+    : s.kicker.k === 'wichtig' ? t('Wichtig') : s.kicker.text
+  const bodyItem = (x: SlideBody, i: number) => x.k === 'text' ? <p key={i}><Rich text={x.text} /></p>
+    : x.k === 'parts' ? <ul key={i} className="space-y-1.5">{x.parts.map((y, j) => <li key={j} className="flex gap-2"><span className="mt-[11px] w-1.5 h-1.5 rounded-full bg-sage-400 shrink-0" /><span><Rich text={y} /></span></li>)}</ul>
+    : x.k === 'check' ? checklist(x.items, 5000 + x.key, x.title)
+    : x.b.t === 'ul' && mode !== 'plain' ? checklist(x.b.items ?? [], blocks ? blocks.indexOf(x.b) : i)
+    : block(x.b, blocks ? blocks.indexOf(x.b) : i, true)
+  const on = cur.stepKey ? ticked.has(cur.stepKey) : false
+  const next = slides[idx + 1]
   return (
     <article className="pb-4">
-      <div className="px-5">
-        {/* Kopf nach Vorlage der Inhaberin: Thema und Stand, Titel, Lesedauer, dann „Wichtig“ */}
-        <div className="mt-2 flex items-center justify-between gap-3">
-          <span className={`px-2.5 py-1 rounded-[8px] text-[12.5px] font-semibold uppercase tracking-[.04em] inline-flex items-center gap-1.5 ${TONE[look.tone].bg} ${TONE[look.tone].fg}`}><LookIcon size={13} />{catName(a.cat)}</span>
-          <span className="text-[13px] text-mute shrink-0">{t('aktualisiert {date}', { date: a.updated })}</span>
+      <div ref={topRef} className="scroll-mt-2 md:px-5 md:pt-2">
+        <div className="relative md:rounded-[22px] overflow-hidden">
+          <div ref={rail} onScroll={e => { const el = e.currentTarget, n = Math.round(el.scrollLeft / Math.max(1, el.clientWidth)); if (n !== idx) setIdx(n) }}
+            className="flex overflow-x-auto snap-x snap-mandatory overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" aria-roledescription={t('Galerie')}>
+            {slides.map((s, i) => { const src = photoOf(s), k = kicker(s), Head = s.kind === 'cover' ? 'h1' : 'p'
+              return <div key={s.key} className={`relative w-full shrink-0 snap-center ${tall ? 'aspect-[4/5] max-h-[64vh]' : 'aspect-[5/4] max-h-[52vh]'} md:aspect-[16/10] md:max-h-[460px] bg-olive-900 overflow-hidden`} aria-label={t('Folie {a} von {b}', { a: i + 1, b: slides.length })}>
+                {src ? <SlidePhoto src={src} onOpen={() => setZoom(src)} label={t('Bild gross anzeigen')} />
+                  : <div className={`absolute inset-0 flex items-start justify-center pt-[16%] ${TONE[s.kind === 'quiz' ? 'learn' : look.tone].bg}`}>
+                    {s.kind === 'step' && s.kicker?.k === 'step' ? <span className={`font-display text-[120px] leading-none ${TONE[look.tone].fg} opacity-80`}>{s.kicker.no}</span>
+                      : s.kind === 'quiz' ? <GraduationCap size={96} strokeWidth={1.3} className={TONE.learn.fg} /> : <LookIcon size={96} strokeWidth={1.3} className={`${TONE[look.tone].fg} opacity-80`} />}
+                  </div>}
+                {/* Der graue Balken: die wichtigste Info dieser Folie */}
+                <div className="absolute inset-x-0 bottom-0 bg-[#2E322C]/90 backdrop-blur-[2px] px-4 pt-3 pb-3.5 text-white">
+                  {k && <span className={`inline-flex px-2 py-0.5 rounded-[6px] text-[11.5px] font-bold uppercase tracking-[.06em] ${s.kicker?.k === 'wichtig' ? 'bg-[#F2A99C] text-[#4A1A12]' : 'bg-brass text-white'}`}>{k}</span>}
+                  <Head className={`${k ? 'mt-1.5' : ''} ${s.kind === 'cover' ? 'text-[23px]' : 'text-[19px]'} font-semibold leading-snug tracking-tight line-clamp-3`}>{s.title}</Head>
+                  {s.sub && <p className="mt-1 text-[15px] leading-snug text-white/80 line-clamp-3">{s.sub}</p>}
+                </div>
+              </div> })}
+          </div>
+          {slides.length > 1 && <>
+            {idx > 0 && <button onClick={() => go(idx - 1)} aria-label={t('Vorherige Folie')} className="absolute left-2.5 top-[38%] w-11 h-11 rounded-full bg-black/45 text-white flex items-center justify-center"><ChevronLeft size={22} /></button>}
+            {idx < slides.length - 1 && <button onClick={() => go(idx + 1)} aria-label={t('Nächste Folie')} className="absolute right-2.5 top-[38%] w-11 h-11 rounded-full bg-black/45 text-white flex items-center justify-center"><ChevronRight size={22} /></button>}
+          </>}
         </div>
-        <h1 className="mt-3 text-[28px] font-medium tracking-tight leading-tight">{title}</h1>
-        {intro && <p className="mt-2 text-[17px] text-mute leading-snug">{intro}</p>}
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <span className="px-2.5 py-1 rounded-full text-[13px] font-semibold bg-white text-ink/80 inline-flex items-center gap-1"><Clock size={12} />{t('{n} Min. Lesedauer', { n: a.minutes })}</span>
-          {quiz && <span className={`px-2.5 py-1 rounded-full text-[13px] font-semibold inline-flex items-center gap-1 ${quizPassed ? `${TONE.done.bg} ${TONE.done.fg}` : `${TONE.duty.bg} ${TONE.duty.fg}`}`}>{quizPassed ? <Check size={12} /> : <GraduationCap size={12} />}{quizPassed ? t('Test bestanden') : t('mit Test')}</span>}
-          {(a.mediaKind === 'video' || a.mediaKind === 'youtube' || blocks?.some(x => x.t === 'video')) && <span className={`px-2.5 py-1 rounded-full text-[13px] font-semibold ${TONE.learn.bg} ${TONE.learn.fg}`}>{t('mit Video')}</span>}
-          {a.accessLevel !== 'alle' && <span className="px-2.5 py-1 rounded-full text-[13px] bg-white text-ink/70 inline-flex items-center gap-1"><Lock size={12} />{a.accessLevel === 'buero' ? t('Büro') : t('Filialleitung')}</span>}
-          {timesDone > 0 && <span className={`px-2.5 py-1 rounded-full text-[13px] font-semibold ${TONE.done.bg} ${TONE.done.fg}`}>{t('{n}× durchgemacht', { n: timesDone })}</span>}
-        </div>
-        {(banner || (quiz && !quizPassed)) && <div className="mt-4 rounded-[20px] bg-[#232821] px-4 py-3.5">
-          <p className="flex items-center gap-2 text-[14px] font-semibold uppercase tracking-[.05em] text-[#F2A99C]"><AlertTriangle size={17} />{t('Wichtig')}</p>
-          {banner && <div className="mt-1.5 space-y-1.5 text-[16.5px] leading-snug text-white/90">{banner.show.map((x, i) => x.t === 'ul' || x.t === 'ol'
-            ? <ul key={i} className="space-y-1">{x.items?.map((y, j) => <li key={j} className="flex gap-2"><span className="mt-[9px] w-1.5 h-1.5 rounded-full bg-white/60 shrink-0" /><span><Rich text={y} /></span></li>)}</ul>
-            : <p key={i}><Rich text={x.text ?? ''} /></p>)}</div>}
-          {quiz && !quizPassed && <p className={`${banner ? 'mt-2 text-[14.5px] text-white/65' : 'mt-1.5 text-[16.5px] text-white/90'} leading-snug`}>{t('Gilt erst als gelesen, wenn du den Test am Ende bestanden hast.')}</p>}
-        </div>}
-        {lang !== 'DE' && !a.fromNews && <p className="mt-2 text-[14.5px] text-mute">{tr8 === 'loading' ? t('Wird übersetzt …') : tr8 === 'failed' ? t('Übersetzung gerade nicht möglich, Original wird angezeigt.') : <button onClick={() => setOrig(!orig)} className="text-olive-700">{orig ? t('Übersetzung anzeigen') : t('Automatisch übersetzt · Original')}</button>}</p>}
-        {yt ? <iframe className="mt-5 w-full aspect-video rounded-[18px]" src={`https://www.youtube-nocookie.com/embed/${yt}`} title={a.title} allow="encrypted-media; picture-in-picture" allowFullScreen />
-          : a.mediaKind === 'video' && own ? <video className="mt-5 w-full rounded-[18px] bg-olive-700" src={own} controls playsInline />
-          : a.mediaKind === 'photo' && own ? <img className="mt-5 w-full rounded-[18px]" src={own} alt="" /> : null}
-        {!full && <p className="mt-6 text-mute">{t('Lädt …')}</p>}
-        {shown && mode === 'plain' && (blocks ? <div className="mt-5 space-y-3 text-[17.5px] leading-relaxed">{blocks.map((x, i) => block(x, i))}</div>
-          : <div className="mt-5 space-y-3 text-[17.5px] leading-relaxed">{shown.body.split(/\n\n+/).filter(Boolean).map((x, i) => <p key={i}>{x}</p>)}</div>)}
-        {shown && mode !== 'plain' && <div className="mt-5 space-y-3 text-[17.5px] leading-relaxed">
-          {plan.pre.map((x, i) => block(x, 1000 + i))}
-          {plan.flow.map((f, i) => 'from' in f ? <div key={'s' + i} className="space-y-3">
-            {f.from === 0 && <div className="pt-2 flex items-baseline justify-between"><p className="rubric text-ink/80">{t('Schritt für Schritt')}</p><p className="text-[13.5px] text-mute tabular-nums">{t('{a} von {b} erledigt', { a: doneN, b: total })}</p></div>}
-            {f.from === 0 && <Bar value={doneN} total={total} />}
-            {plan.steps.slice(f.from, f.to).map((x, j) => stepCard(x, f.from + j + 1))}
-          </div> : f.t === 'check' ? checklist(f.items, 5000 + f.key, f.title) : block(f, blocks!.indexOf(f)))}
-        </div>}
-        {quiz && full && <div ref={quizRef} className="scroll-mt-4"><QuizRunner quiz={quiz} onPassed={reloadRuns} /></div>}
       </div>
+      {slides.length > 1 && <div className="px-5 mt-3 flex items-center justify-between gap-3">
+        {slides.length <= 12 ? <div className="flex items-center gap-1.5">{slides.map((s, i) => <button key={s.key} onClick={() => go(i)} aria-label={t('Folie {a} von {b}', { a: i + 1, b: slides.length })} className="h-6 flex items-center"><span className={`block h-1.5 rounded-full transition-all ${i === idx ? 'w-6 bg-olive-800' : 'w-1.5 bg-sage-200'}`} /></button>)}</div>
+          : <div className="flex-1 h-1.5 rounded-full bg-sage-100 overflow-hidden"><div className="h-full bg-olive-800 transition-all" style={{ width: `${((idx + 1) / slides.length) * 100}%` }} /></div>}
+        <span className="text-[13.5px] text-mute tabular-nums shrink-0">{idx + 1} / {slides.length}</span>
+      </div>}
+      <div className="px-5">
+        {cur.kind === 'cover' && <>
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <span className="px-2.5 py-1 rounded-full text-[13px] font-semibold bg-white text-ink/80 inline-flex items-center gap-1"><Clock size={12} />{t('{n} Min. Lesedauer', { n: a.minutes })}</span>
+            {slides.length > 1 && <span className="px-2.5 py-1 rounded-full text-[13px] font-semibold bg-white text-ink/80">{t('{n} Folien', { n: slides.length })}</span>}
+            {quiz && <span className={`px-2.5 py-1 rounded-full text-[13px] font-semibold inline-flex items-center gap-1 ${quizPassed ? `${TONE.done.bg} ${TONE.done.fg}` : `${TONE.duty.bg} ${TONE.duty.fg}`}`}>{quizPassed ? <Check size={12} /> : <GraduationCap size={12} />}{quizPassed ? t('Test bestanden') : t('mit Test')}</span>}
+            {(a.mediaKind === 'video' || a.mediaKind === 'youtube' || blocks?.some(x => x.t === 'video')) && <span className={`px-2.5 py-1 rounded-full text-[13px] font-semibold ${TONE.learn.bg} ${TONE.learn.fg}`}>{t('mit Video')}</span>}
+            {a.accessLevel !== 'alle' && <span className="px-2.5 py-1 rounded-full text-[13px] bg-white text-ink/70 inline-flex items-center gap-1"><Lock size={12} />{a.accessLevel === 'buero' ? t('Büro') : t('Filialleitung')}</span>}
+            {timesDone > 0 && <span className={`px-2.5 py-1 rounded-full text-[13px] font-semibold ${TONE.done.bg} ${TONE.done.fg}`}>{t('{n}× durchgemacht', { n: timesDone })}</span>}
+            <span className="text-[13px] text-mute">{t('aktualisiert {date}', { date: a.updated })}</span>
+          </div>
+          {(banner || (quiz && !quizPassed)) && <div className="mt-4 rounded-[20px] bg-[#232821] px-4 py-3.5">
+            <p className="flex items-center gap-2 text-[14px] font-semibold uppercase tracking-[.05em] text-[#F2A99C]"><AlertTriangle size={17} />{t('Wichtig')}</p>
+            {banner && <div className="mt-1.5 space-y-1.5 text-[16.5px] leading-snug text-white/90">{banner.show.map((x, i) => x.t === 'ul' || x.t === 'ol'
+              ? <ul key={i} className="space-y-1">{x.items?.map((y, j) => <li key={j} className="flex gap-2"><span className="mt-[9px] w-1.5 h-1.5 rounded-full bg-white/60 shrink-0" /><span><Rich text={y} /></span></li>)}</ul>
+              : <p key={i}><Rich text={x.text ?? ''} /></p>)}</div>}
+            {quiz && !quizPassed && <p className={`${banner ? 'mt-2 text-[14.5px] text-white/65' : 'mt-1.5 text-[16.5px] text-white/90'} leading-snug`}>{t('Gilt erst als gelesen, wenn du den Test am Ende bestanden hast.')}</p>}
+          </div>}
+          {lang !== 'DE' && !a.fromNews && <p className="mt-2 text-[14.5px] text-mute">{tr8 === 'loading' ? t('Wird übersetzt …') : tr8 === 'failed' ? t('Übersetzung gerade nicht möglich, Original wird angezeigt.') : <button onClick={() => setOrig(!orig)} className="text-olive-700">{orig ? t('Übersetzung anzeigen') : t('Automatisch übersetzt · Original')}</button>}</p>}
+          {yt ? <iframe className="mt-4 w-full aspect-video rounded-[18px]" src={`https://www.youtube-nocookie.com/embed/${yt}`} title={a.title} allow="encrypted-media; picture-in-picture" allowFullScreen />
+            : a.mediaKind === 'video' && own ? <video className="mt-4 w-full rounded-[18px] bg-olive-700" src={own} controls playsInline /> : null}
+          {!full && <p className="mt-6 text-mute">{t('Lädt …')}</p>}
+          {slides.length > 1 && <p className="mt-4 flex items-center gap-2 text-[15px] text-mute"><ChevronRight size={16} />{t('Nach links wischen für die nächste Folie')}</p>}
+        </>}
+        {cur.stepKey && total > 0 && <p className="mt-4 text-[14px] text-mute tabular-nums">{t('{a} von {b} erledigt', { a: doneN, b: total })}</p>}
+        {cur.body.length > 0 && <div className="mt-4 space-y-3 text-[17.5px] leading-relaxed">{cur.body.map(bodyItem)}</div>}
+        {cur.stepKey && <div className="mt-4 flex justify-end"><button onClick={() => { const was = on; tick(cur.stepKey!); if (!was && next) setTimeout(() => go(idx + 1, true), 350) }} className={`h-11 px-4 rounded-full text-[15.5px] font-medium flex items-center gap-1.5 ${on ? `${TONE.done.bg} ${TONE.done.fg}` : 'bg-white text-ink/80'}`}>{on ? <><Check size={16} />{t('Erledigt')}</> : <><Circle size={16} />{t('Als erledigt markieren')}</>}</button></div>}
+        {cur.kind === 'quiz' && quiz && <QuizRunner quiz={quiz} onPassed={reloadRuns} />}
+        {slides.length > 1 && <div className="mt-5 grid grid-cols-2 gap-2">
+          <button disabled={idx === 0} onClick={() => go(idx - 1, true)} className="h-12 px-3 rounded-[16px] bg-white text-[15.5px] font-medium flex items-center justify-center gap-1.5 disabled:opacity-40"><ChevronLeft size={17} />{idx === 1 ? t('Zum Anfang') : t('Zurück')}</button>
+          <button disabled={!next} onClick={() => go(idx + 1, true)} className="h-12 px-3 rounded-[16px] bg-olive-800 text-white text-[15.5px] font-semibold flex items-center justify-center gap-1.5 min-w-0 disabled:opacity-40"><span className="truncate">{next ? next.kind === 'quiz' ? t('Zum Test') : next.kicker?.k === 'step' ? t('Zu Schritt {n}', { n: next.kicker.no }) : t('Weiter') : t('Ende')}</span><ChevronRight size={17} className="shrink-0" /></button>
+        </div>}
+      </div>
+      {zoom && <ViewportOverlay label={t('Bild')} onClose={() => setZoom(null)} className="bg-black/92 flex items-center justify-center">
+        <img src={zoom} alt="" className="max-w-full max-h-full object-contain" />
+        <button onClick={() => setZoom(null)} aria-label={t('Schliessen')} className="absolute top-[max(12px,env(safe-area-inset-top))] right-3 w-11 h-11 rounded-full bg-white/15 text-white flex items-center justify-center"><X size={22} /></button>
+      </ViewportOverlay>}
       {/* Unten fest: bestätigen und Marc fragen (Vorlage der Inhaberin) */}
       {!a.fromNews && full && <div className="sticky bottom-0 mt-6 px-4 pt-3 pb-3 bg-gradient-to-t from-sage-50 via-sage-50 to-sage-50/0">
         <div className="grid grid-cols-2 gap-2">
           {isRead ? <div className={`h-12 rounded-[16px] flex items-center justify-center gap-2 font-semibold whitespace-nowrap ${TONE.done.bg} ${TONE.done.fg}`}><Check size={18} />{t('Bestätigt')}</div>
-            : quiz && !quizPassed ? <button onClick={() => scrollInPane(quizRef.current?.closest<HTMLElement>('.app-content-scroll') ?? null, quizRef.current, 'start', true)} className="h-12 rounded-[16px] bg-olive-800 text-white font-semibold flex items-center justify-center gap-2 whitespace-nowrap"><GraduationCap size={18} />{t('Zum Test')}</button>
+            : quiz && !quizPassed ? <button onClick={() => go(slides.length - 1, true)} className="h-12 rounded-[16px] bg-olive-800 text-white font-semibold flex items-center justify-center gap-2 whitespace-nowrap"><GraduationCap size={18} />{t('Zum Test')}</button>
             : <button disabled={busy} onClick={confirmRead} className="h-12 px-2 rounded-[16px] bg-olive-800 text-white text-[15.5px] font-semibold flex items-center justify-center gap-1.5 whitespace-nowrap disabled:opacity-60">{t('Gelesen & bestätigen')}</button>}
           <button onClick={() => openNewBenniChat(t('Ich lese gerade „{title}“. Fass mir die wichtigsten Punkte kurz zusammen, danach habe ich eine Frage.', { title: a.title }))} className={`h-12 px-2 rounded-[16px] text-[15.5px] font-semibold flex items-center justify-center gap-1.5 whitespace-nowrap ${TONE.note.bg} ${TONE.note.fg}`}><MessageCircle size={17} />{t('Frage an Marc')}</button>
         </div>
       </div>}
     </article>
   )
+}
+// Querformat und Bildschirmfotos ganz zeigen (auf unscharfem Grund), Hochformat füllt die Folie
+const COVER_PHOTO: Record<string, string> = { behandlung: '/hero-studio.jpg', hygiene: '/hero-studio.jpg', studio: '/hero-empfang.jpg', team: '/login-studio.webp', lernen: '/login-studio.webp' }
+function SlidePhoto({ src, onOpen, label }: { src: string; onOpen: () => void; label: string }) {
+  const [fit, setFit] = useState<'cover' | 'contain'>(/bildschirmfoto|screenshot/i.test(src) ? 'contain' : 'cover')
+  return <button type="button" onClick={onOpen} aria-label={label} className="absolute inset-0 block">
+    {fit === 'contain' && <img src={src} alt="" aria-hidden="true" className="absolute inset-0 w-full h-full object-cover blur-2xl scale-110 opacity-60" />}
+    <img src={src} alt="" loading="lazy" draggable={false} onLoad={e => { const r = e.currentTarget.naturalWidth / Math.max(1, e.currentTarget.naturalHeight); if (r > 1.05 || r < 0.55) setFit('contain') }}
+      className={`absolute inset-0 w-full h-full ${fit === 'contain' ? 'object-contain pb-[86px]' : 'object-cover'}`} />
+  </button>
 }
 function Onboarding({ open }: { open: (s: Sub) => void }) {
   const { steps, obDone, toggleStep, wiki, t } = useApp()
