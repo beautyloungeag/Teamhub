@@ -18,7 +18,7 @@ import { TONE, toneOf, type Tone } from './tones'
 import { tr, locale } from './lib/i18n'
 import { emojiOf, AREAS, areaOf } from './lib/wiki'
 import { wikiProgress } from './lib/wiki-progress'
-import { buildSlides, type Slide, type SlideBody, type SlideItem } from './lib/wiki-slides'
+import { buildSlides, planArticle, type Slide, type SlideBody, type SlideItem } from './lib/wiki-slides'
 import { ViewportOverlay } from './ViewportOverlay'
 import { ChatHub, ChatRoom, useChatUnread, loadChatSummaries } from './Chats'
 import { TimeView } from './Time'
@@ -822,42 +822,7 @@ function WikiDetail({ a }: { a: WikiArticle }) {
   const blocks = allBlocks && banner ? allBlocks.filter(x => !banner.used.has(x) || x.t === 'h') : allBlocks
   // Schritt-Modus (Wunsch der Inhaberin 21.10.): nummerierte Listen werden zu Schritten, sonst ab zwei Zwischentiteln
   // jeder Abschnitt ein Schritt. Aufzählungen werden dann zur Checkliste, Hinweise zur roten Regel.
-  type Step = { key: string; title: string | null; body: WikiBlock[] | null; text: string | null; parts?: string[] }
-  type Flow = WikiBlock | { t: 'steps'; from: number; to: number } | { t: 'check'; key: number; title?: string; items: string[] }
-  // Teilschritte im Import: „-Kundin Farbkarte geben-Fräser desinfizieren“
-  const splitParts = (x: string) => x.split(/\s*-\s*(?=[A-ZÄÖÜ])/).map(y => y.trim()).filter(Boolean).map(y => (y.match(/\*\*/g) ?? []).length % 2 ? y.replace(/\*\*/g, '') : y)
-  const boldLead = (x?: string) => !!x && /^\*\*[^*]+\*\*/.test(x) && !/^\*\*[^*]+\*\*\s*·/.test(x)
-  const shortLine = (b: WikiBlock) => b.t === 'p' && !!b.text && b.text.length <= 45 && !/[.:!?]$/.test(b.text) && !b.text.includes('**')
-  const plan: { mode: 'steps' | 'sections' | 'plain'; pre: WikiBlock[]; steps: Step[]; flow: Flow[] } = (() => {
-    const steps: Step[] = [], flow: Flow[] = []
-    if (!blocks) return { mode: 'plain', pre: [], steps, flow }
-    // 1) Schritte aus nummerierten Listen und aus Absätzen mit fettem Anfang, 2) Materiallisten aus kurzen Zeilen
-    for (let i = 0; i < blocks.length; i++) {
-      const x = blocks[i]
-      if (x.t === 'ol') { const from = steps.length
-        x.items?.forEach((it, j) => { const m = it.match(/^\*\*([^*]+)\*\*[:\s–-]*([\s\S]*)$/); steps.push({ key: `o${i}-${j}`, title: m ? m[1] : null, body: null, text: m ? m[2] : it }) })
-        flow.push({ t: 'steps', from, to: steps.length }); continue }
-      if (x.t === 'p' && boldLead(x.text) && boldLead(blocks[i + 1]?.text)) { const from = steps.length
-        while (i < blocks.length && blocks[i].t === 'p' && boldLead(blocks[i].text)) {
-          const m = blocks[i].text!.match(/^\*\*([^*]+)\*\*([\s\S]*)$/)!
-          const head = splitParts(m[1].replace(/^\d+\.\s*/, '')), rest = [...head.slice(1), ...splitParts(m[2].replace(/^[\s:–-]+/, ''))]
-          steps.push({ key: `b${i}`, title: head[0] ?? m[1], body: null, text: rest.length === 1 ? rest[0] : null, parts: rest.length > 1 ? rest : undefined }); i++ }
-        i--; flow.push({ t: 'steps', from, to: steps.length }); continue }
-      if (shortLine(x) && blocks.slice(i, i + 4).every(shortLine)) { const items: string[] = [], key = i
-        const prev = flow[flow.length - 1], title = prev && 't' in prev && prev.t === 'h' ? (flow.pop() as WikiBlock).text : undefined
-        while (i < blocks.length && shortLine(blocks[i])) items.push(blocks[i++].text!)
-        i--; flow.push({ t: 'check', key, title, items }); continue }
-      flow.push(x)
-    }
-    if (steps.length) return { mode: 'steps', pre: [], steps, flow }
-    // Sonst ab zwei Zwischentiteln: jeder Abschnitt ein Schritt
-    if (blocks.filter(x => x.t === 'h').length >= 2) {
-      const pre: WikiBlock[] = []; let cur: Step | null = null
-      blocks.forEach((x, i) => { if (x.t === 'h') { cur = { key: 'h' + i, title: x.text ?? '', body: [], text: null }; steps.push(cur) } else if (cur) cur.body!.push(x); else pre.push(x) })
-      return { mode: 'sections', pre, steps, flow: [{ t: 'steps', from: 0, to: steps.length }] }
-    }
-    return { mode: 'plain', pre: [], steps, flow }
-  })()
+  const plan = planArticle(blocks)
   const mode = plan.mode
   const total = plan.steps.length, doneN = plan.steps.filter(x => ticked.has(x.key)).length
   const timesDone = runs.get(a.id) ?? 0

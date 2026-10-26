@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildSlides, lead, type SlideItem } from '../src/lib/wiki-slides.ts'
+import { buildSlides, lead, planArticle, type SlideItem } from '../src/lib/wiki-slides.ts'
 
 const b = (t: 'h' | 'p' | 'img' | 'ul', x: string): SlideItem => ({ k: 'block', b: t === 'img' ? { t, src: x } : t === 'ul' ? { t, items: x.split(',') } : { t, text: x } })
 
@@ -43,4 +43,17 @@ test('Materialliste mit Überschrift bekommt eine eigene Folie', () => {
   const s = buildSlides([{ k: 'check', key: 1, title: 'Arbeitsmaterialien', items: ['Fräser', 'Buffer'] }, b('h', 'Kundenempfang'), b('p', 'Freundlich begrüssen.')], { title: 'Pedicure' }, 0)
   assert.deepEqual(s.map(x => x.title), ['Pedicure', 'Arbeitsmaterialien', 'Kundenempfang'])
   assert.deepEqual(s[1].body, [{ k: 'check', key: 1, items: ['Fräser', 'Buffer'] }])
+})
+
+test('Fotos zwischen Schritten: Schrittfolge bleibt, jedes Foto gehört zu seinem Schritt', () => {
+  const blocks = [{ t: 'p' as const, text: '**Vorbereitung** Kundin auf den Stuhl setzen' }, { t: 'img' as const, src: 'a.webp' },
+    { t: 'p' as const, text: '**Nagelhaut entfernen** Fräser desinfizieren' }, { t: 'img' as const, src: 'b.webp' },
+    { t: 'p' as const, text: '**Lackieren** Zügig arbeiten' }]
+  const plan = planArticle(blocks)
+  assert.equal(plan.mode, 'steps')
+  assert.equal(plan.steps.length, 3)
+  const items: SlideItem[] = plan.flow.flatMap((f): SlideItem[] => f.t === 'steps' && 'from' in f ? plan.steps.slice(f.from, f.to).map((step, j) => ({ k: 'step', step, no: f.from + j + 1 })) : f.t === 'check' ? [] : [{ k: 'block', b: f }])
+  const s = buildSlides(items, { title: 'Pedicure' }, plan.steps.length)
+  assert.deepEqual(s.map(x => [x.title, x.photo ?? null]), [['Pedicure', null], ['Vorbereitung', 'a.webp'], ['Nagelhaut entfernen', 'b.webp'], ['Lackieren', null]])
+  assert.deepEqual(s.map(x => x.kicker?.k === 'step' ? x.kicker.no : 0), [0, 1, 2, 3])
 })

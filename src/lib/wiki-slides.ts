@@ -103,3 +103,45 @@ export function buildSlides(items: SlideItem[], cover: { title: string; intro?: 
   }
   return slides
 }
+
+// Schritt-Erkennung (vorher in WikiDetail): nummerierte Listen und Absätze mit fettem Anfang werden Schritte,
+// kurze Zeilen hintereinander eine Materialliste, sonst ab zwei Zwischentiteln je Abschnitt ein Schritt.
+export type Step = { key: string; title: string | null; body: WikiBlock[] | null; text: string | null; parts?: string[] }
+export type Flow = WikiBlock | { t: 'steps'; from: number; to: number } | { t: 'check'; key: number; title?: string; items: string[] }
+export type Plan = { mode: 'steps' | 'sections' | 'plain'; pre: WikiBlock[]; steps: Step[]; flow: Flow[] }
+// Teilschritte im Import: „-Kundin Farbkarte geben-Fräser desinfizieren“
+const splitParts = (x: string) => x.split(/\s*-\s*(?=[A-ZÄÖÜ])/).map(y => y.trim()).filter(Boolean).map(y => (y.match(/\*\*/g) ?? []).length % 2 ? y.replace(/\*\*/g, '') : y)
+const boldLead = (x?: string) => !!x && /^\*\*[^*]+\*\*/.test(x) && !/^\*\*[^*]+\*\*\s*·/.test(x)
+const shortLine = (b: WikiBlock) => b.t === 'p' && !!b.text && b.text.length <= 45 && !/[.:!?]$/.test(b.text) && !b.text.includes('**')
+
+export function planArticle(blocks: WikiBlock[] | null): Plan {
+  const steps: Step[] = [], flow: Flow[] = []
+  if (!blocks) return { mode: 'plain', pre: [], steps, flow }
+  // Bilder zwischen Schritten (vom Büro ergänzt) unterbrechen die Schrittfolge nicht
+  const boldAfterImages = (j: number) => { while (blocks[j]?.t === 'img') j++; return blocks[j]?.t === 'p' && boldLead(blocks[j].text) }
+  const afterSteps = () => { for (let k = flow.length - 1; k >= 0; k--) { const f = flow[k]; if (f.t === 'steps') return true; if (f.t !== 'img') return false } return false }
+  for (let i = 0; i < blocks.length; i++) {
+    const x = blocks[i]
+    if (x.t === 'ol') { const from = steps.length
+      x.items?.forEach((it, j) => { const m = it.match(/^\*\*([^*]+)\*\*[:\s–-]*([\s\S]*)$/); steps.push({ key: `o${i}-${j}`, title: m ? m[1] : null, body: null, text: m ? m[2] : it }) })
+      flow.push({ t: 'steps', from, to: steps.length }); continue }
+    if (x.t === 'p' && boldLead(x.text) && (boldLead(blocks[i + 1]?.text) || afterSteps() || (blocks[i + 1]?.t === 'img' && boldAfterImages(i + 1)))) { const from = steps.length
+      while (i < blocks.length && blocks[i].t === 'p' && boldLead(blocks[i].text)) {
+        const m = blocks[i].text!.match(/^\*\*([^*]+)\*\*([\s\S]*)$/)!
+        const head = splitParts(m[1].replace(/^\d+\.\s*/, '')), rest = [...head.slice(1), ...splitParts(m[2].replace(/^[\s:–-]+/, ''))]
+        steps.push({ key: `b${i}`, title: head[0] ?? m[1], body: null, text: rest.length === 1 ? rest[0] : null, parts: rest.length > 1 ? rest : undefined }); i++ }
+      i--; flow.push({ t: 'steps', from, to: steps.length }); continue }
+    if (shortLine(x) && blocks.slice(i, i + 4).every(shortLine)) { const items: string[] = [], key = i
+      const prev = flow[flow.length - 1], title = prev && prev.t === 'h' ? (flow.pop() as WikiBlock).text : undefined
+      while (i < blocks.length && shortLine(blocks[i])) items.push(blocks[i++].text!)
+      i--; flow.push({ t: 'check', key, title, items }); continue }
+    flow.push(x)
+  }
+  if (steps.length) return { mode: 'steps', pre: [], steps, flow }
+  if (blocks.filter(x => x.t === 'h').length >= 2) {
+    const pre: WikiBlock[] = []; let cur: Step | null = null
+    blocks.forEach((x, i) => { if (x.t === 'h') { cur = { key: 'h' + i, title: x.text ?? '', body: [], text: null }; steps.push(cur) } else if (cur) cur.body!.push(x); else pre.push(x) })
+    return { mode: 'sections', pre, steps, flow: [{ t: 'steps', from: 0, to: steps.length }] }
+  }
+  return { mode: 'plain', pre: [], steps, flow }
+}

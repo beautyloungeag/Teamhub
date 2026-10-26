@@ -1,5 +1,9 @@
 # HANDOFF — Beautylounge TeamHub
 
+### 2026-10-26 — Fotos je Folie ergänzen
+
+Fotos ergänzt das **Büro** im Backoffice unter Wissen (Plus zwischen den Bausteinen → Bild): direkt unter eine Überschrift oder hinter einen Schritt gesetzt, wird das Bild das Foto dieser Folie. Bisher brach ein Bild zwischen zwei Schritt-Absätzen die Schritterkennung; jetzt läuft die Schrittfolge über Bilder hinweg weiter (`planArticle` in `src/lib/wiki-slides.ts`, aus `WikiDetail` ausgelagert, Test dazu). Bei nummerierten Listen geht ein Bild nur zwischen zwei Listen. Die Filialleitung kann Wissen weiterhin **nicht** bearbeiten (RLS `wiki_write` und Speicher-Policy `files_write_media` nur `is_buero()`, Backoffice-Menü ohne Wissen) — bewusst so seit dem Aufbau; Freischalten wäre eine Rechteentscheidung der Inhaberin.
+
 ### 2026-10-26 — Artikelansicht entschlackt (Aleksa)
 
 Keine feste Knopfleiste mehr am unteren Rand und nichts doppelt: Am Ende jeder Folie steht genau eine Zeile (Zurück/Zum Anfang und Weiter/Zu Schritt n/Zum Test; auf der letzten Folie „Gelesen & bestätigen“ bzw. „Bestätigt“, auf der Testfolie nur der Test). „Frage an Marc“ ist ein Symbol im Kopf neben dem Home-Knopf (nur bei Wissensartikeln). Der dunkle „Wichtig“-Block erscheint nur noch mit echtem Inhalt, der Hinweis zum Test steht im Balken der Testfolie, der Wisch-Hinweis ist weg.
