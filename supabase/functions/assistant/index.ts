@@ -2,6 +2,8 @@
 // TeamHub), holt sich Termine, Kundinnen, Kolleginnen, Behandlungen und mehr selbst aus Phorest,
 // beantwortet Fachfragen nur aus dem freigegebenen Wissen und schlägt bei nicht lösbaren Anliegen
 // eine Meldung vor. Schreibt selbst nur den eigenen Onboarding-Fortschritt und die eigenen Chats.
+// Für Filialleitung und Büro zusätzlich Backoffice-Copilot (actions.ts): Marc schlägt vor, ausgeführt
+// wird erst nach „Ausführen“ in der App ({action: 'decide', message_id, action_id, run}), mit den Rechten der Person.
 // Body: {chat_id?, message, files?, model?: schnell|standard|stark, web?, stream?}. Mit chat_id speichert die
 // Function Frage und Antwort selbst (benni_chats/benni_messages) und gibt dem Chat beim ersten Mal einen Titel.
 // Mit {stream: true} kommen Arbeitsschritte als NDJSON ({step, detail} | {title}), am Ende {done: true, …}.
@@ -10,6 +12,7 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2.117.2'
 import { appendToolRound, CONTEXT_BUCKET, contextPathAllowed, privateRequest, readContext, saveContext, type Context, type Item } from './privacy-context.ts'
 import { contactPolicy } from './contact-policy.ts'
+import { actionDefs, decide, propose, readTool, stage, SYSTEM_NOTE, type Action, type Ctx } from './actions.ts'
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -99,6 +102,12 @@ Deno.serve(async (req) => {
     const r = await fetch('https://api.openai.com/v1/models', { headers: { Authorization: `Bearer ${key}` } })
     const d = await r.json().catch(() => ({}))
     return json({ ok: r.ok, status: r.status, models: (d.data ?? []).map((m: any) => m.id).filter((id: string) => /^(gpt|o\d|chatgpt)/.test(id)).sort(), error: d.error?.message })
+  }
+  const fnCall = (name: string, b: unknown) => fetch(`${url}/functions/v1/${name}`, { method: 'POST', headers: { Authorization: authz, apikey: anon, 'Content-Type': 'application/json' }, body: JSON.stringify(b) }).then((r) => r.json()).catch(() => ({ ok: false }))
+  if (body.action === 'decide') {
+    const { data: brs } = await db.from('branches').select('id, name, is_office').order('sort')
+    const c: Ctx = { db, me, branches: (brs ?? []) as any, chatId: null, images: [], fn: fnCall }
+    return json(await decide(c, String(body.message_id ?? ''), String(body.action_id ?? ''), body.run === true))
   }
   const { message = '', stream = false } = body
   const files: File[] = (Array.isArray(body.files) ? body.files : []).slice(0, 4)
@@ -244,6 +253,7 @@ Deno.serve(async (req) => {
       'Wie eine erfahrene, herzliche Kollegin: kurz, konkret, per du (das Du klein geschrieben, sonst normale Gross- und Kleinschreibung), Schweizer Hochdeutsch (ss statt ß), in der Sprache der Frage (Deutsch, Englisch oder Französisch). Erst die Antwort, dann höchstens ein hilfreicher nächster Schritt. Mehrere Punkte als Liste mit „- “, wichtige Wörter sparsam **fett**. Keine Floskeln, keine Überschriften.',
       ...(web ? ['- Websuche ist eingeschaltet: Für aktuelle oder allgemeine Fragen ausserhalb von Phorest und Wiki darfst du im Web suchen und nennst kurz die Quelle. Interne Abläufe und Regeln weiterhin nur aus dem Wissen.'] : []),
       ...(files.length ? [`- Die Person hat Dateien angehängt (${files.map((f) => f.name).join(', ')}). Lies sie und beziehe dich konkret darauf.`] : []),
+      SYSTEM_NOTE(me),
       `\n## App-Leitfaden\n${APP_GUIDE}`,
       '\n## Ausgabe',
       'Gib am Ende ausschliesslich JSON zurück: {"text": string, "source_ids": string[], "ticket": null | {"kind": "Meldung"|"Idee", "title": string}, "client_card": null | string, "cards": [{"title": string, "body": string}], "quiz": null | {"question": string, "options": string[]}, "choices": string[], "reveal": boolean, "graded": null | boolean}. graded nur, wenn du gerade eine Antwort auf eine Kontrollfrage bewertest. source_ids sind die IDs der Wissensartikel, auf die sich die Antwort stützt. Nicht genutzte Felder: null, [] oder false.',
@@ -264,13 +274,29 @@ Deno.serve(async (req) => {
       ['news', 'Liest eine News ganz (mit id) oder listet die aktuellen News (ohne id).', { id: { type: 'string' } }, []],
       ['onboarding_status', 'Onboarding-Schritte dieser Person mit erledigt/offen und Artikel-ID.', {}, []],
       ['mark_step_done', `Markiert einen eigenen Onboarding-Schritt als erledigt, wenn von ${qN} Kontrollfragen mindestens ${qMin} richtig waren. Prüft das selbst anhand der bewerteten Antworten.`, { step_id: { type: 'string' }, letzte_richtig: { type: 'boolean', description: 'War die eben bewertete letzte Antwort richtig?' } }, ['step_id', 'letzte_richtig']],
-      ['add_todo', 'Legt ein eigenes To-do für diese Person an (erscheint unter Aufgaben → Für mich). Nur auf ausdrücklichen Wunsch („erinnere mich“, „schreib mir auf“).', { title: { type: 'string' }, due: { type: 'string', description: 'Frist als YYYY-MM-DD oder YYYY-MM-DDTHH:MM (Schweizer Zeit), leer = ohne Frist' }, note: { type: 'string' } }, ['title']],
+      ...actionDefs(me),
+      // Filialleitung und Büro: auch eigene To-dos nur über eine Karte (vorschlag_aufgabe), nichts ohne Bestätigung
+      ...(lead ? [] : [['add_todo', 'Legt ein eigenes To-do für diese Person an (erscheint unter Aufgaben → Für mich). Nur auf ausdrücklichen Wunsch („erinnere mich“, „schreib mir auf“).', { title: { type: 'string' }, due: { type: 'string', description: 'Frist als YYYY-MM-DD oder YYYY-MM-DDTHH:MM (Schweizer Zeit), leer = ohne Frist' }, note: { type: 'string' } }, ['title']]] as [string, string, Record<string, unknown>, string[]][]),
     ]
     const params = (p: Record<string, unknown>, r: string[]) => ({ type: 'object', properties: p, required: r })
 
     const readIds = new Set<string>()
+    // Vorschläge dieser Antwort (Karten mit „Ausführen“)
+    const proposals: Action[] = []
+    const actx: Ctx = { db, me, branches: branches as any, chatId: chat?.id ?? null, images: files.filter((f) => f.data && f.mime.startsWith('image/')).map((f) => ({ name: f.name, mime: f.mime, data: f.data! })), fn: fnCall }
     const clientCards = new Map<string, Record<string, unknown>>()
     const runTool = async (name: string, args: any): Promise<unknown> => {
+      if (['team_list', 'events_overview', 'tickets_list', 'wiki_outline'].includes(name)) { emit({ step: 'backoffice' }); return readTool(name, args, actx) }
+      if (name.startsWith('vorschlag_')) {
+        if (!chat) return { error: 'nur_im_chat' }
+        if (proposals.length >= 5) return { error: 'hoechstens_5_vorschlaege' }
+        const p = await propose(name, args, actx)
+        if ('error' in p) return p
+        const a = await stage(p, actx)
+        if ('error' in a) return a
+        proposals.push(a)
+        return { ok: 'vorgeschlagen', karte: a.title, hinweis: 'Noch nicht ausgeführt. Die Person bestätigt in der Karte mit „Ausführen“.' }
+      }
       if (name === 'my_day') {
         if (!okDate(args.date)) return { error: 'datum_ungueltig', erlaubt: `${zDay(-60)} bis ${zDay(60)}` }
         emit({ step: 'calendar', detail: args.date })
@@ -414,6 +440,7 @@ Deno.serve(async (req) => {
         ...(o.reveal === true ? { reveal: true } : {}),
         ...(typeof o.graded === 'boolean' ? { graded: o.graded } : {}),
         ...(links.size ? { links: [...links].slice(0, 5).map(([url, title]) => ({ url, title })) } : {}),
+        ...(proposals.length ? { actions: proposals } : {}),
       }
       return { ok: true, mode: 'ki', ...answer, model: model }
     }
@@ -521,7 +548,7 @@ Deno.serve(async (req) => {
     if (!chat) return {}
     let text = r.ok && r.text ? String(r.text) : 'Ich bin gerade nicht erreichbar. Bitte versuche es gleich noch einmal.'
     const data: Record<string, unknown> = {}
-    for (const k of ['sources', 'ticket', 'card', 'cards', 'quiz', 'choices', 'reveal', 'graded', 'links', 'model']) if (r[k] != null && !(Array.isArray(r[k]) && !r[k].length)) data[k] = r[k]
+    for (const k of ['sources', 'ticket', 'card', 'cards', 'quiz', 'choices', 'reveal', 'graded', 'links', 'model', 'actions']) if (r[k] != null && !(Array.isArray(r[k]) && !r[k].length)) data[k] = r[k]
     let contextPath: string | null = null
     if (newContext) {
       const path = `${me.id}/${chat.id}/${crypto.randomUUID()}.json`

@@ -14,6 +14,7 @@ import { Avatar, ContactRow } from './People'
 import { TicketDraft } from './TicketParts'
 import { toast } from './Toast'
 import { reloadTodos } from './Todos'
+import { reloadStandby } from './standby'
 
 // Marc in App und Backoffice: mehrere Chats (parallel, löschbar, Titel vergibt der Server),
 // Eingabeleiste mit Dateien, Diktat, Modellwahl und Websuche, Kundenkarte und Lernkarten.
@@ -25,7 +26,10 @@ export type MsgData = {
   sources?: { id: string; title: string }[]; ticket?: { kind: 'Meldung' | 'Idee'; title: string }; card?: ClientCard
   cards?: { title: string; body: string }[]; quiz?: { question: string; options: string[] }; choices?: string[]; reveal?: boolean
   links?: { url: string; title: string }[]; files?: { name: string; kind: 'image' | 'file'; url?: string }[]
+  actions?: ChatAction[]
 }
+// Vorschlag von Marc im Backoffice: erst nach „Ausführen“ wirksam, mit den Rechten der Person (Function assistant, actions.ts)
+export type ChatAction = { id: string; kind: string; title: string; lines: string[]; status: 'offen' | 'laeuft' | 'ausgefuehrt' | 'verworfen' | 'fehler'; result?: string }
 export type ChatMsg = { id: string; me: boolean; t: string; data: MsgData; at: string }
 type Chat = { id: string; title: string; updated: string; msgs: ChatMsg[] | null; loading?: boolean; busy: boolean; steps: Step[] }
 type BenniAnswer = MsgData & { ok: boolean; text?: string; message_id?: string; title?: string }
@@ -278,6 +282,7 @@ function useStepLabel() {
       case 'onboarding': return t('Prüft dein Onboarding')
       case 'step_done': return t('Hakt den Schritt ab')
       case 'todo': return t('Legt ein To-do an')
+      case 'backoffice': return t('Schaut im Backoffice nach')
       case 'web': return s.detail ? t('Sucht im Web · {q}', { q: s.detail }) : t('Sucht im Web')
       case 'write': return t('Schreibt die Antwort')
       default: return t('Denkt nach')
@@ -419,6 +424,7 @@ function BenniMessage({ m, next, latest, busy, hidden, variant, send, onOpenArti
           {d.links?.map(l => <a key={l.url} href={l.url} target="_blank" rel="noreferrer" className="mt-2 text-[14.5px] text-sage-800 flex items-center gap-1 min-w-0"><ExternalLink size={13} className="shrink-0" /><span className="truncate">{l.title}</span></a>)}
           {d.ticket && <TicketDraft kind={d.ticket.kind} title={d.ticket.title} onSend={() => addTicket({ kind: d.ticket!.kind, title: d.ticket!.title, viaAI: true })} />}
         </div>}
+        {d.actions?.map(a => <ActionCard key={a.id} a={a} messageId={m.id} />)}
         {d.quiz && <QuizCard q={d.quiz} chosen={next?.me ? next.t : undefined} active={latest && !busy} onAnswer={send} />}
         {d.card && <ClientCardView c={d.card} onOpen={onOpenClient} />}
         {latest && !busy && (d.choices?.length ?? 0) > 0 && <div className="mt-2.5 flex flex-wrap gap-2">{d.choices!.map(c => <button key={c} onClick={() => send(c)} className="h-9 px-3.5 rounded-full bg-white border border-line text-[15.5px] hover:border-sage-400 transition">{c}</button>)}</div>}
@@ -688,6 +694,37 @@ export function BenniChat({ variant = 'app', onOpenArticle, onOpenClient, onClos
         </div>
       </ViewportOverlay>}
 
+    </div>
+  )
+}
+
+/* ---------- Vorschläge von Marc (Backoffice-Copilot) ---------- */
+function setAction(messageId: string, a: ChatAction) {
+  for (const c of S.chats) for (const m of c.msgs ?? []) if (m.id === messageId && m.data.actions) m.data = { ...m.data, actions: m.data.actions.map(x => x.id === a.id ? a : x) }
+  bump()
+}
+function ActionCard({ a, messageId }: { a: ChatAction; messageId: string }) {
+  const { t, reload, reloadWiki } = useApp()
+  const [busy, setBusy] = useState<'run' | 'drop' | null>(null)
+  const decide = async (run: boolean) => {
+    setBusy(run ? 'run' : 'drop')
+    const { data } = await supabase!.functions.invoke('assistant', { body: { action: 'decide', message_id: messageId, action_id: a.id, run } }).catch(() => ({ data: null }))
+    setBusy(null)
+    const next = data?.action as ChatAction | undefined
+    if (next) setAction(messageId, next)
+    if (!run) return
+    if (data?.ok) { toast(next?.result ?? t('Erledigt')); await Promise.all([reload(), reloadTodos(), reloadStandby(), a.kind === 'wiki' ? reloadWiki() : Promise.resolve()]) }
+    else toast(next?.result ?? (data?.error === 'already' ? t('Das wurde schon erledigt.') : t('Das hat nicht geklappt')), 'error')
+  }
+  const done = a.status === 'ausgefuehrt', failed = a.status === 'fehler', dropped = a.status === 'verworfen'
+  return (
+    <div className={`mt-2 rounded-[16px] bg-white p-4 shadow-[inset_0_0_0_1px_var(--color-line)] ${dropped ? 'opacity-60' : ''}`}>
+      <p className="rubric text-note">{t(a.title)}</p>
+      <ul className="mt-1.5 space-y-0.5 text-[15.5px] leading-snug">{a.lines.map((l, i) => <li key={i} className={i === 0 ? 'font-medium' : 'text-ink/75'}>{l}</li>)}</ul>
+      {a.status === 'offen' || a.status === 'laeuft' ? <div className="mt-3 flex gap-2">
+        <button disabled={!!busy || a.status === 'laeuft'} onClick={() => decide(true)} className="h-10 px-4 rounded-full bg-olive-800 text-white text-[15px] font-semibold flex items-center gap-1.5 disabled:opacity-60"><Check size={16} />{busy === 'run' || a.status === 'laeuft' ? t('Wird ausgeführt …') : t('Ausführen')}</button>
+        <button disabled={!!busy || a.status === 'laeuft'} onClick={() => decide(false)} className="h-10 px-4 rounded-full bg-sage-50 text-[15px] disabled:opacity-60">{t('Verwerfen')}</button>
+      </div> : <p className={`mt-2.5 text-[14.5px] flex items-center gap-1.5 ${done ? 'text-done' : failed ? 'text-duty' : 'text-mute'}`}>{done ? <Check size={15} /> : failed ? <X size={15} /> : null}{a.result ?? (done ? t('Erledigt') : dropped ? t('Verworfen.') : '')}</p>}
     </div>
   )
 }
