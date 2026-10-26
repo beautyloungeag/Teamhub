@@ -16,7 +16,9 @@ export type Done = { by: string; byId: string | null; at: string; photo: string 
 export type Ticket = { id: string; kind: 'Meldung' | 'Idee' | 'Learning' | 'Anliegen'; title: string; body: string; branch: string; branchId: string; allStudios: boolean; status: 'Neu' | 'Zugewiesen' | 'In Arbeit' | 'Erledigt'; who: string; when: string; assignee: string | null; photo: string | null; mediaKind: 'photo' | 'video'; viaAI: boolean; mine: boolean; votes: number; voted: boolean; comments: Comment[] }
 export type Comment = { id: string; author: string; authorId: string | null; body: string; when: string }
 export type Ev = { id: string; title: string; kind: string; description: string; startsAt: string; endsAt: string | null; place: string; link: string | null; capacity: number | null; registerUntil: string | null; audienceBranches: string[]; audienceSkills: string[]; audiencePeople: string[]; phorestSync: boolean; phorestPaid: boolean; taken: number; waiting: number; createdBy: string | null; raw: { title: string; description: string; place: string } }
-export type WikiBlock = { t: 'h' | 'p' | 'ul' | 'ol' | 'quote' | 'img' | 'video' | 'file'; text?: string; items?: string[]; src?: string; url?: string; name?: string; level?: number }
+// Bild oder Video zu einem Aufzählungspunkt (26.10., Renée): media[j] gehört zu items[j]
+export type ItemMedia = { t: 'img' | 'video'; src?: string; url?: string; name?: string }
+export type WikiBlock = { t: 'h' | 'p' | 'ul' | 'ol' | 'quote' | 'img' | 'video' | 'file'; text?: string; items?: string[]; media?: (ItemMedia | null)[]; src?: string; url?: string; name?: string; level?: number }
 export type WikiArticle = { id: string; cat: string; catKey: string; title: string; minutes: number; updated: string; at: string; body: string[]; mediaKind: string; mediaUrl: string | null; published: boolean; fromNews?: boolean; intro: string; tags: string[]; accessLevel: 'alle' | 'filialleitung' | 'buero'; imported: boolean }
 export type Step = { id: string; title: string; minutes: number; articleId: string | null; proposed: boolean; branchIds: string[] }
 export type Branch = { id: string; name: string; is_office: boolean }

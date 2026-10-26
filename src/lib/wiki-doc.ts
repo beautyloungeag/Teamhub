@@ -2,7 +2,7 @@
 // weiter im Bausteine-Format (wiki_articles.blocks), damit App-Folien, Übersetzung und Marc unverändert bleiben.
 // blocksToHtml: Bausteine → HTML für den Editor. docToBlocks: Editor-Inhalt (JSON) → Bausteine.
 // textToHtml: eingefügter Klartext mit Aufzählungszeichen (• - * 1.) wird zu echten Listen.
-import type { WikiBlock } from '../store'
+import type { ItemMedia, WikiBlock } from '../store'
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 /** **fett**, *kursiv*, [Text](Link), Zeilenumbruch → HTML */
@@ -16,13 +16,29 @@ export function blocksToHtml(bs: WikiBlock[], urls: Record<string, string>): str
       case 'h': return `<h${b.level === 3 ? 3 : 2}>${esc(b.text ?? '')}</h${b.level === 3 ? 3 : 2}>`
       case 'p': return `<p>${mdInline(b.text ?? '')}</p>`
       case 'quote': return `<blockquote><p>${mdInline(b.text ?? '')}</p></blockquote>`
-      case 'ul': case 'ol': return `<${b.t}>${(b.items ?? []).map((x) => `<li><p>${mdInline(x)}</p></li>`).join('')}</${b.t}>`
+      case 'ul': case 'ol': return `<${b.t}>${(b.items ?? []).map((x, j) => `<li${liAttrs(b.media?.[j], urls)}><p>${mdInline(x)}</p></li>`).join('')}</${b.t}>`
       case 'img': return b.src ? `<img src="${esc(urls[b.src] ?? (/^https?:/.test(b.src) ? b.src : ''))}" data-path="${esc(b.src)}">` : ''
       case 'video': return b.src ? `<div data-media="video" data-src="${esc(b.src)}" data-name="${esc(b.name ?? '')}"></div>` : b.url ? `<div data-media="yt" data-url="${esc(b.url)}"></div>` : ''
       case 'file': return b.src ? `<div data-media="file" data-src="${esc(b.src)}" data-name="${esc(b.name ?? '')}"></div>` : ''
       default: return ''
     }
   }).join('')
+}
+
+// Bild/Video eines Aufzählungspunkts als Attribute am <li> (data-show = Anzeigeadresse, wird nicht gespeichert)
+function liAttrs(m: ItemMedia | null | undefined, urls: Record<string, string>): string {
+  if (!m) return ''
+  if (m.t === 'video' && !m.src && m.url) return ` data-m="yt" data-url="${esc(m.url)}"`
+  if (!m.src) return ''
+  const show = urls[m.src] ?? (/^https?:/.test(m.src) ? m.src : '')
+  return ` data-m="${m.t}" data-src="${esc(m.src)}" data-show="${esc(show)}"${m.name ? ` data-name="${esc(m.name)}"` : ''}`
+}
+/** Bild/Video eines Listenpunkts aus den Editor-Attributen */
+export function itemMedia(a: Record<string, any> | undefined): ItemMedia | null {
+  if (!a?.m) return null
+  if (a.m === 'yt') return a.url ? { t: 'video', url: a.url } : null
+  if (!a.src) return null
+  return { t: a.m === 'video' ? 'video' : 'img', src: a.src, ...(a.name ? { name: a.name } : {}) }
 }
 
 type Mark = { type: string; attrs?: Record<string, any> }
@@ -47,17 +63,34 @@ const inline = (nodes: J[] = []) => nodes.map((n) => {
 }).join('')
 const textOf = (n: J): string => n.type === 'text' ? n.text ?? '' : (n.content ?? []).map(textOf).join(n.type === 'paragraph' ? '' : ' ')
 
-// Listen flach machen (Unterlisten werden weitere Punkte). Bilder, Videos oder Dateien in einem Listenpunkt
-// teilen die Liste an dieser Stelle, damit beim Speichern nichts verloren geht.
+// Listen flach machen (Unterlisten werden weitere Punkte). Ein Bild oder Video am Punkt (Attribut oder erstes Bild im
+// Punkt) gehört zum Punkt. Weitere Bilder, Videos, Dateien oder ein Hinweis im Punkt teilen die Liste an dieser Stelle.
 function listBlocks(list: J, tag: 'ul' | 'ol', out: WikiBlock[]) {
-  let items: string[] = []
-  const flush = () => { if (items.length) out.push({ t: tag, items }); items = [] }
+  let items: string[] = [], media: (ItemMedia | null)[] = []
+  const flush = () => {
+    if (items.length) out.push(media.some(Boolean) ? { t: tag, items, media } : { t: tag, items })
+    items = []; media = []
+  }
   const walk = (l: J) => {
-    for (const li of l.content ?? []) for (const c of li.content ?? []) {
-      if (c.type === 'paragraph') { const x = inline(c.content).trim(); if (x) items.push(x) }
-      else if (c.type === 'bulletList' || c.type === 'orderedList') walk(c)
-      else if (c.type === 'image' || c.type === 'media') { flush(); out.push(...docToBlocks({ type: 'doc', content: [c] })) }
-      else { const x = textOf(c).trim(); if (x) items.push(x) }
+    for (const li of l.content ?? []) {
+      const kids = li.content ?? []
+      // Bild/Video des Punkts: Attribut am Punkt, sonst das erste Bild oder Video direkt im Punkt
+      let m = itemMedia(li.attrs), ownAt = -1
+      if (!m) {
+        ownAt = kids.findIndex((c) => c.type === 'image' || (c.type === 'media' && c.attrs?.kind !== 'file'))
+        const b = ownAt >= 0 ? docToBlocks({ type: 'doc', content: [kids[ownAt]] })[0] : undefined
+        if (b && (b.t === 'img' || b.t === 'video')) m = { t: b.t, ...(b.src ? { src: b.src } : {}), ...(b.url ? { url: b.url } : {}), ...(b.name ? { name: b.name } : {}) }
+        else ownAt = -1
+      }
+      const add = (x: string) => { items.push(x); media.push(m); m = null }
+      kids.forEach((c, k) => {
+        if (k === ownAt) return
+        if (c.type === 'paragraph') { const x = inline(c.content).trim(); if (x) add(x) }
+        else if (c.type === 'bulletList' || c.type === 'orderedList') walk(c)
+        else if (c.type === 'image' || c.type === 'media' || c.type === 'blockquote') { flush(); out.push(...docToBlocks({ type: 'doc', content: [c] })) }
+        else { const x = textOf(c).trim(); if (x) add(x) }
+      })
+      if (m) add('')
     }
   }
   walk(list); flush()

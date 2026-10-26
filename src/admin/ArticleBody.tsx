@@ -6,6 +6,7 @@ import { useEditor, EditorContent, type Editor } from '@tiptap/react'
 import { Node, mergeAttributes } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
 import Image from '@tiptap/extension-image'
+import { ListItem } from '@tiptap/extension-list'
 import { Placeholder } from '@tiptap/extensions'
 import { Bold, FileText, Heading2, Heading3, Image as ImageIcon, Italic, Link2, List, ListOrdered, Pilcrow, Quote, Video, MonitorPlay } from 'lucide-react'
 import type { WikiBlock } from '../store'
@@ -31,6 +32,54 @@ const WikiImage = Image.extend({
   },
 }).configure({ inline: false, allowBase64: false })
 
+// Aufzählungspunkt mit eigenem Bild oder Video (26.10., Renée: „Aufzählungszeichen ohne Bilder sind unnütz“).
+// Das Medium hängt als Attribut am Punkt, rechts als Vorschau mit Entfernen. In der App wird der Punkt eine eigene Folie.
+const MediaItem = ListItem.extend({
+  addAttributes() {
+    const a = (attr: string) => ({ default: null, keepOnSplit: false, parseHTML: (el: HTMLElement) => el.getAttribute(attr), renderHTML: (v: Record<string, any>) => v[attr.slice(5)] ? { [attr]: v[attr.slice(5)] } : {} })
+    return { m: a('data-m'), src: a('data-src'), url: a('data-url'), name: a('data-name'), show: a('data-show') }
+  },
+  addNodeView() {
+    return ({ node, getPos, editor }) => {
+      const li = document.createElement('li'), body = document.createElement('div')
+      body.className = 'wiki-li-body'; li.append(body)
+      let cur = node, box: HTMLElement | null = null
+      const draw = () => {
+        box?.remove(); box = null
+        const { m, show, url, name } = cur.attrs
+        li.classList.toggle('wiki-li-media', !!m)
+        if (!m) return
+        box = document.createElement('span'); box.className = 'wiki-li-thumb'; box.contentEditable = 'false'
+        const yt = m === 'yt' && url ? String(url).match(/(?:youtu\.be\/|v=|embed\/|shorts\/)([\w-]{11})/)?.[1] : null
+        if ((m === 'img' && show) || yt) { const img = document.createElement('img'); img.src = yt ? `https://i.ytimg.com/vi/${yt}/mqdefault.jpg` : show; img.alt = ''; box.append(img) }
+        else if (m === 'video' && show) { const v = document.createElement('video'); v.src = `${show}#t=0.1`; v.muted = true; v.preload = 'metadata'; v.playsInline = true; box.append(v) }
+        else { const t = document.createElement('span'); t.className = 'wiki-li-vid'; t.textContent = m === 'yt' ? 'YouTube' : name || 'Video'; box.append(t) }
+        if (m !== 'img') { const p = document.createElement('span'); p.className = 'wiki-li-play'; p.textContent = '▶'; box.append(p) }
+        box.title = m === 'img' ? (name ?? '') : (url ?? name ?? 'Video')
+        const x = document.createElement('button'); x.type = 'button'; x.className = 'wiki-li-x'; x.title = 'Bild vom Punkt entfernen'; x.setAttribute('aria-label', 'Bild vom Punkt entfernen'); x.textContent = '×'
+        x.addEventListener('mousedown', (e) => e.preventDefault())
+        x.addEventListener('click', () => { const pos = typeof getPos === 'function' ? getPos() : null; if (pos == null) return
+          editor.view.dispatch(editor.state.tr.setNodeMarkup(pos, undefined, { ...cur.attrs, m: null, src: null, url: null, name: null, show: null })) })
+        box.append(x); li.append(box)
+      }
+      draw()
+      return {
+        dom: li, contentDOM: body,
+        update: (n) => { if (n.type !== cur.type) return false; const changed = n.attrs !== cur.attrs; cur = n; if (changed) draw(); return true },
+        ignoreMutation: (mu) => !!box && box.contains(mu.target as globalThis.Node),
+        stopEvent: (e) => !!box && box.contains(e.target as globalThis.Node),
+      }
+    }
+  },
+})
+
+/** Position des Aufzählungspunkts, in dem der Cursor steht (sonst null) */
+function itemAt(ed: Editor, at?: number): number | null {
+  const $from = at != null ? ed.state.doc.resolve(Math.min(at, ed.state.doc.content.size)) : ed.state.selection.$from
+  for (let d = $from.depth; d > 0; d--) if ($from.node(d).type.name === 'listItem') return $from.before(d)
+  return null
+}
+
 export type Upload = (f: File) => Promise<{ path: string; url: string } | null>
 
 export function ArticleBody({ initial, urls, onChange, upload }: { initial: WikiBlock[]; urls: Record<string, string>; onChange: (b: WikiBlock[]) => void; upload: Upload }) {
@@ -39,7 +88,21 @@ export function ArticleBody({ initial, urls, onChange, upload }: { initial: Wiki
   const insertFiles = async (ed: Editor, files: File[], at?: number) => {
     if (!files.length) return
     setBusy(true)
+    // Cursor in einer Aufzählung: Bild oder Video gehört zum Punkt. Weitere Dateien werden neue Punkte darunter.
+    let li = itemAt(ed, at)
     for (const f of files) {
+      if (li != null && (f.type.startsWith('image/') || f.type.startsWith('video/'))) {
+        const r = await upload(f); if (!r) continue
+        const attrs = { m: f.type.startsWith('image/') ? 'img' : 'video', src: r.path, show: r.url, name: f.name, url: null }
+        const node = ed.state.doc.nodeAt(li)
+        if (node && !node.attrs.m) ed.view.dispatch(ed.state.tr.setNodeMarkup(li, undefined, { ...node.attrs, ...attrs }))
+        else if (node) {
+          const pos = li + node.nodeSize
+          ed.chain().insertContentAt(pos, { type: 'listItem', attrs, content: [{ type: 'paragraph' }] }).run()
+          li = pos
+        }
+        continue
+      }
       const r = await upload(f); if (!r) continue
       const node = f.type.startsWith('image/') ? { type: 'image', attrs: { src: r.url, path: r.path } }
         : { type: 'media', attrs: { kind: f.type.startsWith('video/') ? 'video' : 'file', src: r.path, name: f.name } }
@@ -52,8 +115,8 @@ export function ArticleBody({ initial, urls, onChange, upload }: { initial: Wiki
   }
   const editor = useEditor({
     extensions: [
-      StarterKit.configure({ heading: { levels: [2, 3] }, code: false, codeBlock: false, strike: false, horizontalRule: false, underline: false, link: { openOnClick: false, autolink: true } }),
-      WikiImage, Media,
+      StarterKit.configure({ listItem: false, heading: { levels: [2, 3] }, code: false, codeBlock: false, strike: false, horizontalRule: false, underline: false, link: { openOnClick: false, autolink: true } }),
+      MediaItem, WikiImage, Media,
       Placeholder.configure({ placeholder: 'Hier schreiben … Text aus Word oder einer Mail kannst du einfach einfügen, Aufzählungen bleiben erhalten.' }),
     ],
     content: blocksToHtml(initial, urls) || '<p></p>',
@@ -95,7 +158,13 @@ export function ArticleBody({ initial, urls, onChange, upload }: { initial: Wiki
     if (!u.trim()) { editor.chain().focus().extendMarkRange('link').unsetLink().run(); return }
     editor.chain().focus().extendMarkRange('link').setLink({ href: /^https?:\/\//.test(u) ? u : `https://${u}` }).run()
   }
-  const yt = () => { const u = prompt('YouTube-Link einfügen (z. B. https://youtu.be/…)'); if (u?.trim()) editor.chain().focus().insertContent([{ type: 'media', attrs: { kind: 'yt', url: u.trim() } }, { type: 'paragraph' }]).run() }
+  const yt = () => {
+    const u = prompt('YouTube-Link einfügen (z. B. https://youtu.be/…)')?.trim(); if (!u) return
+    const li = itemAt(editor), node = li != null ? editor.state.doc.nodeAt(li) : null
+    if (li != null && node) editor.view.dispatch(editor.state.tr.setNodeMarkup(li, undefined, { ...node.attrs, m: 'yt', url: u, src: null, show: null, name: null }))
+    else editor.chain().focus().insertContent([{ type: 'media', attrs: { kind: 'yt', url: u } }, { type: 'paragraph' }]).run()
+  }
+  const inList = editor.isActive('listItem')
   const B = ({ on, label, icon, run, text }: { on?: boolean; label: string; icon: ReactNode; run: () => void; text?: boolean }) =>
     <button type="button" title={label} aria-label={label} aria-pressed={on} onMouseDown={e => e.preventDefault()} onClick={run}
       className={`h-8 ${text ? 'px-2 gap-1.5' : 'w-8'} rounded-[8px] flex items-center justify-center text-[13.5px] transition ${on ? 'bg-olive-700 text-white' : 'text-ink/80 hover:bg-sage-50'}`}>{icon}{text && <span>{label}</span>}</button>
@@ -115,9 +184,9 @@ export function ArticleBody({ initial, urls, onChange, upload }: { initial: Wiki
         <B label="Nummerierte Liste" icon={<ListOrdered size={16} />} on={editor.isActive('orderedList')} run={() => editor.chain().focus().toggleOrderedList().run()} />
         <B label="Hinweis (wichtige Regel)" icon={<Quote size={15} />} on={editor.isActive('blockquote')} run={() => editor.chain().focus().toggleBlockquote().run()} />
         {sep}
-        <B text label="Bild" icon={<ImageIcon size={16} />} run={() => pick('img')} />
-        <B label="Video hochladen" icon={<Video size={16} />} run={() => pick('video')} />
-        <B label="YouTube-Link" icon={<MonitorPlay size={16} />} run={yt} />
+        <B text label={inList ? 'Bild zum Punkt' : 'Bild'} icon={<ImageIcon size={16} />} run={() => pick('img')} />
+        <B label={inList ? 'Video zum Punkt hochladen' : 'Video hochladen'} icon={<Video size={16} />} run={() => pick('video')} />
+        <B label={inList ? 'YouTube-Link zum Punkt' : 'YouTube-Link'} icon={<MonitorPlay size={16} />} run={yt} />
         <B label="Datei (PDF, Word …)" icon={<FileText size={15} />} run={() => pick('file')} />
         {busy && <span className="ml-auto text-[12.5px] text-mute pr-1">Lädt hoch …</span>}
       </div>

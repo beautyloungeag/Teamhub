@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildSlides, lead, planArticle, type SlideItem } from '../src/lib/wiki-slides.ts'
+import { buildSlides, expandList, lead, planArticle, type SlideItem } from '../src/lib/wiki-slides.ts'
 
 const b = (t: 'h' | 'p' | 'img' | 'ul', x: string): SlideItem => ({ k: 'block', b: t === 'img' ? { t, src: x } : t === 'ul' ? { t, items: x.split(',') } : { t, text: x } })
 
@@ -56,4 +56,32 @@ test('Fotos zwischen Schritten: Schrittfolge bleibt, jedes Foto gehört zu seine
   const s = buildSlides(items, { title: 'Pedicure' }, plan.steps.length)
   assert.deepEqual(s.map(x => [x.title, x.photo ?? null]), [['Pedicure', null], ['Vorbereitung', 'a.webp'], ['Nagelhaut entfernen', 'b.webp'], ['Lackieren', null]])
   assert.deepEqual(s.map(x => x.kicker?.k === 'step' ? x.kicker.no : 0), [0, 1, 2, 3])
+})
+
+test('Punkt mit Bild wird eigene Folie, Video kommt in den Banner, Hinweis bleibt auf seiner Folie (26.10.)', () => {
+  const list = { t: 'ul' as const, items: ['Werkzeuge holen', 'Strom', 'Leitungen prüfen'], media: [{ t: 'img' as const, src: 'w.jpg' }, null, { t: 'video' as const, url: 'https://youtu.be/abcdefghijk' }] }
+  const items: SlideItem[] = [b('h', 'Elektriker'), ...expandList(list, 'x'), { k: 'block', b: { t: 'quote', text: 'Nie ohne Handschuhe!' } },
+    b('h', 'Video'), { k: 'block', b: { t: 'video', src: 'v.mp4' } }]
+  const s = buildSlides(items, { title: 'Umbau' })
+  // Überschrift ohne eigenen Inhalt wird Oberzeile der ersten Punkt-Folie
+  // Jeder Punkt der Liste wird eine Folie, auch der ohne Bild; die leere Überschrift wird Oberzeile
+  assert.deepEqual(s.map(x => [x.kind, x.title]), [['cover', 'Umbau'], ['photo', 'Werkzeuge holen'], ['photo', 'Strom'], ['photo', 'Leitungen prüfen'], ['section', 'Video']])
+  assert.deepEqual(s[1].kicker, { k: 'text', text: 'Elektriker' })
+  assert.equal(s[1].photo, 'w.jpg')
+  assert.equal(s[2].photo, undefined)
+  assert.deepEqual(s[3].video, { t: 'video', url: 'https://youtu.be/abcdefghijk' })
+  assert.deepEqual(s[3].kicker, { k: 'video' })
+  // Der Hinweis steht oben auf seiner Folie
+  assert.deepEqual(s[3].body.map(x => x.k === 'block' ? x.b.t : x.k), ['quote'])
+  assert.deepEqual(s[4].video, { t: 'video', src: 'v.mp4' })
+  // Video nach einem Punkt bekommt das Thema, nicht den Punkt als Titel
+  const t = buildSlides([b('h', 'Elektriker'), ...expandList(list, 'x'), { k: 'block', b: { t: 'video', url: 'https://youtu.be/zzzzzzzzzzz' } }], { title: 'Umbau' })
+  assert.equal(t[t.length - 1].title, 'Elektriker')
+})
+
+test('langer erster Satz: Anfang im Balken, ganzer Text darunter', () => {
+  const long = 'Wir montieren die Schienen gemeinsam mit dem Elektriker an der Decke und prüfen danach jede einzelne Lampe sorgfältig auf ihre Funktion, bevor wir den Strom wieder einschalten.'
+  const l = lead(long)
+  assert.ok(l.sub && l.sub.endsWith('…') && l.sub.length <= 125)
+  assert.equal(l.rest, long)
 })

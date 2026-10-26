@@ -165,6 +165,14 @@ input[type=checkbox]{accent-color:#495940}
 .wiki-editor-body ol { list-style: decimal; padding-left: 1.5em; }
 .wiki-editor-body li + li { margin-top: .2em; }
 .wiki-editor-body li p { margin: 0; }
+.wiki-editor-body li.wiki-li-media { position: relative; min-height: 76px; padding-right: 112px; padding-top: 4px; padding-bottom: 4px; }
+.wiki-editor-body li.wiki-li-media + li { margin-top: .5em; }
+.wiki-editor-body .wiki-li-thumb { position: absolute; right: 0; top: 0; width: 100px; height: 72px; border-radius: 10px; overflow: hidden; background: var(--color-sage-100); user-select: none; }
+.wiki-editor-body .wiki-li-thumb img { width: 100%; height: 100%; max-height: none; object-fit: cover; border-radius: 0; cursor: default; }
+.wiki-editor-body .wiki-li-vid { display: flex; align-items: center; justify-content: center; height: 100%; padding: 0 .5em; font-size: 12px; text-align: center; color: var(--color-sage-800); overflow: hidden; }
+.wiki-editor-body .wiki-li-thumb video { width: 100%; height: 100%; object-fit: cover; }
+.wiki-editor-body .wiki-li-play { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 28px; height: 28px; border-radius: 999px; background: rgba(255,255,255,.9); color: var(--color-olive-900); font-size: 11px; line-height: 28px; text-align: center; padding-left: 2px; }
+.wiki-editor-body .wiki-li-x { position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; border-radius: 999px; background: rgba(0,0,0,.55); color: #fff; font-size: 15px; line-height: 22px; text-align: center; cursor: pointer; }
 .wiki-editor-body blockquote { border-left: 3px solid var(--color-duty); background: var(--color-duty-50); border-radius: 0 10px 10px 0; padding: .55em .9em; color: #6E2A1F; }
 .wiki-editor-body a { color: var(--color-olive-700); text-decoration: underline; text-underline-offset: 2px; }
 .wiki-editor-body img { display: block; max-width: 100%; max-height: 340px; width: auto; border-radius: 14px; background: var(--color-sage-100); cursor: pointer; }

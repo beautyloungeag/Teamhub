@@ -142,6 +142,8 @@ function NewTopic({ onClose, onDone }: { onClose: () => void; onDone: (name: str
 /* ---------- Artikel: so wie in der App, direkt bearbeitbar ---------- */
 const plain = (s: string) => s.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\*([^*\n]+)\*/g, '$1').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
 const textOf = (b: WikiBlock) => b.t === 'ul' || b.t === 'ol' ? (b.items ?? []).join('\n') : b.text ?? ''
+// Alle Dateipfade eines Artikels, auch Bilder und Videos an Aufzählungspunkten
+const pathsOf = (bs: WikiBlock[]) => bs.flatMap(b => [b.src ?? '', ...(b.media ?? []).map(m => m?.src ?? '')])
 const TEXTY = new Set(['p', 'h', 'quote', 'ul', 'ol'])
 
 /** Titel und Kurzfassung: einfaches Textfeld im Aussehen der App. Inhalt wird nur beim Laden gesetzt, sonst springt der Cursor. */
@@ -182,7 +184,7 @@ function ArticleEditor({ id, category, onBack, onSaved }: { id: string | null; c
       const bs: WikiBlock[] = [...lead, ...(r.blocks ?? (r.body ? r.body.split(/\n\n+/).filter(Boolean).map(text => ({ t: 'p' as const, text })) : []))]
       setTitle(r.title); setIntro(r.intro ?? ''); setCat(r.category); setLevel(r.access_level); setPublished(r.published); setOwner(r.owner_id ?? '')
       blocks.current = bs
-      setDoc({ blocks: bs, urls: await sign(bs.map(b => b.src ?? '')), ver: 0 })
+      setDoc({ blocks: bs, urls: await sign(pathsOf(bs)), ver: 0 })
     })
   }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -204,17 +206,26 @@ function ArticleEditor({ id, category, onBack, onSaved }: { id: string | null; c
     let moved = false
     for (const src of blocks.current) {
       const b = { ...src }
-      if (TEXTY.has(b.t) && !textOf(b).trim()) continue
-      if (b.src && !b.src.startsWith(`wiki/${level}/`) && b.src.startsWith('wiki/')) {
-        const to = `wiki/${level}/${b.src.split('/').pop()}`
-        const { error } = await supabase!.storage.from('media').move(b.src, to)
-        if (!error) { b.src = to; moved = true }
+      if (TEXTY.has(b.t) && !textOf(b).trim() && !b.media?.some(Boolean)) continue
+      const move = async (src: string) => {
+        if (!src.startsWith('wiki/') || src.startsWith(`wiki/${level}/`)) return src
+        const to = `wiki/${level}/${src.split('/').pop()}`
+        const { error } = await supabase!.storage.from('media').move(src, to)
+        if (error) return src
+        moved = true; return to
       }
-      if (b.t === 'ul' || b.t === 'ol') b.items = (b.items ?? []).filter(x => x.trim())
+      if (b.src) b.src = await move(b.src)
+      if (b.t === 'ul' || b.t === 'ol') {
+        // Leere Punkte fallen weg, ausser sie tragen ein Bild oder Video
+        const keep = (b.items ?? []).map((x, j) => !!x.trim() || !!b.media?.[j])
+        const media = b.media ? await Promise.all(b.media.map(async m => m?.src ? { ...m, src: await move(m.src) } : m)) : undefined
+        b.items = (b.items ?? []).filter((_, j) => keep[j])
+        if (media) { const m2 = media.filter((_, j) => keep[j]); if (m2.some(Boolean)) b.media = m2; else delete b.media }
+      }
       clean.push(b)
     }
     const text = [intro.trim(), ...clean.map(b => plain(textOf(b)))].filter(Boolean).join('\n\n')
-    const words = text.split(/\s+/).filter(Boolean).length + clean.filter(b => b.t === 'img').length * 15
+    const words = text.split(/\s+/).filter(Boolean).length + (clean.filter(b => b.t === 'img').length + clean.flatMap(b => b.media ?? []).filter(m => m?.t === 'img').length) * 15
     const row = { title: title.trim(), intro: intro.trim(), category: cat.trim(), access_level: level, published, owner_id: owner || null, blocks: clean, body: text,
       minutes: Math.max(1, Math.round(words / 180)), media_kind: 'none', media_url: null, updated_at: new Date().toISOString() }
     const r = id ? await supabase!.from('wiki_articles').update(row).eq('id', id).select('id').single() : await supabase!.from('wiki_articles').insert({ ...row, sort: 0 }).select('id').single()
@@ -222,7 +233,7 @@ function ArticleEditor({ id, category, onBack, onSaved }: { id: string | null; c
     if (r.error || !r.data) { toast('Speichern hat nicht geklappt', 'error'); return }
     blocks.current = clean
     // Verschobene Dateien haben neue Pfade: Editor mit dem gespeicherten Stand neu aufbauen
-    if (moved) setDoc({ blocks: clean, urls: await sign(clean.map(b => b.src ?? '')), ver: (doc?.ver ?? 0) + 1 })
+    if (moved) setDoc({ blocks: clean, urls: await sign(pathsOf(clean)), ver: (doc?.ver ?? 0) + 1 })
     setDirty(false); await reloadWiki(); retranslate(); toast('Gespeichert')
     if (!id) { justCreated.current = r.data.id; onSaved(r.data.id) }
   }
@@ -256,7 +267,8 @@ function ArticleEditor({ id, category, onBack, onSaved }: { id: string | null; c
           <DataRow label="Quiz" value={quiz ? <span>{quiz.title}</span> : <span className="text-mute">keins, anlegen unter Lernen → Quiz</span>} />
         </div>
         <div className="text-[12.5px] text-mute leading-relaxed space-y-2">
-          <p>In der App wird der Artikel zu Folien zum Wischen: Jede Überschrift beginnt eine Folie, ein Bild direkt darunter wird ihr Foto, der erste kurze Satz steht im grauen Balken.</p>
+          <p>In der App wird der Artikel zu Folien zum Wischen: Jede Überschrift beginnt eine Folie, ein Bild oder Video direkt darunter füllt ihr Banner, der erste Satz steht im grauen Balken. Hinweise erscheinen oben auf ihrer Folie.</p>
+          <p>Steht der Cursor in einem Aufzählungspunkt, gehört ein Bild oder Video zu diesem Punkt. Der Punkt wird dann eine eigene Folie.</p>
           <p>Text und Aufzählungen aus Word oder einer Mail einfach einfügen. Fotos mit „Bild“, per Einfügen oder durch Hineinziehen.</p>
         </div>
         {id && <button onClick={del} className="text-[13px] text-mute hover:text-alert flex items-center gap-1.5"><Trash2 size={14} />Artikel löschen</button>}

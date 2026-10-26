@@ -12,13 +12,13 @@ import { useAuth } from './lib/auth'
 import { supabase } from './lib/supabase'
 import { phorest, type MyDay, type StaffWeek, type ClientHit, type ClientHistory } from './lib/phorest'
 import { pushState, enablePush, disablePush, testPush, reportDevice, isStandalone, isIOS, isAndroid, canPromptInstall, promptInstall, type PushState } from './lib/push'
-import { useApp, isoDay, addDays, zurichHour, type Lang, type News, type WikiArticle, type WikiBlock, type Staff, type Ticket } from './store'
+import { useApp, isoDay, addDays, zurichHour, type Lang, type News, type WikiArticle, type WikiBlock, type ItemMedia, type Staff, type Ticket } from './store'
 import { Terminbuch, EventCalendar } from './Calendar'
 import { TONE, toneOf, type Tone } from './tones'
 import { tr, locale } from './lib/i18n'
 import { emojiOf, AREAS, areaOf } from './lib/wiki'
 import { wikiProgress } from './lib/wiki-progress'
-import { buildSlides, planArticle, type Slide, type SlideBody, type SlideItem } from './lib/wiki-slides'
+import { buildSlides, expandList, planArticle, type Slide, type SlideBody, type SlideItem } from './lib/wiki-slides'
 import { ViewportOverlay } from './ViewportOverlay'
 import { ChatHub, ChatRoom, useChatUnread, loadChatSummaries } from './Chats'
 import { TimeView } from './Time'
@@ -760,7 +760,7 @@ function WikiCategory({ k, name, open }: { k: string; name: string; open: (s: Su
 }
 function wichtig(bs: WikiBlock[] | null): { show: WikiBlock[]; used: Set<WikiBlock> } | null {
   if (!bs) return null
-  const q = bs.find(x => x.t === 'quote'); if (q) return { show: [q], used: new Set([q]) }
+  // Hinweise aus dem Editor bleiben auf ihrer Folie (26.10.); hier nur die importierten „Wichtig“-Abschnitte
   const h = bs.findIndex(x => x.t === 'h' && /^wichtig/i.test(x.text ?? ''))
   if (h >= 0) { const show: WikiBlock[] = []
     const used: WikiBlock[] = [bs[h]]
@@ -801,7 +801,7 @@ function WikiDetail({ a }: { a: WikiArticle }) {
     if (a.fromNews || !supabase) return
     supabase.from('wiki_articles').select('title, intro, body, blocks').eq('id', a.id).maybeSingle().then(async ({ data }) => {
       setFull({ body: data?.body ?? '', blocks: (data?.blocks as WikiBlock[] | null) ?? null, title: data?.title, intro: data?.intro ?? '' })
-      const paths = [...new Set(((data?.blocks ?? []) as WikiBlock[]).filter(b => (b.t === 'img' || b.t === 'file' || b.t === 'video') && b.src).map(b => b.src!))]
+      const paths = [...new Set(((data?.blocks ?? []) as WikiBlock[]).flatMap(b => [(b.t === 'img' || b.t === 'file' || b.t === 'video') ? b.src : null, ...(b.media ?? []).map(m => m?.src)]).filter((x): x is string => !!x))]
       if (a.mediaUrl && !/^https?:/.test(a.mediaUrl)) paths.push(a.mediaUrl)
       if (paths.length) {
         const { data: signed } = await supabase!.storage.from('media').createSignedUrls(paths, 3600)
@@ -812,7 +812,6 @@ function WikiDetail({ a }: { a: WikiArticle }) {
   const shown = full && !orig && tr8 && typeof tr8 === 'object' ? { body: tr8.body, blocks: tr8.blocks } : full
   // Im Original auch Titel und Kurzfassung auf Deutsch
   const title = orig && full?.title ? full.title : a.title, intro = orig && full?.title ? full.intro : a.intro
-  const yt = a.mediaKind === 'youtube' && a.mediaUrl ? ytId(a.mediaUrl) : null
   const own = a.mediaUrl ? (urls[a.mediaUrl] ?? (/^https?:/.test(a.mediaUrl) ? a.mediaUrl : null)) : null
   const { read, runs } = useWikiRuns()
   const [ticked, setTickedState] = useState<Set<string>>(new Set())
@@ -831,7 +830,7 @@ function WikiDetail({ a }: { a: WikiArticle }) {
   const plan = planArticle(blocks)
   const mode = plan.mode
   // Kurze nummerierte Listen ohne Zusatztext werden eine Folie mit Liste und zählen nicht als abhakbare Schritte
-  const shortList = (f: { from: number; to: number }) => plan.steps.slice(f.from, f.to).every(x => x.key.startsWith('o') && !x.title && !x.parts && (x.text ?? '').length <= 90)
+  const shortList = (f: { from: number; to: number }) => plan.steps.slice(f.from, f.to).every(x => x.key.startsWith('o') && !x.title && !x.parts && !x.media && (x.text ?? '').length <= 90)
   const tickSteps = mode !== 'steps' ? plan.steps : plan.flow.flatMap(f => 'from' in f && !shortList(f) ? plan.steps.slice(f.from, f.to) : [])
   const total = tickSteps.length, doneN = tickSteps.filter(x => ticked.has(x.key)).length
   const timesDone = runs.get(a.id) ?? 0
@@ -883,23 +882,27 @@ function WikiDetail({ a }: { a: WikiArticle }) {
   const look = AREA_LOOK[area] ?? AREA_LOOK.studio, LookIcon = look.icon
   // Folien (Vorlage der Inhaberin 26.10.): Galerie oben, wichtigste Info im Balken, Text und Video darunter
   const items: SlideItem[] = !blocks ? (shown ? shown.body.split(/\n\n+/).filter(Boolean).map(text => ({ k: 'block' as const, b: { t: 'p' as const, text } })) : [])
-    : mode === 'sections' ? blocks.map((b, i): SlideItem => b.t === 'h' ? { k: 'section', key: 'h' + i, no: plan.steps.findIndex(x => x.key === 'h' + i) + 1, title: b.text ?? '' } : { k: 'block', b })
+    : mode === 'sections' ? blocks.flatMap((b, i): SlideItem[] => b.t === 'h' ? [{ k: 'section', key: 'h' + i, no: plan.steps.findIndex(x => x.key === 'h' + i) + 1, title: b.text ?? '' }] : expandList(b, 'b' + i))
     : mode === 'steps' ? plan.flow.flatMap((f): SlideItem[] => 'from' in f
       // Kurze nummerierte Liste ohne Zusatztext: eine Folie mit Liste statt einer Folie je Zeile (26.10.)
       ? shortList(f)
         ? [{ k: 'block', b: { t: 'ol', items: plan.steps.slice(f.from, f.to).map(x => x.text ?? '') } }]
         : plan.steps.slice(f.from, f.to).map((step, j) => ({ k: 'step', step, no: f.from + j + 1 }))
-      : f.t === 'check' ? [{ k: 'check', key: f.key, title: f.title, items: f.items }] : [{ k: 'block', b: f }])
-    : blocks.map((b): SlideItem => ({ k: 'block', b }))
+      : f.t === 'check' ? [{ k: 'check', key: f.key, title: f.title, items: f.items }] : expandList(f, 'f' + blocks.indexOf(f)))
+    : blocks.flatMap((b, i) => expandList(b, 'b' + i))
   const slides = buildSlides(items, { title, intro }, total)
+  // Altes Artikelvideo oben: in den Banner der Titelfolie
+  if (!slides[0].photo && !slides[0].video && a.mediaUrl && (a.mediaKind === 'youtube' || a.mediaKind === 'video'))
+    slides[0].video = a.mediaKind === 'youtube' ? { t: 'video', url: a.mediaUrl } : { t: 'video', src: a.mediaUrl }
   if (quiz && full) slides.push({ key: 'quiz', kind: 'quiz', title: t('Wissenstest'), sub: t('Gilt erst als gelesen, wenn du den Test bestanden hast.'), body: [] })
   const [idx, setIdx] = useState(0)
   const [zoom, setZoom] = useState<string | null>(null)
+  const [play, setPlay] = useState<ItemMedia | null>(null)
   const rail = useRef<HTMLDivElement>(null), topRef = useRef<HTMLDivElement>(null)
   useEffect(() => { setIdx(0); rail.current?.scrollTo({ left: 0 }) }, [a.id])
   const cur = slides[Math.min(idx, slides.length - 1)]
-  // Hochformat nur, wenn die meisten Folien ein Foto haben; sonst rückt der Text näher
-  const tall = slides.filter(x => x.photo).length * 2 >= slides.length
+  // Grosses Format, sobald ein Drittel der Folien Bild oder Video hat (26.10., Renée: „Fotos sollten grösser sein“)
+  const tall = slides.filter(x => x.photo || x.video).length * 3 >= slides.length
   const go = (i: number, up = false) => {
     const el = rail.current, n = Math.max(0, Math.min(slides.length - 1, i))
     if (el) el.scrollTo({ left: n * el.clientWidth, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
@@ -910,12 +913,12 @@ function WikiDetail({ a }: { a: WikiArticle }) {
   const kicker = (s: Slide) => !s.kicker ? (s.kind === 'cover' ? catName(a.cat) : null)
     : s.kicker.k === 'step' ? t('Schritt {a} von {b}', { a: s.kicker.no, b: s.kicker.total })
     : s.kicker.k === 'photo' ? t('Bild {a} von {b}', { a: s.kicker.no, b: s.kicker.total })
-    : s.kicker.k === 'wichtig' ? t('Wichtig') : s.kicker.text
+    : s.kicker.k === 'wichtig' ? t('Wichtig') : s.kicker.k === 'video' ? t('Video') : s.kicker.text
   const bodyItem = (x: SlideBody, i: number) => x.k === 'text' ? <p key={i}><Rich text={x.text} /></p>
     : x.k === 'parts' ? <ul key={i} className="space-y-1.5">{x.parts.map((y, j) => <li key={j} className="flex gap-2"><span className="mt-[11px] w-1.5 h-1.5 rounded-full bg-sage-400 shrink-0" /><span><Rich text={y} /></span></li>)}</ul>
     : x.k === 'check' ? checklist(x.items, 5000 + x.key, x.title)
     : x.b.t === 'ul' && mode !== 'plain' ? checklist(x.b.items ?? [], blocks ? blocks.indexOf(x.b) : i)
-    : block(x.b, blocks ? blocks.indexOf(x.b) : i, true)
+    : block(x.b, blocks ? blocks.indexOf(x.b) : i, x.b.t !== 'quote')
   const on = cur.stepKey ? ticked.has(cur.stepKey) : false
   const next = slides[idx + 1]
   return (
@@ -925,8 +928,9 @@ function WikiDetail({ a }: { a: WikiArticle }) {
           <div ref={rail} onScroll={e => { const el = e.currentTarget, n = Math.round(el.scrollLeft / Math.max(1, el.clientWidth)); if (n !== idx) setIdx(n) }}
             className="flex overflow-x-auto snap-x snap-mandatory overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" aria-roledescription={t('Galerie')}>
             {slides.map((s, i) => { const src = photoOf(s), k = kicker(s), Head = s.kind === 'cover' ? 'h1' : 'p'
-              return <div key={s.key} className={`relative w-full shrink-0 snap-center ${tall ? 'aspect-[4/5] max-h-[64vh]' : 'aspect-[5/4] max-h-[52vh]'} md:aspect-[16/10] md:max-h-[460px] bg-olive-900 overflow-hidden`} aria-label={t('Folie {a} von {b}', { a: i + 1, b: slides.length })}>
-                {src ? <SlidePhoto src={src} onOpen={() => setZoom(src)} label={t('Bild gross anzeigen')} />
+              return <div key={s.key} className={`relative w-full shrink-0 snap-center ${tall ? 'aspect-[4/5] max-h-[74vh] md:aspect-[4/3] md:max-h-[640px]' : 'aspect-[5/4] max-h-[50vh] md:aspect-[16/10] md:max-h-[460px]'} bg-olive-900 overflow-hidden`} aria-label={t('Folie {a} von {b}', { a: i + 1, b: slides.length })}>
+                {s.video ? <SlideVideo v={s.video} urls={urls} onPlay={() => setPlay(s.video!)} label={t('Video abspielen')} />
+                  : src ? <SlidePhoto src={src} onOpen={() => setZoom(src)} label={t('Bild gross anzeigen')} />
                   : <div className={`absolute inset-0 flex items-start justify-center pt-[16%] ${TONE[s.kind === 'quiz' ? 'learn' : look.tone].bg}`}>
                     {s.kind === 'step' && s.kicker?.k === 'step' ? <span className={`font-display text-[120px] leading-none ${TONE[look.tone].fg} opacity-80`}>{s.kicker.no}</span>
                       : s.kind === 'quiz' ? <GraduationCap size={96} strokeWidth={1.3} className={TONE.learn.fg} /> : <LookIcon size={96} strokeWidth={1.3} className={`${TONE[look.tone].fg} opacity-80`} />}
@@ -934,8 +938,8 @@ function WikiDetail({ a }: { a: WikiArticle }) {
                 {/* Der graue Balken: die wichtigste Info dieser Folie */}
                 <div className="absolute inset-x-0 bottom-0 bg-[#2E322C]/90 backdrop-blur-[2px] px-4 pt-3 pb-3.5 text-white">
                   {k && <span className={`inline-flex px-2 py-0.5 rounded-[6px] text-[11.5px] font-bold uppercase tracking-[.06em] ${s.kicker?.k === 'wichtig' ? 'bg-[#F2A99C] text-[#4A1A12]' : 'bg-brass text-white'}`}>{k}</span>}
-                  <Head className={`${k ? 'mt-1.5' : ''} ${s.kind === 'cover' ? 'text-[23px]' : 'text-[19px]'} font-semibold leading-snug tracking-tight line-clamp-3`}>{s.title}</Head>
-                  {s.sub && <p className="mt-1 text-[15px] leading-snug text-white/80 line-clamp-3">{s.sub}</p>}
+                  <Head className={`${k ? 'mt-1.5' : ''} ${s.kind === 'cover' ? 'text-[23px]' : 'text-[19px]'} font-semibold leading-snug tracking-tight line-clamp-2`}>{s.title}</Head>
+                  {s.sub && <p className="mt-1 text-[15px] leading-snug text-white/80 line-clamp-2">{s.sub}</p>}
                 </div>
               </div> })}
           </div>
@@ -968,8 +972,6 @@ function WikiDetail({ a }: { a: WikiArticle }) {
               : <p key={i}><Rich text={x.text ?? ''} /></p>)}</div>
           </div>}
           {lang !== 'DE' && !a.fromNews && <p className="mt-2 text-[14.5px] text-mute">{tr8 === 'loading' ? t('Wird übersetzt …') : tr8 === 'failed' ? t('Übersetzung gerade nicht möglich, Original wird angezeigt.') : <button onClick={() => setOrig(!orig)} className="text-olive-700">{orig ? t('Übersetzung anzeigen') : t('Automatisch übersetzt · Original')}</button>}</p>}
-          {yt ? <iframe className="mt-4 w-full aspect-video rounded-[18px]" src={`https://www.youtube-nocookie.com/embed/${yt}`} title={a.title} allow="encrypted-media; picture-in-picture" allowFullScreen />
-            : a.mediaKind === 'video' && own ? <video className="mt-4 w-full rounded-[18px] bg-olive-700" src={own} controls playsInline /> : null}
           {!full && <p className="mt-6 text-mute">{t('Lädt …')}</p>}
         </>}
         {cur.stepKey && total > 0 && <p className="mt-4 text-[14px] text-mute tabular-nums">{t('{a} von {b} erledigt', { a: doneN, b: total })}</p>}
@@ -985,6 +987,12 @@ function WikiDetail({ a }: { a: WikiArticle }) {
             : full && <button disabled={busy} onClick={confirmRead} className="h-12 px-3 rounded-[16px] bg-olive-800 text-white text-[15.5px] font-semibold flex items-center justify-center gap-1.5 disabled:opacity-60"><Check size={17} />{t('Gelesen & bestätigen')}</button>}
         </div>}
       </div>
+      {play && <ViewportOverlay label={t('Video')} onClose={() => setPlay(null)} className="bg-black flex items-center justify-center">
+        {play.src ? <video src={urls[play.src] ?? (/^https?:/.test(play.src) ? play.src : undefined)} controls autoPlay playsInline className="max-w-full max-h-full" />
+          : ytId(play.url ?? '') ? <iframe className="w-full aspect-video max-h-full" src={`https://www.youtube-nocookie.com/embed/${ytId(play.url ?? '')}?autoplay=1&playsinline=1`} title={t('Video')} allow="autoplay; encrypted-media; picture-in-picture" allowFullScreen />
+          : <a href={play.url} target="_blank" rel="noreferrer" className="text-white underline">{t('Video öffnen')}</a>}
+        <button onClick={() => setPlay(null)} aria-label={t('Schliessen')} className="absolute top-[max(12px,env(safe-area-inset-top))] right-3 w-11 h-11 rounded-full bg-white/15 text-white flex items-center justify-center"><X size={22} /></button>
+      </ViewportOverlay>}
       {zoom && <ViewportOverlay label={t('Bild')} onClose={() => setZoom(null)} className="bg-black/92 flex items-center justify-center">
         <img src={zoom} alt="" className="max-w-full max-h-full object-contain" />
         <button onClick={() => setZoom(null)} aria-label={t('Schliessen')} className="absolute top-[max(12px,env(safe-area-inset-top))] right-3 w-11 h-11 rounded-full bg-white/15 text-white flex items-center justify-center"><X size={22} /></button>
@@ -994,6 +1002,15 @@ function WikiDetail({ a }: { a: WikiArticle }) {
 }
 // Querformat und Bildschirmfotos ganz zeigen (auf unscharfem Grund), Hochformat füllt die Folie
 const COVER_PHOTO: Record<string, string> = { behandlung: '/hero-studio.jpg', hygiene: '/hero-studio.jpg', studio: '/hero-empfang.jpg', team: '/login-studio.webp', lernen: '/login-studio.webp' }
+// Video im Banner: Standbild mit grossem Abspielknopf, Antippen spielt es im Vollbild ab
+function SlideVideo({ v, urls, onPlay, label }: { v: ItemMedia; urls: Record<string, string>; onPlay: () => void; label: string }) {
+  const src = v.src ? urls[v.src] ?? (/^https?:/.test(v.src) ? v.src : null) : null, id = v.url ? ytId(v.url) : null
+  return <button type="button" onClick={onPlay} aria-label={label} className="absolute inset-0 block bg-olive-900">
+    {src ? <video src={`${src}#t=0.1`} preload="metadata" muted playsInline className="absolute inset-0 w-full h-full object-cover pointer-events-none" />
+      : id ? <img src={`https://i.ytimg.com/vi/${id}/hqdefault.jpg`} alt="" className="absolute inset-0 w-full h-full object-cover scale-[1.34]" /> : null}
+    <span className="absolute left-1/2 top-[40%] -translate-x-1/2 -translate-y-1/2 w-[72px] h-[72px] rounded-full bg-white/90 text-olive-900 flex items-center justify-center shadow-lg"><Play size={32} className="ml-1" fill="currentColor" /></span>
+  </button>
+}
 function SlidePhoto({ src, onOpen, label }: { src: string; onOpen: () => void; label: string }) {
   const [fit, setFit] = useState<'cover' | 'contain'>(/bildschirmfoto|screenshot/i.test(src) ? 'contain' : 'cover')
   return <button type="button" onClick={onOpen} aria-label={label} className="absolute inset-0 block">
