@@ -2,6 +2,10 @@
 
 This document covers the privacy slice; see `HANDOFF.md` for the rest of the application.
 
+## Marc back-office copilot (2026-10-26)
+
+No schema change. `assistant` offers lead/office `vorschlag_*` tools; each validated proposal is stored as a card in `benni_messages.data.actions` (status offen → laeuft → ausgefuehrt | fehler | verworfen, 24 h validity). `{action: 'decide'}` claims a card with a conditional JSON update (`data->actions->i->>status`) and executes with the caller's user-scoped client, i.e. existing RLS on `news`, `events`, `todos`, `standby_requests`, `tickets`, `wiki_articles`, `media` storage, plus `admin-employee`, `notify`, `translate`. Attached photos wait as JSON in the caller's `assistant-context` folder and are removed after deciding. Lead/office own to-dos also go through a card (`add_todo` remains employee-only).
+
 ## Pilot authorization and realtime hardening (2026-10-26)
 
 Migrations `20261025225346`, `20261025230316`, `20261025230614`, `20261025230806`, and `20261025230947` are deployed. They guard employee authorization fields, task-proof references and comment identity; fail closed for missing identities; remove anonymous privileged-RPC execution; scope inactive directory access; and make quiz attempt/read-marker persistence atomic through service-only `record_quiz_attempt`. Quiz v6 uses this contract. `mark_chat_read` advances only to a persisted visible message; sending does not acknowledge unseen messages.

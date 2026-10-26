@@ -2,6 +2,9 @@
 
 ## Current pilot position — 2026-10-26
 
+- Shipped 26.10. afternoon (owner/reviewer feedback): knowledge articles as swipe slides with photo + grey key-info bar (`src/lib/wiki-slides.ts`), single action row at the end, Marc icon in the article header, photos between steps keep the step sequence. Wiki editing stays office-only (owner decision).
+- Shipped 26.10.: Marc as back-office copilot for lead/office (`supabase/functions/assistant/actions.ts`, assistant v38): proposal cards, execution only after "Ausführen", with the person's JWT/RLS. Next-up: reviewer feedback on both; English/French result texts after execution are still German.
+
 - Shipped: authorization, identity-cache, chat/comment, concurrent profile/skill, audience/export, realtime-progress and mobile landscape/attachment fixes (`076bccd`); quiz v6 and five migrations deployed. 75 automated tests and 189 deployed-schema rollback checks passed.
 - Owner confirmed real iPhone Marc/comment keyboard layouts and office-task push receipt. Controlled pilot GO; no blanket device or external-provider acceptance.
 - Reviewer access and five scoped test cases prepared; owner reports the instruction email sent. Remaining team invitations are explicitly deferred. Intended next step is reviewer feedback, then a two-week team pilot, then wider rollout if ready.

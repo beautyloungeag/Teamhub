@@ -1,5 +1,9 @@
 # HANDOFF — Beautylounge TeamHub
 
+### Was wurde in dieser Session gemacht (2026-10-26, nachmittags)
+
+Renées Feedback (Mail 9:48) als Wischgalerie umgesetzt und nach Aleksas Durchsicht entschlackt, Fotos je Folie durch das Büro möglich, Marc als Backoffice-Copilot gebaut und mit Testkonten geprüft (Abschnitte darunter). **Offen:** Aleksas Antwortmail an Renée (Galerie + Rollenfrage für Sarah/Matteo/Deborah, admin@/marketing@/office@ — noch kein Profil, erst nach Renées Antwort anlegen). Pilotteam aus den Studios (sechs Profile stehen, nie eingeladen) erst nach Renées grünem Licht. Lokal laufen alle Tests erst nach `npm install --no-save jsdom@26.1.0`.
+
 ### 2026-10-26 — Marc als Backoffice-Copilot (Aleksa)
 
 Filialleitung und Büro können Marc Backoffice-Arbeit geben: News (sofort oder eingeplant, Zielgruppe Studios/Gruppen/Skills/Personen, Büro mit angehängtem Foto), Schulung/Meeting/Team-Event, Erinnerung an einen Termin, Aufgabe zuweisen (Person, Studio, alle Studios, auch eigene), Aushilfe anfragen, Person anlegen, Status einer Meldung/Idee; nur Büro zusätzlich Foto/Absatz/Hinweis in einen Wissensartikel (nach Überschrift oder Schritt, `wiki_outline`). Dazu Lesewerkzeuge `team_list`, `events_overview` (Zu-/Absagen, Warteliste, ohne Antwort), `tickets_list`. Mitarbeiterinnen bekommen nichts davon.
