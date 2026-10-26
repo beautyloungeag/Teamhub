@@ -253,7 +253,6 @@ function Today({ open, go }: { open: (s: Sub) => void; go: (t: Tab) => void }) {
   const day = useMyDay()
   const due = useDue()
   const runs = useWikiRuns()
-  const pop = usePopular()
   const myTodos = useTodos().filter(x => isForMe(x, me) && !x.done_at)
   const doneN = tasks.filter(x => done.has(x.id)).length
   const next = tasks.find(x => !done.has(x.id))
@@ -267,7 +266,7 @@ function Today({ open, go }: { open: (s: Sub) => void; go: (t: Tab) => void }) {
   // Fokus der Startseite (Inhaberin 21.10.): News, Listen, Wissen, Chats und Lernen voneinander; Termine bleiben in Phorest
   const articles = wiki.filter(a => a.published && !a.fromNews)
   const readN = articles.filter(a => runs.read.has(a.id)).length
-  const nextRead = [...articles].filter(a => !runs.read.has(a.id)).sort((x, y) => (pop.get(y.id) ?? 0) - (pop.get(x.id) ?? 0) || Number(areaOf(y.catKey, y.title) === 'behandlung') - Number(areaOf(x.catKey, x.title) === 'behandlung'))[0]
+  const nextRead = [...articles].filter(a => !runs.read.has(a.id)).sort(newestFirst)[0]
   const learning = tickets.find(x => x.kind === 'Learning')
   const mailUnread = useMailUnread()
   const tile = (tone: Tone, big: string, label: string, onClick: () => void) =>
@@ -312,6 +311,13 @@ function Today({ open, go }: { open: (s: Sub) => void; go: (t: Tab) => void }) {
         {must.some(n => quizzes.some(q => q.newsId === n.id)) && <p className="mt-2 px-1 text-[14px] text-mute">{t('Bei manchen News folgt ein kurzes Quiz.')}</p>}
       </>}
 
+      {/* News gleich nach den Pflicht-News, neueste zuerst (Renée 26.10.: „Wo sind die News?“) */}
+      {/* Immer sichtbar, damit man die News findet, auch solange es noch keine gibt */}
+      <Label action={<button onClick={() => open({ k: 'news-list' })} className="text-[14.5px] text-sage-800">{t('Alle News')}</button>}>{t('Neueste News')}</Label>
+      {news.filter(n => !n.mustRead).length > 0
+        ? <div className="space-y-3">{news.filter(n => !n.mustRead).slice(0, 3).map(n => <NewsCard key={n.id} n={n} onClick={() => open({ k: 'news', item: n })} />)}</div>
+        : <p className="px-1 text-[15.5px] text-mute">{t('Noch keine weiteren News. Neue News erscheinen hier zuerst.')}</p>}
+
       {myTodos.length > 0 && <>
         <Label action={<button onClick={() => { tasksView = 'me'; go('tasks') }} className="text-[14.5px] text-sage-800">{t('Alle')}</button>}>{t('Für dich')}</Label>
         <List>{myTodos.slice(0, 3).map(x => (
@@ -349,10 +355,6 @@ function Today({ open, go }: { open: (s: Sub) => void; go: (t: Tab) => void }) {
         </button>
       </>}
 
-      {news.filter(n => !n.mustRead).length > 0 && <>
-        <Label action={<button onClick={() => open({ k: 'news-list' })} className="text-[14.5px] text-sage-800">{t('Alle')}</button>}>{t('News')}</Label>
-        <div className="space-y-3">{news.filter(n => !n.mustRead).slice(0, 2).map(n => <NewsCard key={n.id} n={n} onClick={() => open({ k: 'news', item: n })} />)}</div>
-      </>}
     </div>
   )
 }
@@ -644,6 +646,9 @@ const Bar = ({ value, total, tone = 'done' }: { value: number; total: number; to
   <div className="h-2 rounded-full bg-sage-100 overflow-hidden"><div className={`h-full rounded-full transition-all ${TONE[tone].solid}`} style={{ width: (total ? Math.min(100, value / total * 100) : 0) + '%' }} /></div>
 )
 const pct = (a: number, b: number) => b ? Math.round(a / b * 100) : 0
+// Wissen nach Erscheinungs-/Änderungsdatum, neueste zuerst (Renée 26.10.: „damit jeder sieht, wenn wir etwas Neues erstellt haben“)
+const newestFirst = (x: WikiArticle, y: WikiArticle) => (y.at ?? '').localeCompare(x.at ?? '') || x.title.localeCompare(y.title)
+const isNew = (a: WikiArticle) => !!a.at && Date.now() - new Date(a.at).getTime() < 14 * 864e5
 
 function Wiki({ open }: { open: (s: Sub) => void }) {
   const { t, wiki: allWiki, steps, obDone, tickets } = useApp()
@@ -659,12 +664,15 @@ function Wiki({ open }: { open: (s: Sub) => void }) {
   const doneAll = wiki.filter(a => read.has(a.id)).length
   const popular = [...wiki].filter(a => (pop.get(a.id) ?? 0) > 0).sort((x, y) => (pop.get(y.id) ?? 0) - (pop.get(x.id) ?? 0)).slice(0, 5)
   const learnings = tickets.filter(x => x.kind === 'Learning')
+  const newest = [...wiki].sort(newestFirst).slice(0, 4)
   const hits = wikiHits(allWiki.filter(a => a.published), q)
   return (
     <div className="pb-10"><Title right={<button onClick={() => open({ k: 'tickets', learning: true })} className={`mb-1 h-10 px-3.5 rounded-full text-[15px] font-semibold flex items-center gap-1.5 ${TONE.note.bg} ${TONE.note.fg}`}><Share2 size={16} />{t('Wissen teilen')}</button>}>{t('Wissen')}</Title>
       <div className="px-4">
         <WikiSearch value={q} onChange={setQ} placeholder={t('In allen Anleitungen suchen …')} />
         {!q && <>
+          {newest.length > 0 && <><Label>{t('Neu im Wissen')}</Label>
+            <List>{newest.map(a => <Row key={a.id} icon={articleIcon(a)} title={a.title} sub={`${isNew(a) ? `${t('Neu')} · ` : ''}${catName(a.cat)} · ${a.updated}`} onClick={() => open({ k: 'wiki', item: a })} right={read.has(a.id) ? <Check size={18} className="text-done shrink-0" /> : undefined} />)}</List></>}
           <div className="mt-4 rounded-[20px] bg-white p-4">
             <div className="flex items-baseline justify-between"><p className="text-[17px] font-semibold">{t('Dein Fortschritt')}</p><p className="font-display text-[22px] tabular-nums">{pct(doneAll, wiki.length)} %</p></div>
             <div className="mt-2"><Bar value={doneAll} total={wiki.length} /></div>
@@ -706,18 +714,17 @@ function Wiki({ open }: { open: (s: Sub) => void }) {
 
 function WikiArea({ k, open }: { k: string; open: (s: Sub) => void }) {
   const { t, wiki } = useApp()
-  const pop = usePopular()
   const { read, runs } = useWikiRuns()
   const ar = AREAS.find(x => x.key === k)!, look = AREA_LOOK[k], Icon = look.icon
   const items = wiki.filter(a => a.published && !a.fromNews && areaOf(a.catKey, a.title) === k)
   const cats = [...new Set(items.map(a => a.cat))].sort((x, y) => items.filter(a => a.cat === y).length - items.filter(a => a.cat === x).length)
   const [c, setC] = useState('Alle'), [q, setQ] = useState('')
-  // Offenes oben, Gelesenes rutscht nach unten (Wunsch der Inhaberin 22.10.); innerhalb beliebteste zuerst
-  const shown = wikiHits(items.filter(a => c === 'Alle' || a.cat === c), q).sort((x, y) => q.trim() ? 0 : (pop.get(y.id) ?? 0) - (pop.get(x.id) ?? 0) || x.title.localeCompare(y.title))
+  // Offenes oben, Gelesenes rutscht nach unten (Wunsch der Inhaberin 22.10.); innerhalb neueste zuerst (26.10.)
+  const shown = wikiHits(items.filter(a => c === 'Alle' || a.cat === c), q).sort((x, y) => q.trim() ? 0 : newestFirst(x, y))
   const todo = shown.filter(a => !read.has(a.id)), have = shown.filter(a => read.has(a.id))
   const done = items.filter(a => read.has(a.id)).length
   const row = (a: WikiArticle) => { const n = runs.get(a.id) ?? 0
-    return <Row key={a.id} icon={articleIcon(a)} title={a.title} sub={[catName(a.cat), t('{n} Min.', { n: a.minutes }), n ? t('{n}× durchgemacht', { n }) : ''].filter(Boolean).join(' · ')} onClick={() => open({ k: 'wiki', item: a })}
+    return <Row key={a.id} icon={articleIcon(a)} title={a.title} sub={[isNew(a) ? t('Neu') : '', catName(a.cat), a.updated, n ? t('{n}× durchgemacht', { n }) : ''].filter(Boolean).join(' · ')} onClick={() => open({ k: 'wiki', item: a })}
       right={read.has(a.id) ? <span className="w-6 h-6 rounded-full bg-done text-white flex items-center justify-center shrink-0"><Check size={14} strokeWidth={3} /></span> : <Circle size={22} className="text-sage-200 shrink-0" />} /> }
   return (
     <div className="pb-10 px-4">
@@ -737,15 +744,14 @@ function WikiArea({ k, open }: { k: string; open: (s: Sub) => void }) {
 
 function WikiCategory({ k, name, open }: { k: string; name: string; open: (s: Sub) => void }) {
   const { t, wiki, catEmojis } = useApp()
-  const pop = usePopular()
   const tone = TONE[toneOf(name)]
-  const items = wiki.filter(a => a.published && a.catKey === k).sort((x, y) => (pop.get(y.id) ?? 0) - (pop.get(x.id) ?? 0) || x.title.localeCompare(y.title))
+  const items = wiki.filter(a => a.published && a.catKey === k).sort(newestFirst)
   return (
     <div className="pb-10">
       <div className="px-4">
         <div className={`mt-2 rounded-[22px] p-4 flex items-center gap-4 ${tone.bg}`}>
           <span className="w-14 h-14 rounded-[16px] bg-white/70 flex items-center justify-center text-[30px] shrink-0" aria-hidden="true">{emojiOf(k, catEmojis)}</span>
-          <div className="min-w-0"><h1 className={`font-display text-[28px] leading-tight truncate ${tone.fg}`}>{catName(name)}</h1><p className="text-[15px] text-ink/70">{items.length === 1 ? t('1 Artikel') : t('{n} Artikel', { n: items.length })} · {t('beliebteste zuerst')}</p></div>
+          <div className="min-w-0"><h1 className={`font-display text-[28px] leading-tight truncate ${tone.fg}`}>{catName(name)}</h1><p className="text-[15px] text-ink/70">{items.length === 1 ? t('1 Artikel') : t('{n} Artikel', { n: items.length })} · {t('neueste zuerst')}</p></div>
         </div>
         <div className="mt-3"><List>{items.map(a => <Row key={a.id} icon={articleIcon(a)} title={a.title} sub={t('{n} Min. · aktualisiert {date}', { n: a.minutes, date: a.updated })} onClick={() => open({ k: 'wiki', item: a })} />)}</List></div>
       </div>
@@ -824,12 +830,15 @@ function WikiDetail({ a }: { a: WikiArticle }) {
   // jeder Abschnitt ein Schritt. Aufzählungen werden dann zur Checkliste, Hinweise zur roten Regel.
   const plan = planArticle(blocks)
   const mode = plan.mode
-  const total = plan.steps.length, doneN = plan.steps.filter(x => ticked.has(x.key)).length
+  // Kurze nummerierte Listen ohne Zusatztext werden eine Folie mit Liste und zählen nicht als abhakbare Schritte
+  const shortList = (f: { from: number; to: number }) => plan.steps.slice(f.from, f.to).every(x => x.key.startsWith('o') && !x.title && !x.parts && (x.text ?? '').length <= 90)
+  const tickSteps = mode !== 'steps' ? plan.steps : plan.flow.flatMap(f => 'from' in f && !shortList(f) ? plan.steps.slice(f.from, f.to) : [])
+  const total = tickSteps.length, doneN = tickSteps.filter(x => ticked.has(x.key)).length
   const timesDone = runs.get(a.id) ?? 0
   const tick = async (k: string) => {
     const next = new Set(tickedRef.current); if (next.has(k)) next.delete(k); else next.add(k)
     setTicked(next)
-    if (total && plan.steps.every(x => next.has(x.key)) && supabase && me.id && !a.fromNews) {
+    if (total && tickSteps.every(x => next.has(x.key)) && supabase && me.id && !a.fromNews) {
       const { error } = await supabase.from('wiki_runs').insert({ article_id: a.id, employee_id: me.id, kind: 'durchgang' })
       if (!error) { toast(t('Durchgang gespeichert. Gut gemacht!')); reloadRuns(); setTimeout(() => setTicked(new Set()), 1200) }
     }
@@ -875,7 +884,11 @@ function WikiDetail({ a }: { a: WikiArticle }) {
   // Folien (Vorlage der Inhaberin 26.10.): Galerie oben, wichtigste Info im Balken, Text und Video darunter
   const items: SlideItem[] = !blocks ? (shown ? shown.body.split(/\n\n+/).filter(Boolean).map(text => ({ k: 'block' as const, b: { t: 'p' as const, text } })) : [])
     : mode === 'sections' ? blocks.map((b, i): SlideItem => b.t === 'h' ? { k: 'section', key: 'h' + i, no: plan.steps.findIndex(x => x.key === 'h' + i) + 1, title: b.text ?? '' } : { k: 'block', b })
-    : mode === 'steps' ? plan.flow.flatMap((f): SlideItem[] => 'from' in f ? plan.steps.slice(f.from, f.to).map((step, j) => ({ k: 'step', step, no: f.from + j + 1 }))
+    : mode === 'steps' ? plan.flow.flatMap((f): SlideItem[] => 'from' in f
+      // Kurze nummerierte Liste ohne Zusatztext: eine Folie mit Liste statt einer Folie je Zeile (26.10.)
+      ? shortList(f)
+        ? [{ k: 'block', b: { t: 'ol', items: plan.steps.slice(f.from, f.to).map(x => x.text ?? '') } }]
+        : plan.steps.slice(f.from, f.to).map((step, j) => ({ k: 'step', step, no: f.from + j + 1 }))
       : f.t === 'check' ? [{ k: 'check', key: f.key, title: f.title, items: f.items }] : [{ k: 'block', b: f }])
     : blocks.map((b): SlideItem => ({ k: 'block', b }))
   const slides = buildSlides(items, { title, intro }, total)
@@ -1472,13 +1485,15 @@ function usePush() {
 function ReadyCard({ open }: { open: (s: Sub) => void }) {
   const { me, t } = useApp()
   const [st] = usePush()
+  // Nur bis die App einmal auf einem Handy installiert ist (Renée 26.10.: „sollte weg sein, sobald man das gemacht hat“).
+  // Mitteilungen lassen sich danach im Menü unter „App & Mitteilungen“ einschalten. „Später“ hält 14 Tage.
   const key = `th-ready-later-${me.id}`
-  const [hide, setHide] = useState(() => { try { return sessionStorage.getItem(key) === '1' } catch { return false } })
-  if (hide || st === null || matchMedia(DESKTOP_MEDIA).matches || (isStandalone() && st === 'on')) return null
+  const [hide, setHide] = useState(() => { try { return Number(localStorage.getItem(key) ?? 0) > Date.now() } catch { return false } })
+  if (hide || st === null || matchMedia(DESKTOP_MEDIA).matches || isStandalone() || me.appInstalled) return null
   return <div className="mt-3 rounded-[16px] bg-white px-4 py-3.5 flex gap-3 items-center">
     <Smartphone size={20} className="text-olive-700 shrink-0" />
     <button onClick={() => open({ k: 'install' })} className="flex-1 text-left"><span className="block text-[17px] text-olive-700 font-medium">{t('TeamHub als App einrichten')}</span><span className="block text-[13px] text-mute mt-0.5">{t('Mit eigenem Symbol und Mitteilungen auf deinem Handy')}</span></button>
-    <button onClick={() => { setHide(true); try { sessionStorage.setItem(key, '1') } catch { /* private mode */ } }} className="text-[14.5px] text-mute">{t('Später')}</button>
+    <button onClick={() => { setHide(true); try { localStorage.setItem(key, String(Date.now() + 14 * 864e5)) } catch { /* private mode */ } }} className="text-[14.5px] text-mute">{t('Später')}</button>
   </div>
 }
 function PushToggle() {

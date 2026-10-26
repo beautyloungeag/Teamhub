@@ -155,3 +155,20 @@ input[type=checkbox]{accent-color:#495940}
   .login-form{display:flex;flex-direction:column;gap:12px;margin-top:16px;max-width:100%;overflow-wrap:anywhere}
   .login-form>*{margin:0}
 }
+
+/* Wissen bearbeiten (Backoffice, Tiptap): sieht aus wie ein normales Dokument; Bilder begrenzt, damit man darunter weiterschreiben kann */
+.wiki-editor-body { min-height: 320px; font-size: 16px; line-height: 1.65; color: var(--color-ink); }
+.wiki-editor-body > * + * { margin-top: .6em; }
+.wiki-editor-body h2 { font-size: 21px; font-weight: 600; letter-spacing: -.01em; margin-top: 1.4em; line-height: 1.3; }
+.wiki-editor-body h3 { font-size: 17.5px; font-weight: 600; margin-top: 1.1em; line-height: 1.35; }
+.wiki-editor-body ul { list-style: disc; padding-left: 1.4em; }
+.wiki-editor-body ol { list-style: decimal; padding-left: 1.5em; }
+.wiki-editor-body li + li { margin-top: .2em; }
+.wiki-editor-body li p { margin: 0; }
+.wiki-editor-body blockquote { border-left: 3px solid var(--color-duty); background: var(--color-duty-50); border-radius: 0 10px 10px 0; padding: .55em .9em; color: #6E2A1F; }
+.wiki-editor-body a { color: var(--color-olive-700); text-decoration: underline; text-underline-offset: 2px; }
+.wiki-editor-body img { display: block; max-width: 100%; max-height: 340px; width: auto; border-radius: 14px; background: var(--color-sage-100); cursor: pointer; }
+.wiki-editor-body img.ProseMirror-selectednode, .wiki-editor-body .wiki-media.ProseMirror-selectednode { outline: 3px solid var(--color-olive-700); outline-offset: 2px; }
+.wiki-editor-body .wiki-media { display: flex; align-items: center; gap: .6em; padding: .7em 1em; border-radius: 12px; background: var(--color-sage-50); font-size: 14.5px; color: var(--color-sage-800); cursor: pointer; }
+.wiki-editor-body .wiki-media::before { content: '▶'; font-size: 11px; }
+.wiki-editor-body p.is-editor-empty:first-child::before { content: attr(data-placeholder); color: var(--color-sage-400); float: left; height: 0; pointer-events: none; }

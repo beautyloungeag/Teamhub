@@ -17,7 +17,7 @@ export type Ticket = { id: string; kind: 'Meldung' | 'Idee' | 'Learning' | 'Anli
 export type Comment = { id: string; author: string; authorId: string | null; body: string; when: string }
 export type Ev = { id: string; title: string; kind: string; description: string; startsAt: string; endsAt: string | null; place: string; link: string | null; capacity: number | null; registerUntil: string | null; audienceBranches: string[]; audienceSkills: string[]; audiencePeople: string[]; phorestSync: boolean; phorestPaid: boolean; taken: number; waiting: number; createdBy: string | null; raw: { title: string; description: string; place: string } }
 export type WikiBlock = { t: 'h' | 'p' | 'ul' | 'ol' | 'quote' | 'img' | 'video' | 'file'; text?: string; items?: string[]; src?: string; url?: string; name?: string; level?: number }
-export type WikiArticle = { id: string; cat: string; catKey: string; title: string; minutes: number; updated: string; body: string[]; mediaKind: string; mediaUrl: string | null; published: boolean; fromNews?: boolean; intro: string; tags: string[]; accessLevel: 'alle' | 'filialleitung' | 'buero'; imported: boolean }
+export type WikiArticle = { id: string; cat: string; catKey: string; title: string; minutes: number; updated: string; at: string; body: string[]; mediaKind: string; mediaUrl: string | null; published: boolean; fromNews?: boolean; intro: string; tags: string[]; accessLevel: 'alle' | 'filialleitung' | 'buero'; imported: boolean }
 export type Step = { id: string; title: string; minutes: number; articleId: string | null; proposed: boolean; branchIds: string[] }
 export type Branch = { id: string; name: string; is_office: boolean }
 export type Quiz = { id: string; newsId: string | null; articleId: string | null; title: string; passPct: number; sample: boolean }
@@ -418,13 +418,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const wiki = useMemo<WikiArticle[]>(() => {
     const arts: WikiArticle[] = wikiRows.filter((a: any) => demoData || !a.is_sample).map((a: any) => ({
       id: a.id, catKey: a.category, cat: lang === 'EN' ? a.i18n_en?.category ?? a.category : lang === 'FR' ? a.i18n_fr?.category ?? a.category : a.category,
-      title: lang === 'EN' ? a.i18n_en?.title ?? a.title : lang === 'FR' ? a.i18n_fr?.title ?? a.title : a.title, minutes: a.minutes, updated: fmtDate(a.updated_at, { day: '2-digit', month: '2-digit', year: 'numeric' }),
+      title: lang === 'EN' ? a.i18n_en?.title ?? a.title : lang === 'FR' ? a.i18n_fr?.title ?? a.title : a.title, minutes: a.minutes, updated: fmtDate(a.updated_at, { day: '2-digit', month: '2-digit', year: 'numeric' }), at: a.updated_at,
       body: [], mediaKind: a.media_kind, mediaUrl: a.media_url, published: a.published, intro: (lang === 'EN' ? a.i18n_en?.intro : lang === 'FR' ? a.i18n_fr?.intro : null) || a.intro || '', tags: a.tags ?? [], accessLevel: a.access_level, imported: !!a.source_id,
     }))
     // News mit Wissens-Kategorie erscheinen auch im Wissen (BLTH-16 News-zu-Wiki)
     for (const n of newsForWiki.current) if (n.wiki_category && new Date(n.publish_at) <= new Date()) arts.push({
       id: 'news-' + n.id, catKey: n.wiki_category, cat: arts.find(x => x.catKey === n.wiki_category)?.cat ?? n.wiki_category, title: n.title, minutes: Math.max(1, Math.round(String(n.body).split(/\s+/).length / 180)),
-      updated: fmtDate(n.publish_at, { day: '2-digit', month: '2-digit', year: 'numeric' }), body: String(n.body).split(/\n\n+/), mediaKind: 'none', mediaUrl: null, published: true, fromNews: true,
+      updated: fmtDate(n.publish_at, { day: '2-digit', month: '2-digit', year: 'numeric' }), at: n.publish_at, body: String(n.body).split(/\n\n+/), mediaKind: 'none', mediaUrl: null, published: true, fromNews: true,
       intro: n.teaser ?? '', tags: [], accessLevel: 'alle', imported: false,
     })
     return arts

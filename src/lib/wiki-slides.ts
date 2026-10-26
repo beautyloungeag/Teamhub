@@ -35,7 +35,10 @@ export function lead(text: string, max = 140): { sub?: string; rest: string } {
 
 const isWichtig = (x: string) => /^wichtig/i.test(x.trim())
 
-export function buildSlides(items: SlideItem[], cover: { title: string; intro?: string }, totalSteps: number): Slide[] {
+export function buildSlides(items: SlideItem[], cover: { title: string; intro?: string }, _totalSteps?: number): Slide[] {
+  // Schritte fortlaufend zählen (zusammengefasste kurze Listen zählen nicht mit)
+  const totalSteps = items.filter((x) => x.k === 'step').length
+  let stepNo = 0
   const coverSlide: Slide = { key: 'cover', kind: 'cover', title: cover.title, sub: cover.intro || undefined, body: [] }
   const slides: Slide[] = [coverSlide]
   let cur = coverSlide, pending: string | null = null
@@ -63,7 +66,8 @@ export function buildSlides(items: SlideItem[], cover: { title: string; intro?: 
         else { const l = lead(s.text, 90); title = l.sub ?? plain(s.text).slice(0, 80); if (l.rest || !l.sub) body = [{ k: 'text', text: l.sub ? l.rest : s.text }] }
       }
       lastP = null
-      return open({ key: 's' + s.key, kind: 'step', kicker: { k: 'step', no: it.no, total: totalSteps }, title: title || `${it.no}`, sub, body, stepKey: s.key })
+      stepNo++
+      return open({ key: 's' + s.key, kind: 'step', kicker: { k: 'step', no: stepNo, total: totalSteps }, title: title || `${stepNo}`, sub, body, stepKey: s.key })
     }
     // Materialliste mit Überschrift: eigene Folie (Vorlage: „Wische nach rechts für die Materialien“)
     if (it.k === 'check') { lastP = null

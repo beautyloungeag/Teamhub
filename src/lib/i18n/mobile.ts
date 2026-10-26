@@ -828,4 +828,10 @@ export default {
   "Idee bearbeiten": ["Update idea", "Modifier l’idée"],
   "Foto in Artikel einfügen": ["Add photo to article", "Ajouter une photo à l’article"],
   "Text in Artikel einfügen": ["Add text to article", "Ajouter du texte à l’article"],
+  // Wissen nach Datum, News auf der Startseite (26.10.)
+  "Neu im Wissen": ["New in knowledge", "Nouveau dans le savoir"],
+  "neueste zuerst": ["newest first", "les plus récents d’abord"],
+  "Neueste News": ["Latest news", "Dernières actualités"],
+  "Alle News": ["All news", "Toutes les actualités"],
+  "Noch keine weiteren News. Neue News erscheinen hier zuerst.": ["No other news yet. New posts appear here first.", "Pas encore d’autres actualités. Les nouvelles apparaissent ici en premier."],
 } as Record<string, [string, string]>
