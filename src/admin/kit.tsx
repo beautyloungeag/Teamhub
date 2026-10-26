@@ -9,6 +9,7 @@ import type { Staff } from '../store'
 import { isTestAccount, staffInBranch } from '../lib/admin-audience'
 import { TONE, type Tone } from '../tones'
 import { Donut } from './charts'
+import { markUnsaved } from '../lib/unsaved'
 
 // Bausteine des Backoffice: überall gleich aussehen und sich gleich verhalten (Design System Olive/Stein/Messing).
 
@@ -131,14 +132,20 @@ export function Chips({ items, value, onChange, tone = 'white' }: { items: { val
 
 /** Dialog in der Mitte, für Formulare (Anlegen, Bearbeiten). Esc oder Klick daneben schliesst. */
 export function Modal({ title, onClose, children, footer, width = 560 }: { title: ReactNode; onClose: () => void; children: ReactNode; footer?: ReactNode; width?: number }) {
-  useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }; document.addEventListener('keydown', k); return () => document.removeEventListener('keydown', k) }, [onClose])
+  // Wurde im Fenster getippt, schliessen Klick daneben, Esc und × erst nach Rückfrage (27.10.: vorher war alles weg)
+  const key = useId(), typed = useRef(false)
+  useEffect(() => () => markUnsaved(key, false), [key])
+  const onType = () => { if (!typed.current) { typed.current = true; markUnsaved(key, true) } }
+  const tryClose = () => { if (typed.current && !confirm('Fenster schliessen? Deine Eingaben gehen verloren.')) return; markUnsaved(key, false); onClose() }
+  const closeRef = useRef(tryClose); closeRef.current = tryClose
+  useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === 'Escape') closeRef.current() }; document.addEventListener('keydown', k); return () => document.removeEventListener('keydown', k) }, [])
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-6" onMouseDown={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-6" onMouseDown={tryClose}>
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="absolute inset-0 bg-ink/20 backdrop-blur-[6px]" />
-      <motion.div initial={{ opacity: 0, y: 12, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: 0.16 }} onMouseDown={e => e.stopPropagation()}
+      <motion.div initial={{ opacity: 0, y: 12, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: 0.16 }} onMouseDown={e => e.stopPropagation()} onInput={onType}
         style={{ maxWidth: width }} className="relative w-full max-h-[calc(100dvh-48px)] flex flex-col rounded-[20px] bg-white shadow-[0_24px_64px_-24px_rgba(29,34,28,.45)]">
         <div className="flex items-center justify-between gap-4 px-6 pt-5 pb-3"><p className="text-[18px] font-medium">{title}</p>
-          <button onClick={onClose} aria-label="Schliessen" className="w-9 h-9 rounded-full text-mute hover:text-ink hover:bg-sage-50 flex items-center justify-center"><X size={18} /></button></div>
+          <button onClick={tryClose} aria-label="Schliessen" className="w-9 h-9 rounded-full text-mute hover:text-ink hover:bg-sage-50 flex items-center justify-center"><X size={18} /></button></div>
         <div className="px-6 pb-5 overflow-y-auto">{children}</div>
         {footer && <div className="px-6 py-4 border-t border-line flex items-center justify-end gap-2">{footer}</div>}
       </motion.div>

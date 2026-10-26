@@ -411,6 +411,7 @@ export default {
   'von {name}': ['by {name}', 'par {name}'],
   'Auch im Wissen unter {cat} abgelegt': ['Also filed in Knowledge under {cat}', 'Aussi classé dans Savoir sous {cat}'],
   'Gelesen und bestätigt': ['Read and confirmed', 'Lu et confirmé'],
+  'Vorschau: hier wird nichts bestätigt': ['Preview: nothing is confirmed here', 'Aperçu : rien n’est confirmé ici'],
 
   // Aufgaben
   'Für dein Studio sind heute keine Aufgaben hinterlegt.': ['No tasks are set for your studio today.', "Aucune tâche n'est prévue pour ton studio aujourd'hui."],
@@ -804,6 +805,7 @@ export default {
   "Gilt erst als gelesen, wenn du den Test bestanden hast.": ["Only counts as read once you have passed the test.", "Compte comme lu seulement une fois le test réussi."],
   "Schritt {a} von {b}": ["Step {a} of {b}", "Étape {a} sur {b}"],
   "Bild {a} von {b}": ["Image {a} of {b}", "Image {a} sur {b}"],
+  "Punkt {a} von {b}": ["Point {a} of {b}", "Point {a} sur {b}"],
   "Galerie": ["Gallery", "Galerie"],
   "Folie {a} von {b}": ["Slide {a} of {b}", "Diapositive {a} sur {b}"],
   "Bild gross anzeigen": ["Show image full size", "Afficher l’image en grand"],

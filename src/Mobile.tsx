@@ -782,23 +782,38 @@ function Rich({ text }: { text: string }) {
     return <span key={i}>{p}</span>
   })}</>
 }
-function WikiDetail({ a }: { a: WikiArticle }) {
+// Vorschau aus dem Backoffice läuft als eigene Seite /?vorschau=1 in einem Rahmen mit Handybreite; die Daten legt der Editor hier ab
+export const PREVIEW_KEY = 'th-wiki-preview'
+export function WikiPreviewFrame() {
+  const [d] = useState<(WikiPreviewData & { id: string | null; category: string; accessLevel: WikiArticle['accessLevel'] }) | null>(() => { try { return JSON.parse(localStorage.getItem(PREVIEW_KEY) ?? 'null') } catch { return null } })
+  return <div className="teamhub-app-shell relative w-full h-[100dvh] bg-paper flex flex-col overflow-hidden">
+    <div className="app-content-scroll min-h-0 flex-1 overflow-y-auto no-scrollbar bg-sage-50 pt-3">{d ? <WikiPreview {...d} /> : <p className="p-6 text-mute">Keine Vorschau.</p>}</div>
+  </div>
+}
+// Vorschau aus dem Backoffice (27.10.): derselbe Artikel wie in der App, aber mit dem ungespeicherten Stand aus dem Editor
+type WikiPreviewData = { title: string; intro: string; blocks: WikiBlock[]; urls: Record<string, string> }
+export function WikiPreview({ id, title, intro, blocks, urls, category, accessLevel }: WikiPreviewData & { id: string | null; category: string; accessLevel: WikiArticle['accessLevel'] }) {
+  const words = [intro, ...blocks.map(b => b.t === 'ul' || b.t === 'ol' ? (b.items ?? []).join(' ') : b.text ?? '')].join(' ').split(/\s+/).filter(Boolean).length
+  const a: WikiArticle = { id: id ?? 'vorschau', cat: category, catKey: category, title: title.trim() || 'Ohne Titel', minutes: Math.max(1, Math.round(words / 180)), updated: 'gerade eben', at: '', body: [], mediaKind: 'none', mediaUrl: null, published: true, intro, tags: [], accessLevel, imported: false }
+  return <WikiDetail a={a} preview={{ title: a.title, intro, blocks, urls }} />
+}
+function WikiDetail({ a, preview }: { a: WikiArticle; preview?: WikiPreviewData }) {
   const { quizzes, attempts, lang, t, me } = useApp()
   const [tr8, setTr8] = useState<{ body: string; blocks: WikiBlock[] | null } | null | 'loading' | 'failed'>(null)
   const [orig, setOrig] = useState(false)
   useEffect(() => {
-    if (lang === 'DE' || a.fromNews || !supabase) { setTr8(null); return }
+    if (preview || lang === 'DE' || a.fromNews || !supabase) { setTr8(null); return }
     setTr8('loading')
     supabase.functions.invoke('translate', { body: { action: 'article', id: a.id, lang } }).then(({ data, error }) => setTr8(error || !data?.ok ? 'failed' : { body: data.body, blocks: data.blocks }))
   }, [a.id, lang]) // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { if (!a.fromNews && supabase && me.id) supabase.from('wiki_views').upsert({ article_id: a.id, employee_id: me.id }, { onConflict: 'article_id,employee_id,day', ignoreDuplicates: true }).then(() => {}) }, [a.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!preview && !a.fromNews && supabase && me.id) supabase.from('wiki_views').upsert({ article_id: a.id, employee_id: me.id }, { onConflict: 'article_id,employee_id,day', ignoreDuplicates: true }).then(() => {}) }, [a.id]) // eslint-disable-line react-hooks/exhaustive-deps
   const quiz = quizzes.find(q => a.fromNews ? q.newsId === a.id.slice(5) : q.articleId === a.id)
   // Artikel mit Test gelten erst nach bestandenem Test als gelesen (Wunsch der Inhaberin 22.10.)
   const quizPassed = !!quiz && attempts.some(x => x.quizId === quiz.id && x.employeeId === me.id && x.passed)
-  const [full, setFull] = useState<{ body: string; blocks: WikiBlock[] | null; title?: string; intro?: string } | null>(a.fromNews ? { body: a.body.join('\n\n'), blocks: null } : null)
-  const [urls, setUrls] = useState<Record<string, string>>({})
+  const [full, setFull] = useState<{ body: string; blocks: WikiBlock[] | null; title?: string; intro?: string } | null>(preview ? { body: '', blocks: preview.blocks, title: preview.title, intro: preview.intro } : a.fromNews ? { body: a.body.join('\n\n'), blocks: null } : null)
+  const [urls, setUrls] = useState<Record<string, string>>(preview?.urls ?? {})
   useEffect(() => {
-    if (a.fromNews || !supabase) return
+    if (preview || a.fromNews || !supabase) return
     supabase.from('wiki_articles').select('title, intro, body, blocks').eq('id', a.id).maybeSingle().then(async ({ data }) => {
       setFull({ body: data?.body ?? '', blocks: (data?.blocks as WikiBlock[] | null) ?? null, title: data?.title, intro: data?.intro ?? '' })
       const paths = [...new Set(((data?.blocks ?? []) as WikiBlock[]).flatMap(b => [(b.t === 'img' || b.t === 'file' || b.t === 'video') ? b.src : null, ...(b.media ?? []).map(m => m?.src)]).filter((x): x is string => !!x))]
@@ -837,12 +852,13 @@ function WikiDetail({ a }: { a: WikiArticle }) {
   const tick = async (k: string) => {
     const next = new Set(tickedRef.current); if (next.has(k)) next.delete(k); else next.add(k)
     setTicked(next)
-    if (total && tickSteps.every(x => next.has(x.key)) && supabase && me.id && !a.fromNews) {
+    if (total && tickSteps.every(x => next.has(x.key)) && supabase && me.id && !a.fromNews && !preview) {
       const { error } = await supabase.from('wiki_runs').insert({ article_id: a.id, employee_id: me.id, kind: 'durchgang' })
       if (!error) { toast(t('Durchgang gespeichert. Gut gemacht!')); reloadRuns(); setTimeout(() => setTicked(new Set()), 1200) }
     }
   }
   const confirmRead = async () => {
+    if (preview) { toast(t('Vorschau: hier wird nichts bestätigt')); return }
     if (!supabase || !me.id || a.fromNews) return
     setBusy(true)
     const { error } = await supabase.from('wiki_runs').insert({ article_id: a.id, employee_id: me.id, kind: 'gelesen' })
@@ -913,6 +929,7 @@ function WikiDetail({ a }: { a: WikiArticle }) {
   const kicker = (s: Slide) => !s.kicker ? (s.kind === 'cover' ? catName(a.cat) : null)
     : s.kicker.k === 'step' ? t('Schritt {a} von {b}', { a: s.kicker.no, b: s.kicker.total })
     : s.kicker.k === 'photo' ? t('Bild {a} von {b}', { a: s.kicker.no, b: s.kicker.total })
+    : s.kicker.k === 'point' ? t('Punkt {a} von {b}', { a: s.kicker.no, b: s.kicker.total })
     : s.kicker.k === 'wichtig' ? t('Wichtig') : s.kicker.k === 'video' ? t('Video') : s.kicker.text
   const bodyItem = (x: SlideBody, i: number) => x.k === 'text' ? <p key={i}><Rich text={x.text} /></p>
     : x.k === 'parts' ? <ul key={i} className="space-y-1.5">{x.parts.map((y, j) => <li key={j} className="flex gap-2"><span className="mt-[11px] w-1.5 h-1.5 rounded-full bg-sage-400 shrink-0" /><span><Rich text={y} /></span></li>)}</ul>
@@ -933,6 +950,7 @@ function WikiDetail({ a }: { a: WikiArticle }) {
                   : src ? <SlidePhoto src={src} onOpen={() => setZoom(src)} label={t('Bild gross anzeigen')} />
                   : <div className={`absolute inset-0 flex items-start justify-center pt-[16%] ${TONE[s.kind === 'quiz' ? 'learn' : look.tone].bg}`}>
                     {s.kind === 'step' && s.kicker?.k === 'step' ? <span className={`font-display text-[120px] leading-none ${TONE[look.tone].fg} opacity-80`}>{s.kicker.no}</span>
+                      : s.no ? <span className={`font-display text-[120px] leading-none ${TONE[look.tone].fg} opacity-80`}>{s.no}</span>
                       : s.kind === 'quiz' ? <GraduationCap size={96} strokeWidth={1.3} className={TONE.learn.fg} /> : <LookIcon size={96} strokeWidth={1.3} className={`${TONE[look.tone].fg} opacity-80`} />}
                   </div>}
                 {/* Der graue Balken: die wichtigste Info dieser Folie */}

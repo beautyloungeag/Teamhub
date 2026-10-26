@@ -23,6 +23,7 @@ import { ProfileAdmin } from './admin/Profile'
 import { WikiAdmin } from './admin/Wiki'
 
 import { H } from './admin/kit'
+import { confirmLeave } from './lib/unsaved'
 
 type View = 'overview' | 'book' | 'news' | 'tasks' | 'tickets' | 'events' | 'standby' | 'learn' | 'team' | 'performance' | 'wiki' | 'settings' | 'benni' | 'me'
 const NAV: [View, string, typeof Users][] = [['overview', 'Übersicht', LayoutDashboard], ['book', 'Kundentermine', CalendarClock], ['news', 'News', Newspaper], ['tasks', 'Aufgaben', ListChecks], ['tickets', 'Meldungen & Ideen', Lightbulb], ['events', 'Schulungen & Events', CalendarDays], ['standby', 'Aushilfe', LifeBuoy], ['learn', 'Lernen', GraduationCap], ['team', 'Team', Users], ['performance', 'Performance', TrendingUp], ['wiki', 'Wissen', BookOpen], ['settings', 'Einstellungen', SettingsIcon]]
@@ -35,16 +36,18 @@ export default function Backoffice({ onSwitch }: { onSwitch?: () => void }) {
   // Filialleitung gestaltet für ihr Studio (News, Termine, Checklisten, Quiz zu eigenen News); Wissen und Studios pflegt das Büro.
   const nav = me.app_role === 'buero' ? NAV : NAV.filter(([k]) => ['overview', 'book', 'news', 'tasks', 'tickets', 'events', 'standby', 'learn', 'team', 'performance', 'settings'].includes(k))
   const allowed = new Set(nav.map(([k]) => k))
-  const go = (k: View) => { if (allowed.has(k)) setV(k) }
+  const go = (k: View) => { if (allowed.has(k) && confirmLeave()) setV(k) }
+  // Menüwechsel fragt nach, wenn im Wissen-Editor noch etwas ungespeichert ist (27.10.)
+  const to = (k: View) => { if (k !== v && !confirmLeave()) return; setV(k) }
   useEffect(() => { const f = () => setV('benni'); window.addEventListener('th-benni-office', f); return () => window.removeEventListener('th-benni-office', f) }, [])
   useEffect(() => { if (!allowed.has(v) && v !== 'benni' && v !== 'me') setV('overview') }, [v]) // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div className="flex h-full bg-white overflow-hidden">
       <SideNav
-        items={nav.map(([k, l, I]) => ({ key: k, label: l, active: v === k, onClick: () => setV(k), icon: <I size={18} strokeWidth={1.6} /> }))}
-        extra={[...(onSwitch ? [{ key: 'switch', label: 'Mitarbeiterin-App', icon: <Smartphone size={18} strokeWidth={1.6} />, onClick: onSwitch }] : []),
-          { key: 'ai', label: `Frag ${ASSISTANT}`, active: v === 'benni', icon: <BMark className="w-[18px] h-[18px]" />, onClick: () => setV('benni') }]}
-        onProfile={() => setV('me')} profileActive={v === 'me'} onLogout={signOut} />
+        items={nav.map(([k, l, I]) => ({ key: k, label: l, active: v === k, onClick: () => to(k), icon: <I size={18} strokeWidth={1.6} /> }))}
+        extra={[...(onSwitch ? [{ key: 'switch', label: 'Mitarbeiterin-App', icon: <Smartphone size={18} strokeWidth={1.6} />, onClick: () => { if (confirmLeave()) onSwitch() } }] : []),
+          { key: 'ai', label: `Frag ${ASSISTANT}`, active: v === 'benni', icon: <BMark className="w-[18px] h-[18px]" />, onClick: () => to('benni') }]}
+        onProfile={() => to('me')} profileActive={v === 'me'} onLogout={signOut} />
       <main className={`flex-1 no-scrollbar ${v === 'benni' ? 'overflow-hidden bg-sage-50' : v === 'book' ? 'p-8 flex flex-col overflow-hidden' : 'p-8 overflow-y-auto'}`}>
         {v === 'benni' && <BenniChat variant="app" backoffice />}
         {v === 'me' && <ProfileAdmin onSettings={() => setV('settings')} />}

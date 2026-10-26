@@ -1,5 +1,30 @@
 # HANDOFF — Beautylounge TeamHub
 
+### 2026-10-26 nachts — Durchgeklickt wie Renée: Wissen-Editor, Vorschau, Folienregel, News-Foto, Eingaben schützen
+
+- **Anlass:** Aleksa wollte sicher sein, dass Renées Kritik („benutzerunfreundlich“) nicht wiederkommt. Die Prüfungen am Tag liefen zum Teil über Skripte. Deshalb wurde das Backoffice diesmal mit echten Klicks und Tastatur bedient (Büro-Testkonto, 1280 und 1024 px), ebenso die App mit 375 px. Gefunden und behoben:
+- **Wissen-Editor (`ArticleBody.tsx`, `Wiki.tsx`):**
+  - Feste Leiste oben mit „In der App ansehen“, „Mit Marc neu fassen“ und Speichern (⌘S speichert). Vorher lag Speichern rechts in einer Spalte und war tief im Artikel weg.
+  - Enter bzw. Tab springt vom Titel zur Kurzfassung und weiter in den Text. Vorher tat Enter nichts, und Tab landete auf der Werkzeugleiste.
+  - Werkzeugleiste mit festen Beschriftungen (Text, Überschrift, Liste, Hinweis, Foto, Video), passt bei 1280 px in eine Zeile. Vorher wechselte „Bild“ zu „Bild zum Punkt“, die Leiste brach um und der Text sprang beim Klick in eine Liste. YouTube steckt jetzt im Video-Menü.
+  - „+ Foto“ erscheint am Aufzählungspunkt, wenn man darüberfährt. In einer Liste mit Bildern zeigt jeder Punkt ohne Bild einen gestrichelten Platzhalter, weil er in der App eine eigene Folie wird.
+  - Bilder, Videos und Dateien im Text haben ein sichtbares ×. Vorher liessen sie sich nur durch Markieren und die Rücktaste entfernen.
+  - Ein Klick in die freie Fläche unter dem Text setzt den Cursor ans Ende.
+  - Hinweise sind im Editor beschriftet („in der App rot als wichtige Regel“).
+  - Der Status steht in Worten oben („Entwurf: in der App noch nicht sichtbar …“), unter 1280 px stehen die Einstellungen über dem Text.
+- **Vorschau „In der App ansehen“:** Die echte App-Ansicht (`WikiDetail` mit `preview`) läuft in einem Handy-Rahmen als `/?vorschau=1` (`WikiPreviewFrame`, Daten über `localStorage` `th-wiki-preview`). Sie zeigt den ungespeicherten Stand, schreibt keine Lesemarke und bestätigt nichts. Ein iframe ist nötig, weil `md:`-Klassen an der Fensterbreite hängen.
+- **Folienregel (`wiki-slides.ts`):**
+  - Text oder ein Hinweis nach einer Liste mit Bildern hängt nicht mehr am letzten Punkt. Er beginnt eine eigene Folie (Hinweis mit „Wichtig“, erster Satz im Balken). Das war die Ursache für „Hinweise erscheinen random“.
+  - Punkt-Folien tragen „Punkt 2 von 3“, ohne Bild steht die Nummer gross im Banner statt eines leeren Symbols.
+  - Test angepasst, 89/89.
+- **News (`News.tsx`):**
+  - „Eigenes Foto“ neben „Bild erzeugen“. Vorher ging nur das KI-Bild.
+  - Migration `20261027090000_news_own_photo.sql` (live angewendet): Filialleitung darf nach `media/news/` hochladen, aber weiterhin nicht nach `wiki/` (beides per API geprüft).
+- **Eingaben schützen (`lib/unsaved.ts`, `Modal` in `kit.tsx`, `Backoffice.tsx`):**
+  - Jedes Fenster, in dem getippt wurde, fragt beim Klick daneben, bei Esc und bei × nach. Vorher war eine halb geschriebene News mit einem Fehlklick weg.
+  - Menüwechsel und das Schliessen des Tabs fragen nach, wenn im Wissen-Editor etwas ungespeichert ist.
+- Testartikel „Test UX Kasse am Morgen“ und vier Testdateien danach per ID bzw. Pfad gelöscht (Zählung 0).
+
 ### 2026-10-26 spätabends — Marc kann jetzt alles, was die Person im Backoffice darf (Renées Mail „Benni im Backend“)
 
 - **Anlass:** Renée (16:12) fand Marc im Backoffice nicht und konnte keine Artikel mit der KI erstellen oder austauschen. Ursache: Der Copilot vom Nachmittag deckte nur 9 von rund 70 Schreibstellen der Oberfläche ab, und die Startseite von „Frag Marc“ zeigte im Backoffice nur Mitarbeiter-Vorschläge. Diesmal wurde vorher jede Schreibstelle in App und Backoffice mit Feldern, Rollenregeln und Folgeschritten erfasst (Katalog unten), dann alles gebaut.

@@ -180,3 +180,23 @@ input[type=checkbox]{accent-color:#495940}
 .wiki-editor-body .wiki-media { display: flex; align-items: center; gap: .6em; padding: .7em 1em; border-radius: 12px; background: var(--color-sage-50); font-size: 14.5px; color: var(--color-sage-800); cursor: pointer; }
 .wiki-editor-body .wiki-media::before { content: '▶'; font-size: 11px; }
 .wiki-editor-body p.is-editor-empty:first-child::before { content: attr(data-placeholder); color: var(--color-sage-400); float: left; height: 0; pointer-events: none; }
+
+/* 27.10.: sichtbare Entfernen-Knöpfe, „+ Foto“ am Aufzählungspunkt, Hinweis wie in der App beschriftet */
+.wiki-editor-body .wiki-img, .wiki-editor-body .wiki-media { position: relative; }
+.wiki-editor-body .wiki-img { width: fit-content; max-width: 100%; }
+.wiki-editor-body .wiki-x { position: absolute; top: 6px; right: 6px; width: 26px; height: 26px; border-radius: 999px; background: rgba(0,0,0,.6); color: #fff; font-size: 17px; line-height: 26px; text-align: center; cursor: pointer; opacity: 0; transition: opacity .12s; }
+.wiki-editor-body .wiki-media .wiki-x { top: 50%; transform: translateY(-50%); right: 8px; }
+.wiki-editor-body .wiki-img:hover .wiki-x, .wiki-editor-body .wiki-media:hover .wiki-x, .wiki-editor-body .ProseMirror-selectednode .wiki-x { opacity: 1; }
+.wiki-editor-body .wiki-img.ProseMirror-selectednode img { outline: 3px solid var(--color-olive-700); outline-offset: 2px; }
+.wiki-editor-body li { position: relative; }
+.wiki-editor-body .wiki-li-add { position: absolute; right: 0; top: 50%; transform: translateY(-50%); opacity: 0; transition: opacity .12s; }
+.wiki-editor-body .wiki-li-add button { height: 26px; padding: 0 10px; border-radius: 999px; background: var(--color-sage-50); color: var(--color-olive-700); font-size: 12.5px; box-shadow: inset 0 0 0 1px var(--color-line); cursor: pointer; }
+.wiki-editor-body .wiki-li-add button:hover { background: var(--color-sage-100); }
+.wiki-editor-body li:hover > .wiki-li-add { opacity: 1; }
+.wiki-editor-body li:not(.wiki-li-media) { padding-right: 76px; }
+.wiki-editor-body blockquote::before { content: 'Hinweis · in der App rot als wichtige Regel'; display: block; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--color-duty); opacity: .8; margin-bottom: 2px; }
+/* Liste mit Bildern: in der App wird jeder Punkt eine Folie, deshalb zeigt jeder Punkt ohne Bild einen Platzhalter */
+.wiki-editor-body :is(ul, ol):has(> li.wiki-li-media) > li:not(.wiki-li-media) { min-height: 76px; padding-right: 112px; padding-top: 4px; padding-bottom: 4px; }
+.wiki-editor-body :is(ul, ol):has(> li.wiki-li-media) > li + li { margin-top: .5em; }
+.wiki-editor-body :is(ul, ol):has(> li.wiki-li-media) > li:not(.wiki-li-media) > .wiki-li-add { opacity: 1; top: 0; transform: none; }
+.wiki-editor-body :is(ul, ol):has(> li.wiki-li-media) > li:not(.wiki-li-media) > .wiki-li-add button { width: 100px; height: 72px; border-radius: 10px; background: transparent; box-shadow: none; border: 1.5px dashed var(--color-sage-400); color: var(--color-sage-800); }

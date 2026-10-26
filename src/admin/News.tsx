@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { Bell, Check, ChevronRight, Pencil, Plus, Trash2, X } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Bell, Check, ChevronRight, ImagePlus, Pencil, Plus, Trash2, X } from 'lucide-react'
 import { useApp, inNewsAudience, fmtDate, GROUPS, type News, type Staff } from '../store'
 import { supabase } from '../lib/supabase'
 import { notifyNow } from '../lib/push'
@@ -159,6 +159,20 @@ function Compose({ edit, onClose }: { edit: News | null; onClose: () => void }) 
     setF(v => ({ ...v, image: data.path }))
     const { data: u } = await supabase!.storage.from('media').createSignedUrl(data.path, 3600); setPreview(u?.signedUrl ?? null)
   }
+  // Eigenes Foto statt KI-Bild (27.10.): echte Fotos aus dem Studio sind für News meist besser
+  const photoInput = useRef<HTMLInputElement>(null)
+  const ownPhoto = async (file?: File) => {
+    if (!file) return
+    if (!file.type.startsWith('image/')) { setErr('Bitte ein Foto wählen (JPG, PNG, HEIC).'); return }
+    if (file.size > 25 * 1024 * 1024) { setErr('Das Foto ist grösser als 25 MB.'); return }
+    setAi('image'); setErr('')
+    const path = `news/${new Date().toISOString().slice(0, 10)}-${crypto.randomUUID().slice(0, 8)}.${(file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '')}`
+    const { error } = await supabase!.storage.from('media').upload(path, file, { contentType: file.type })
+    setAi('')
+    if (error) { setErr('Das Foto konnte nicht hochgeladen werden.'); return }
+    setF(v => ({ ...v, image: path }))
+    const { data: u } = await supabase!.storage.from('media').createSignedUrl(path, 3600); setPreview(u?.signedUrl ?? null)
+  }
   const pollError = () => {
     if (!poll) return ''
     if (!poll.questions.length) return 'Die Umfrage braucht mindestens eine Frage.'
@@ -219,8 +233,10 @@ function Compose({ edit, onClose }: { edit: News | null; onClose: () => void }) 
           <input value={f.teaser} onChange={e => setF({ ...f, teaser: e.target.value })} placeholder="Kurzfassung für die Karte (optional)" className="w-full text-[15px] outline-none text-ink/70" />
           <textarea value={f.body} onChange={e => setF({ ...f, body: e.target.value })} rows={8} placeholder="Text. Absätze mit einer Leerzeile trennen." className="w-full resize-none outline-none text-[15px] rounded-[12px] bg-sage-50 p-3" />
           {preview ? <div className="relative"><img src={preview} alt="" className="w-full aspect-[3/2] object-cover rounded-[12px]" /><button onClick={() => { setF({ ...f, image: '' }); setPreview(null) }} className="absolute top-2 right-2 h-8 px-3 rounded-[8px] bg-white/90 text-[13px]">Bild entfernen</button></div>
-            : <div className="flex gap-2"><input value={imgPrompt} onChange={e => setImgPrompt(e.target.value)} placeholder="Bild beschreiben (optional)" className={inpStone} />
-              <button disabled={!(imgPrompt || f.title).trim() || !!ai} onClick={image} className={`${btn2} shrink-0 disabled:opacity-40`}>{ai === 'image' ? 'Bild entsteht …' : 'Bild erzeugen'}</button></div>}
+            : <div className="flex gap-2"><button disabled={!!ai} onClick={() => photoInput.current?.click()} className={`${btn2} shrink-0 flex items-center gap-1.5 disabled:opacity-40`}><ImagePlus size={15} />Eigenes Foto</button>
+              <input value={imgPrompt} onChange={e => setImgPrompt(e.target.value)} placeholder="… oder Bild beschreiben und erzeugen lassen" className={inpStone} />
+              <button disabled={!(imgPrompt || f.title).trim() || !!ai} onClick={image} className={`${btn2} shrink-0 disabled:opacity-40`}>{ai === 'image' ? 'Bild entsteht …' : 'Bild erzeugen'}</button>
+              <input ref={photoInput} type="file" accept="image/*" className="hidden" onChange={e => { const file = e.target.files?.[0]; e.target.value = ''; void ownPhoto(file) }} /></div>}
 
           {/* Umfrage */}
           {!poll ? <button onClick={() => setPoll({ anonymous: false, show_results: true, closes: '', questions: [{ kind: 'single', prompt: '', options: ['', ''] }], locked: false })} className="w-full h-11 rounded-[12px] border border-dashed border-sage-400 text-[14px] text-olive-700 flex items-center justify-center gap-2 hover:bg-sage-50"><Plus size={15} />Umfrage anhängen</button>

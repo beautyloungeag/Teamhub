@@ -58,25 +58,30 @@ test('Fotos zwischen Schritten: Schrittfolge bleibt, jedes Foto gehört zu seine
   assert.deepEqual(s.map(x => x.kicker?.k === 'step' ? x.kicker.no : 0), [0, 1, 2, 3])
 })
 
-test('Punkt mit Bild wird eigene Folie, Video kommt in den Banner, Hinweis bleibt auf seiner Folie (26.10.)', () => {
+test('Punkt mit Bild wird eigene Folie, Video kommt in den Banner, Hinweis nach der Liste bekommt eine eigene Folie (27.10.)', () => {
   const list = { t: 'ul' as const, items: ['Werkzeuge holen', 'Strom', 'Leitungen prüfen'], media: [{ t: 'img' as const, src: 'w.jpg' }, null, { t: 'video' as const, url: 'https://youtu.be/abcdefghijk' }] }
   const items: SlideItem[] = [b('h', 'Elektriker'), ...expandList(list, 'x'), { k: 'block', b: { t: 'quote', text: 'Nie ohne Handschuhe!' } },
     b('h', 'Video'), { k: 'block', b: { t: 'video', src: 'v.mp4' } }]
   const s = buildSlides(items, { title: 'Umbau' })
-  // Überschrift ohne eigenen Inhalt wird Oberzeile der ersten Punkt-Folie
   // Jeder Punkt der Liste wird eine Folie, auch der ohne Bild; die leere Überschrift wird Oberzeile
-  assert.deepEqual(s.map(x => [x.kind, x.title]), [['cover', 'Umbau'], ['photo', 'Werkzeuge holen'], ['photo', 'Strom'], ['photo', 'Leitungen prüfen'], ['section', 'Video']])
+  assert.deepEqual(s.map(x => [x.kind, x.title]), [['cover', 'Umbau'], ['photo', 'Werkzeuge holen'], ['photo', 'Strom'], ['photo', 'Leitungen prüfen'], ['section', 'Nie ohne Handschuhe!'], ['section', 'Video']])
   assert.deepEqual(s[1].kicker, { k: 'text', text: 'Elektriker' })
   assert.equal(s[1].photo, 'w.jpg')
+  // Punkt ohne Bild: Nummer statt leerem Banner, Zähler in der Oberzeile
   assert.equal(s[2].photo, undefined)
+  assert.equal(s[2].no, 2)
+  assert.deepEqual(s[2].kicker, { k: 'point', no: 2, total: 3 })
   assert.deepEqual(s[3].video, { t: 'video', url: 'https://youtu.be/abcdefghijk' })
-  assert.deepEqual(s[3].kicker, { k: 'video' })
-  // Der Hinweis steht oben auf seiner Folie
-  assert.deepEqual(s[3].body.map(x => x.k === 'block' ? x.b.t : x.k), ['quote'])
-  assert.deepEqual(s[4].video, { t: 'video', src: 'v.mp4' })
+  // Der Hinweis hängt nicht am letzten Punkt, sondern ist eine eigene Folie mit „Wichtig“
+  assert.deepEqual(s[3].body, [])
+  assert.deepEqual(s[4].kicker, { k: 'wichtig' })
+  assert.deepEqual(s[5].video, { t: 'video', src: 'v.mp4' })
   // Video nach einem Punkt bekommt das Thema, nicht den Punkt als Titel
   const t = buildSlides([b('h', 'Elektriker'), ...expandList(list, 'x'), { k: 'block', b: { t: 'video', url: 'https://youtu.be/zzzzzzzzzzz' } }], { title: 'Umbau' })
   assert.equal(t[t.length - 1].title, 'Elektriker')
+  // Text nach der Liste: eigene Folie, erster Satz im Balken
+  const u = buildSlides([...expandList(list, 'x'), b('p', 'Danach prüfst du die Kasse und zählst das Wechselgeld nach. Erst dann öffnest du die Tür für die ersten Kundinnen.')], { title: 'Umbau' })
+  assert.deepEqual([u[u.length - 1].title, u[u.length - 1].body], ['Danach prüfst du die Kasse und zählst das Wechselgeld nach.', [{ k: 'text', text: 'Erst dann öffnest du die Tür für die ersten Kundinnen.' }]])
 })
 
 test('langer erster Satz: Anfang im Balken, ganzer Text darunter', () => {

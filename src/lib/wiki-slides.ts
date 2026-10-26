@@ -18,8 +18,8 @@ export type SlideBody =
   | { k: 'check'; key: number; title?: string; items: string[] }
   | { k: 'text'; text: string }
   | { k: 'parts'; parts: string[] }
-export type Kicker = { k: 'step'; no: number; total: number } | { k: 'photo'; no: number; total: number } | { k: 'wichtig' } | { k: 'video' } | { k: 'text'; text: string }
-export type Slide = { key: string; kind: 'cover' | 'section' | 'step' | 'photo' | 'quiz'; kicker?: Kicker; title: string; sub?: string; photo?: string; video?: ItemMedia; body: SlideBody[]; stepKey?: string }
+export type Kicker = { k: 'step'; no: number; total: number } | { k: 'photo'; no: number; total: number } | { k: 'point'; no: number; total: number } | { k: 'wichtig' } | { k: 'video' } | { k: 'text'; text: string }
+export type Slide = { key: string; kind: 'cover' | 'section' | 'step' | 'photo' | 'quiz'; kicker?: Kicker; title: string; sub?: string; photo?: string; video?: ItemMedia; body: SlideBody[]; stepKey?: string; no?: number }
 
 export const plain = (x: string) => x.replace(/\*\*/g, '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').replace(/\s+/g, ' ').trim()
 const balance = (x: string) => ((x.match(/\*\*/g) ?? []).length % 2 ? x.replace(/\*\*/g, '') : x)
@@ -54,7 +54,7 @@ export function buildSlides(items: SlideItem[], cover: { title: string; intro?: 
   const slides: Slide[] = [coverSlide]
   let cur = coverSlide, pending: string | null = null
   let lastP: { slide: Slide; where: 'sub' | 'body'; text: string; item?: SlideBody } | null = null
-  const empty = (s: Slide) => s !== coverSlide && !s.photo && !s.video && !s.body.length && !s.sub && !s.stepKey && !s.key.startsWith('pt')
+  const empty = (s: Slide) => s !== coverSlide && !s.photo && !s.video && !s.body.length && !s.sub && !s.stepKey && !s.key.startsWith('pt') && !s.key.startsWith('a')
   const open = (s: Slide) => {
     if (empty(cur)) { slides.pop(); pending = cur.title } // Überschrift ohne Inhalt: wird Oberzeile der nächsten Folie
     if (pending && !s.kicker) s.kicker = { k: 'text', text: pending }
@@ -72,6 +72,14 @@ export function buildSlides(items: SlideItem[], cover: { title: string; intro?: 
   // Thema für Bilder und Videos ohne Unterschrift: die letzte Überschrift, nicht der Titel eines Aufzählungspunkts
   let topic = cover.title
   const fallback = () => cur.key.startsWith('pt') ? topic : cur.title
+  // Text nach einer Liste mit Bildern gehört nicht zum letzten Punkt (27.10., Renée: „Hinweise erscheinen random“):
+  // er beginnt eine eigene Folie, sein erster Satz steht im Balken, ein Hinweis trägt „Wichtig“
+  const afterPoints = () => cur.key.startsWith('pt')
+  const leaveList = (i: number, b: WikiBlock) => {
+    if (b.t === 'quote' && b.text) { const l = lead(b.text, 90); return open({ key: 'a' + i, kind: 'section', kicker: { k: 'wichtig' }, title: l.sub ?? cut(plain(b.text), 80), body: l.rest ? [{ k: 'text', text: l.rest }] : [] }) }
+    if (b.t === 'p' && b.text) { const l = lead(b.text, 90); return open({ key: 'a' + i, kind: 'section', title: l.sub ?? cut(plain(b.text), 80), body: l.rest ? [{ k: 'text', text: l.rest }] : [] }) }
+    return open({ key: 'a' + i, kind: 'section', title: topic, body: [{ k: 'block', b }] })
+  }
   const heading = (key: string, title: string, stepKey?: string) =>
     open({ key, kind: 'section', title: title.replace(/\s*(\.\.\.|…|:)\s*$/, ''), kicker: isWichtig(title) ? { k: 'wichtig' } : undefined, body: [], stepKey })
   items.forEach((it, i) => {
@@ -97,10 +105,13 @@ export function buildSlides(items: SlideItem[], cover: { title: string; intro?: 
       return open({ key: 'pt' + it.key, kind: 'photo', title, body: l.rest ? [{ k: 'text', text: l.rest }] : [], ...mediaOf(it.media) }) }
     // Materialliste mit Überschrift: eigene Folie (Vorlage: „Wische nach rechts für die Materialien“)
     if (it.k === 'check') { lastP = null
-      if (it.title) return open({ key: 'c' + it.key, kind: 'section', title: it.title, body: [{ k: 'check', key: it.key, items: it.items }] })
+      if (it.title || afterPoints()) return open({ key: 'c' + it.key, kind: 'section', title: it.title ?? topic, body: [{ k: 'check', key: it.key, items: it.items }] })
       return void cur.body.push({ k: 'check', key: it.key, items: it.items }) }
     const b = it.b
     if (b.t === 'h') { lastP = null; topic = b.text ?? topic; return heading('h' + i, b.text ?? '') }
+    if (afterPoints() && b.t !== 'img' && b.t !== 'video') { lastP = null; return void leaveList(i, b) }
+    if (afterPoints() && b.t === 'img' && b.src) return open({ key: 'p' + i, kind: 'photo', title: topic, photo: b.src, body: [] })
+    if (afterPoints() && b.t === 'video' && (b.src || b.url)) return open({ key: 'v' + i, kind: 'photo', title: topic, video: { t: 'video', ...(b.src ? { src: b.src } : { url: b.url }) }, body: [] })
     // Hinweis: steht auf der Folie, zu der er gehört, ganz oben unter dem Bild (vorher teils auf der Titelfolie, teils klein unten)
     if (b.t === 'quote') { const at = cur.body.findIndex((x) => !(x.k === 'block' && x.b.t === 'quote')); cur.body.splice(at < 0 ? cur.body.length : at, 0, { k: 'block', b }); return }
     // Video: in den Banner der Folie, zum Antippen; hat die Folie schon ein Bild, eine eigene Folie
@@ -134,6 +145,14 @@ export function buildSlides(items: SlideItem[], cover: { title: string; intro?: 
     if (start > 0 && slides[start - 1].photo && !slides[start - 1].key.startsWith('pt')) start--
     let end = i; while (end + 1 < slides.length && pic(slides[end + 1])) end++
     if (end > start) for (let j = i; j <= end; j++) slides[j].kicker = { k: 'photo', no: j - start + 1, total: end - start + 1 }
+    i = end
+  }
+  // Punkte einer Bilderliste: „Punkt 2 von 3“, ohne Bild steht die Nummer gross im Banner
+  const list = (x: Slide) => x.key.startsWith('pt') ? x.key.slice(0, x.key.lastIndexOf('-')) : null
+  for (let i = 0; i < slides.length; i++) {
+    const l = list(slides[i]); if (!l) continue
+    let end = i; while (end + 1 < slides.length && list(slides[end + 1]) === l) end++
+    for (let j = i; j <= end; j++) { slides[j].no = j - i + 1; if (!slides[j].kicker) slides[j].kicker = { k: 'point', no: j - i + 1, total: end - i + 1 } }
     i = end
   }
   for (const x of slides) if (x.video && !x.kicker && x.kind !== 'cover') x.kicker = { k: 'video' }

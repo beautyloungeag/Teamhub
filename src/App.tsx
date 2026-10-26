@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useState } from 'react'
 import { AppProvider, useApp } from './store'
 import { AuthProvider, useAuth } from './lib/auth'
-import Mobile from './Mobile'
+import Mobile, { WikiPreviewFrame } from './Mobile'
 import Backoffice from './Backoffice'
 import { startParams } from './lib/start'
 import Login from './Login'
@@ -69,6 +69,8 @@ function Gate() {
   }
   if (data?.loading) return <div className="min-h-full flex items-center justify-center text-mute">{tr('Lädt …')}</div>
   if (data?.loadError) return <div className="min-h-full flex flex-col items-center justify-center gap-3 p-6 text-center"><p>{tr('Keine Verbindung zum TeamHub.')}</p><button onClick={() => void data.reload()} className="h-11 px-5 rounded-[10px] bg-olive-700 text-white">{tr('Erneut versuchen')}</button></div>
+  // Vorschau eines Wissensartikels aus dem Backoffice (Rahmen mit Handybreite)
+  if (startParams.has('vorschau')) return <WikiPreviewFrame />
   // Backoffice nur für Filialleitung und Büro am Desktop (Rechte prüft zusätzlich die Datenbank per RLS).
   // Am Desktop starten sie im Backoffice, am Handy immer in der App.
   const office = employee.app_role !== 'mitarbeiterin' && desktop

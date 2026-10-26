@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState } from 'react'
-import { Search, Trash2, ChevronRight, Sparkles } from 'lucide-react'
+import { useEffect, useId, useRef, useState, type MutableRefObject } from 'react'
+import type { Editor } from '@tiptap/react'
+import { Search, Trash2, ChevronRight, Sparkles, Smartphone, X } from 'lucide-react'
 import { openBenniDraft } from '../BenniChat'
 import { useApp, type WikiBlock } from '../store'
 import { supabase } from '../lib/supabase'
 import { emojiOf, catKey, EMOJI_CHOICES, AREAS, areaOf } from '../lib/wiki'
-import { AREA_LOOK } from '../Mobile'
+import { AREA_LOOK, PREVIEW_KEY } from '../Mobile'
+import { markUnsaved } from '../lib/unsaved'
 import { toast } from '../Toast'
 import { ArticleBody } from './ArticleBody'
 import { H, New, Th, Back, Section, Empty, Status, DataRow, Select, Seg, Modal, btn, btn2, inpStone, retranslate, IconBox, Tag } from './kit'
@@ -148,13 +150,14 @@ const pathsOf = (bs: WikiBlock[]) => bs.flatMap(b => [b.src ?? '', ...(b.media ?
 const TEXTY = new Set(['p', 'h', 'quote', 'ul', 'ol'])
 
 /** Titel und Kurzfassung: einfaches Textfeld im Aussehen der App. Inhalt wird nur beim Laden gesetzt, sonst springt der Cursor. */
-function Editable({ value, onChange, className, placeholder }: { value: string; onChange: (v: string) => void; className: string; placeholder: string }) {
+function Editable({ value, onChange, className, placeholder, onNext, elRef }: { value: string; onChange: (v: string) => void; className: string; placeholder: string; onNext?: () => void; elRef?: MutableRefObject<HTMLDivElement | null> }) {
   const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => { if (elRef) elRef.current = ref.current })
   useEffect(() => { if (ref.current) ref.current.innerText = value }, []) // eslint-disable-line react-hooks/exhaustive-deps
   return <div ref={ref} contentEditable suppressContentEditableWarning data-ph={placeholder}
     onInput={e => onChange(e.currentTarget.innerText.replace(/\n/g, ' '))}
     onPaste={e => { e.preventDefault(); document.execCommand('insertText', false, e.clipboardData.getData('text/plain').replace(/\s*\n\s*/g, ' ')) }}
-    onKeyDown={e => { if (e.key === 'Enter') e.preventDefault() }}
+    onKeyDown={e => { if (e.key === 'Enter' || (e.key === 'Tab' && !e.shiftKey)) { e.preventDefault(); onNext?.() } }}
     className={`outline-none empty:before:content-[attr(data-ph)] empty:before:text-sage-400 ${className}`} />
 }
 
@@ -175,6 +178,11 @@ function ArticleEditor({ id, category, onBack, onSaved }: { id: string | null; c
   // Nach dem ersten Speichern bekommt der Artikel seine id: nicht neu laden, der Editor hat den Stand schon
   const justCreated = useRef<string | null>(null)
   const [dirty, setDirty] = useState(false), [busy, setBusy] = useState(false)
+  const [preview, setPreview] = useState(false)
+  const editorRef = useRef<Editor | null>(null), introRef = useRef<HTMLDivElement | null>(null)
+  const guard = useId()
+  useEffect(() => { markUnsaved(guard, dirty) }, [dirty, guard])
+  useEffect(() => () => markUnsaved(guard, false), [guard])
 
   const sign = async (paths: string[]) => {
     const need = [...new Set(paths.filter(p => p && !/^https?:/.test(p)))]; if (!need.length) return {}
@@ -243,43 +251,72 @@ function ArticleEditor({ id, category, onBack, onSaved }: { id: string | null; c
     setDirty(false); await reloadWiki(); retranslate(); toast('Gespeichert')
     if (!id) { justCreated.current = r.data.id; onSaved(r.data.id) }
   }
+  // Cmd/Ctrl+S speichert wie in Word
+  const saveRef = useRef(save); saveRef.current = save
+  useEffect(() => { const k = (e: KeyboardEvent) => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') { e.preventDefault(); void saveRef.current() } }; document.addEventListener('keydown', k); return () => document.removeEventListener('keydown', k) }, [])
+  // Vorschau wie in der App: aktueller Stand inklusive Ungespeichertem, in einem Handy-Rahmen (27.10.)
+  const openPreview = async () => {
+    const bs = blocks.current
+    try { localStorage.setItem(PREVIEW_KEY, JSON.stringify({ id, title, intro, blocks: bs, urls: await sign(pathsOf(bs)), category: cat || 'Wissen', accessLevel: level })) } catch { toast('Vorschau ging gerade nicht', 'error'); return }
+    setPreview(true)
+  }
   const del = async () => {
     if (!id || !confirm(`Artikel „${title}“ endgültig löschen?`)) return
     const { error } = await supabase!.from('wiki_articles').delete().eq('id', id)
     if (error) { toast('Löschen hat nicht geklappt', 'error'); return }
     await reloadWiki(); toast('Gelöscht'); onBack()
   }
-  const back = () => { if (dirty && !confirm('Änderungen verwerfen?')) return; onBack() }
+  const back = () => { if (dirty && !confirm('Ungespeicherte Änderungen verwerfen?')) return; markUnsaved(guard, false); onBack() }
   const quiz = id ? quizzes.find(q => q.articleId === id) : null
+  const LEVEL_TEXT: Record<string, string> = { alle: 'alle Mitarbeiterinnen', filialleitung: 'Filialleitung und Büro', buero: 'nur das Büro' }
 
   if (!doc) return <div className="max-w-[1100px]"><Back onClick={onBack}>{cap(category) || 'Wissen'}</Back><p className="text-mute">Lädt …</p></div>
   return (<div className="max-w-[1100px]">
-    <Back onClick={back}>{cap(category) || 'Wissen'}</Back>
-    <div className="grid grid-cols-[minmax(0,720px)_280px] gap-12 items-start">
-      <article className="min-w-0 pb-[45vh]">
-        <Editable value={title} onChange={v => { setTitle(v); setDirty(true) }} placeholder="Titel" className="text-[30px] font-medium tracking-tight leading-tight" />
-        <Editable value={intro} onChange={v => { setIntro(v); setDirty(true) }} placeholder="Kurzfassung in einem Satz (optional)" className="mt-2 text-[16px] text-mute leading-snug" />
-        <div className="mt-5"><ArticleBody key={doc.ver} initial={doc.blocks} urls={doc.urls} upload={upload} onChange={b => { blocks.current = b; setDirty(true) }} /></div>
+    {/* Feste Leiste oben (27.10.): Speichern und Vorschau sind immer erreichbar, auch tief im Artikel */}
+    <div className="sticky -top-8 z-30 -mx-8 -mt-8 px-8 pt-8 pb-2.5 bg-white flex items-center gap-2">
+      <Back onClick={back}>{cap(category) || 'Wissen'}</Back>
+      <span className="ml-auto mb-4 text-[13px] text-brass">{dirty ? 'Ungespeicherte Änderungen' : ''}</span>
+      <button onClick={openPreview} className={`${btn2} mb-4 flex items-center gap-1.5`}><Smartphone size={15} />In der App ansehen</button>
+      {id && <button onClick={() => { if (dirty && !confirm('Ungespeicherte Änderungen verwerfen?')) return; markUnsaved(guard, false); openBenniDraft(`Fass den Wissensartikel „${title}“ (id ${id}) neu: `) }} className={`${btn2} mb-4 hidden lg:flex items-center gap-1.5`}><Sparkles size={15} />Mit Marc neu fassen</button>}
+      <button disabled={busy || (!dirty && !!id)} onClick={save} title="Speichern (⌘S)" className={`${btn} mb-4 min-w-[120px] disabled:opacity-50`}>{busy ? 'Speichert …' : id ? (dirty ? 'Speichern' : 'Gespeichert') : 'Artikel anlegen'}</button>
+    </div>
+    <div className="grid xl:grid-cols-[minmax(0,720px)_240px] gap-x-10 gap-y-6 items-start">
+      <article className="min-w-0 pb-10">
+        <Editable value={title} onChange={v => { setTitle(v); setDirty(true) }} onNext={() => introRef.current?.focus()} placeholder="Titel" className="text-[30px] font-medium tracking-tight leading-tight" />
+        <Editable elRef={introRef} value={intro} onChange={v => { setIntro(v); setDirty(true) }} onNext={() => editorRef.current?.chain().focus('start').run()} placeholder="Kurzfassung in einem Satz (optional)" className="mt-2 text-[16px] text-mute leading-snug" />
+        <div className="mt-5"><ArticleBody key={doc.ver} editorOut={editorRef} initial={doc.blocks} urls={doc.urls} upload={upload} onChange={b => { blocks.current = b; setDirty(true) }} /></div>
       </article>
 
-      <aside className="sticky top-0 space-y-6">
-        <div className="flex gap-2"><button disabled={busy || (!dirty && !!id)} onClick={save} className={`${btn} flex-1 disabled:opacity-50`}>{busy ? 'Speichert …' : id ? 'Speichern' : 'Artikel anlegen'}</button></div>
-        <p className="-mt-4 h-4 text-[12.5px] text-brass">{dirty ? 'Ungespeicherte Änderungen' : ''}</p>
-        {id && <button onClick={() => { if (dirty && !confirm('Ungespeicherte Änderungen verwerfen?')) return; openBenniDraft(`Fass den Wissensartikel „${title}“ (id ${id}) neu: `) }} className={`${btn2} w-full -mt-3 flex items-center justify-center gap-1.5`}><Sparkles size={15} />Mit Marc neu fassen</button>}
-        <div>
-          <DataRow label="Status" value={<Seg value={published ? 'on' : 'off'} onChange={v => { setPublished(v === 'on'); setDirty(true) }} items={[['off', 'Entwurf'], ['on', 'Sichtbar']]} />} />
-          <DataRow label="Thema" value={<Select compact className="w-40" value={cat} onChange={v => { setCat(v); setDirty(true) }} placeholder="Thema wählen" options={[...new Set([...cats, ...(cat ? [cat] : [])])].map(c => ({ value: c, label: cap(c) }))} />} />
-          <DataRow label="Sichtbar für" value={<Select compact className="w-40" value={level} onChange={v => { setLevel(v); setDirty(true) }} options={Object.entries(LEVEL).map(([value, label]) => ({ value, label }))} />} />
-          <DataRow label="Verantwortlich" value={<Select compact className="w-40" value={owner} onChange={v => { setOwner(v); setDirty(true) }} placeholder="Niemand" options={[{ value: '', label: 'Niemand' }, ...staff.filter(x => x.active && x.app_role !== 'mitarbeiterin' && !x.email.includes('+')).map(x => ({ value: x.id, label: `${x.first} ${x.last}` }))]} />} />
-          <DataRow label="Quiz" value={quiz ? <span>{quiz.title}</span> : <span className="text-mute">keins, anlegen unter Lernen → Quiz</span>} />
+      <aside className="order-first xl:order-none xl:sticky xl:top-[76px] space-y-5">
+        {/* Status zuerst und in Worten: ein Entwurf ist in der App nicht zu sehen */}
+        <div className={`rounded-[14px] px-4 py-3 ${published ? 'bg-done-50' : 'bg-sage-50'}`}>
+          <div className="flex items-center justify-between gap-3"><span className="text-[13px] text-mute">Status</span><Seg value={published ? 'on' : 'off'} onChange={v => { setPublished(v === 'on'); setDirty(true) }} items={[['off', 'Entwurf'], ['on', 'Sichtbar']]} /></div>
+          <p className="mt-2 text-[13px] leading-snug text-ink/80">{published ? `In der App sichtbar für ${LEVEL_TEXT[level]}.` : 'Entwurf: in der App noch nicht sichtbar. Zum Veröffentlichen „Sichtbar“ wählen und speichern.'}</p>
         </div>
-        <div className="text-[12.5px] text-mute leading-relaxed space-y-2">
-          <p>In der App wird der Artikel zu Folien zum Wischen: Jede Überschrift beginnt eine Folie, ein Bild oder Video direkt darunter füllt ihr Banner, der erste Satz steht im grauen Balken. Hinweise erscheinen oben auf ihrer Folie.</p>
-          <p>Steht der Cursor in einem Aufzählungspunkt, gehört ein Bild oder Video zu diesem Punkt. Der Punkt wird dann eine eigene Folie.</p>
-          <p>Text und Aufzählungen aus Word oder einer Mail einfach einfügen. Fotos mit „Bild“, per Einfügen oder durch Hineinziehen.</p>
+        <div className="grid grid-cols-2 xl:grid-cols-1 gap-x-8">
+          <DataRow label="Thema" value={<Select compact className="w-[136px]" value={cat} onChange={v => { setCat(v); setDirty(true) }} placeholder="Thema wählen" options={[...new Set([...cats, ...(cat ? [cat] : [])])].map(c => ({ value: c, label: cap(c) }))} />} />
+          <DataRow label="Sichtbar für" value={<Select compact className="w-[136px]" value={level} onChange={v => { setLevel(v); setDirty(true) }} options={Object.entries(LEVEL).map(([value, label]) => ({ value, label }))} />} />
+          <DataRow label="Verantwortlich" value={<Select compact className="w-[136px]" value={owner} onChange={v => { setOwner(v); setDirty(true) }} placeholder="Niemand" options={[{ value: '', label: 'Niemand' }, ...staff.filter(x => x.active && x.app_role !== 'mitarbeiterin' && !x.email.includes('+')).map(x => ({ value: x.id, label: `${x.first} ${x.last}` }))]} />} />
+          <DataRow label="Quiz" value={quiz ? <span>{quiz.title}</span> : <span className="text-mute">Keins</span>} />
         </div>
+        <p className="hidden xl:block text-[12.5px] text-mute leading-relaxed">Jede Überschrift beginnt in der App eine neue Folie. Fährst du über einen Aufzählungspunkt, kannst du ihm mit „+ Foto“ ein eigenes Bild geben. Wie es aussieht, zeigt „In der App ansehen“.</p>
         {id && <button onClick={del} className="text-[13px] text-mute hover:text-alert flex items-center gap-1.5"><Trash2 size={14} />Artikel löschen</button>}
       </aside>
     </div>
+    {preview && <PhonePreview onClose={() => setPreview(false)} />}
   </div>)
+}
+
+// Handy-Rahmen mit der echten App-Ansicht: die App läuft im Rahmen mit Handybreite, damit Folien und Bildformate stimmen
+function PhonePreview({ onClose }: { onClose: () => void }) {
+  useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }; document.addEventListener('keydown', k); return () => document.removeEventListener('keydown', k) }, [onClose])
+  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/35 backdrop-blur-[6px] p-6" onMouseDown={onClose}>
+    <div onMouseDown={e => e.stopPropagation()} className="flex flex-col items-center gap-3">
+      <div className="rounded-[44px] bg-[#1d221c] p-[10px] shadow-[0_30px_80px_-30px_rgba(0,0,0,.6)]">
+        <iframe title="Vorschau in der App" src="/?vorschau=1" className="block w-[375px] h-[min(760px,calc(100dvh-140px))] rounded-[34px] bg-paper border-0" />
+      </div>
+      <div className="flex items-center gap-3"><p className="text-[13px] text-white">So sieht der Artikel in der App aus, mit allen ungespeicherten Änderungen.</p>
+        <button onClick={onClose} className="h-9 px-3 rounded-[10px] bg-white text-[13.5px] flex items-center gap-1.5"><X size={15} />Schliessen</button></div>
+    </div>
+  </div>
 }
