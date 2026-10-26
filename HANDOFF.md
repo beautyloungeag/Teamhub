@@ -1,5 +1,15 @@
 # HANDOFF — Beautylounge TeamHub
 
+### 2026-10-26 — Controlled pilot ready; reviewer access prepared
+
+Runtime source `076bccd` is on main and live; public JS/CSS matched the tested build exactly. Five authorization/progress migrations applied and quiz v6 ACTIVE. 75 automated tests and 189 rollback-only checks against the deployed schema passed. Account/session isolation, role/skill concurrency, chat snapshot/read races, comments, audience exports and live progress are corrected. Technical contract: `docs/PILOT-AUTHORIZATION.md`.
+
+Owner iPhone screenshots confirm usable Marc/comment fields with the keyboard open. A real office-assigned test task produced an Apple push; owner confirmed receipt/opening. The exact test task was removed and the device subscription retained. This supports a controlled pilot, not universal device/provider acceptance. Separate physical login/landscape/camera/microphone checks and personal mailbox/Timebutler onboarding remain outside this acceptance.
+
+Five real checklists and twelve onboarding steps are active. A customer reviewer now has three distinct roles (employee mobile, studio lead desktop, office desktop), with five labelled test records. Their specific IDs/addresses and scoped email routing are in the private team workspace, never this public repo. Fixture Facility/event email flags are already marked; Phorest sync is off. Owner confirms sending the access/instructions email. Do not resend it or invite the remaining pilot team without a new instruction. Plan: reviewer first, then a two-week team pilot before wider rollout. No automatic start/end date or cleanup has been scheduled.
+
+Local synthetic QA services were removed without touching other projects. A local PostgreSQL 17.6 aarch64 SET ROLE/expected-denial crash limits the direct local SQL batch; do not call that batch passed. Remote 189-check rollback evidence and 13 stable local HTTP-denial checks are separate.
+
 ### 2026-10-24 — Employee mobile usability review
 
 Owner requests a whole-app review after an installed iPhone assistant/keyboard failure. Shared pan+height viewport handling, pane-only transcript scrolling, shrinking flex chain, bounded composers/model menu, conversation-bound in-memory drafts, common accessible body-portalled sheets, fixed dialog close controls, wrapping/dismissible errors, login error reveal, mobile headers/report controls/search and flex calendar corrected. Primary employee flows inspected at narrow/short/landscape sizes plus a desktop regression; one synthetic real assistant response, disposable form fixtures with provider writes blocked, QA chat cleaned. 31 tests/build/translations pass; existing lint warnings remain. **Physical iPhone keyboard/camera/mic/push acceptance is still not evidenced.** No pilot invitations, customer messages, provider/config/role changes. Full scope and limits: `MOBILE-USABILITY.md`.
