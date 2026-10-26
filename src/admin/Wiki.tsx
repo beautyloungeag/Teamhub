@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { Search, Trash2, ChevronRight } from 'lucide-react'
+import { Search, Trash2, ChevronRight, Sparkles } from 'lucide-react'
+import { openBenniDraft } from '../BenniChat'
 import { useApp, type WikiBlock } from '../store'
 import { supabase } from '../lib/supabase'
 import { emojiOf, catKey, EMOJI_CHOICES, AREAS, areaOf } from '../lib/wiki'
@@ -36,7 +37,7 @@ function Home({ onCat, onOpen }: { onCat: (name: string) => void; onOpen: (id: s
     .sort((x, y) => y.n - x.n || x.name.localeCompare(y.name))
   const hits = q.length > 1 ? own.filter(a => [a.title, a.catKey, a.intro, ...a.tags].join(' ').toLowerCase().includes(q.toLowerCase())) : []
   return (<>
-    <H action={<div className="flex gap-2"><button onClick={() => setNewTopic(true)} className={btn2}>Neues Thema</button><New onClick={() => onOpen(null, '')}>Neuer Artikel</New></div>}>Wissen</H>
+    <H action={<div className="flex gap-2"><button onClick={() => setNewTopic(true)} className={btn2}>Neues Thema</button><MarcWrite /><New onClick={() => onOpen(null, '')}>Neuer Artikel</New></div>}>Wissen</H>
     <div className="h-10 mb-6 max-w-md rounded-[10px] bg-sage-50 px-3 flex items-center gap-2"><Search size={16} className="text-mute" /><input value={q} onChange={e => setQ(e.target.value)} placeholder="Artikel suchen" className="flex-1 outline-none text-[14px] bg-transparent" /></div>
     {q.length > 1 ? <Section title="Treffer" count={hits.length}>
       {hits.length === 0 ? <Empty>Kein Artikel gefunden.</Empty> : <ArticleTable items={hits} onOpen={a => onOpen(a.id, a.catKey)} showCat />}
@@ -100,7 +101,7 @@ function CategoryPage({ name, onBack, onOpen, onRenamed }: { name: string; onBac
           <p className="text-[13px] text-mute">{items.length === 1 ? '1 Artikel' : `${items.length} Artikel`} · Emoji und Name lassen sich anklicken und ändern</p>
         </div>
       </div>
-      <New onClick={() => onOpen(null)}>Neuer Artikel</New>
+      <div className="flex gap-2 shrink-0"><MarcWrite topic={name} /><New onClick={() => onOpen(null)}>Neuer Artikel</New></div>
     </div>
     <div className="mt-8">{items.length === 0 ? <Empty>Noch kein Artikel in diesem Thema.</Empty> : <ArticleTable items={items} onOpen={a => onOpen(a.id)} />}</div>
   </div>)
@@ -155,6 +156,11 @@ function Editable({ value, onChange, className, placeholder }: { value: string; 
     onPaste={e => { e.preventDefault(); document.execCommand('insertText', false, e.clipboardData.getData('text/plain').replace(/\s*\n\s*/g, ' ')) }}
     onKeyDown={e => { if (e.key === 'Enter') e.preventDefault() }}
     className={`outline-none empty:before:content-[attr(data-ph)] empty:before:text-sage-400 ${className}`} />
+}
+
+// Artikel mit Marc schreiben (26.10., Renée: „Artikel mit der KI erstellen geht noch nicht?“): öffnet Marc mit vorbereitetem Auftrag
+function MarcWrite({ topic }: { topic?: string }) {
+  return <button onClick={() => openBenniDraft(`Schreib einen Wissensartikel${topic ? ` im Thema ${topic}` : ''} aus diesem Text (oder aus der angehängten Datei): `)} className={`${btn2} flex items-center gap-1.5`}><Sparkles size={15} />Mit Marc schreiben</button>
 }
 
 type Row = { title: string; intro: string; category: string; access_level: string; published: boolean; owner_id: string | null; blocks: WikiBlock[] | null; body: string; media_kind: string; media_url: string | null }
@@ -259,6 +265,7 @@ function ArticleEditor({ id, category, onBack, onSaved }: { id: string | null; c
       <aside className="sticky top-0 space-y-6">
         <div className="flex gap-2"><button disabled={busy || (!dirty && !!id)} onClick={save} className={`${btn} flex-1 disabled:opacity-50`}>{busy ? 'Speichert …' : id ? 'Speichern' : 'Artikel anlegen'}</button></div>
         <p className="-mt-4 h-4 text-[12.5px] text-brass">{dirty ? 'Ungespeicherte Änderungen' : ''}</p>
+        {id && <button onClick={() => { if (dirty && !confirm('Ungespeicherte Änderungen verwerfen?')) return; openBenniDraft(`Fass den Wissensartikel „${title}“ (id ${id}) neu: `) }} className={`${btn2} w-full -mt-3 flex items-center justify-center gap-1.5`}><Sparkles size={15} />Mit Marc neu fassen</button>}
         <div>
           <DataRow label="Status" value={<Seg value={published ? 'on' : 'off'} onChange={v => { setPublished(v === 'on'); setDirty(true) }} items={[['off', 'Entwurf'], ['on', 'Sichtbar']]} />} />
           <DataRow label="Thema" value={<Select compact className="w-40" value={cat} onChange={v => { setCat(v); setDirty(true) }} placeholder="Thema wählen" options={[...new Set([...cats, ...(cat ? [cat] : [])])].map(c => ({ value: c, label: cap(c) }))} />} />

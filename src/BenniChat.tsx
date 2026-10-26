@@ -83,6 +83,13 @@ async function deleteChat(id: string) {
   if (!error) { S.chats = S.chats.filter(c => c.id !== id); if (S.active === id) S.active = null; bump() }
   return !error
 }
+let pendingDraft: string | null = null
+/** Backoffice: neuen Chat mit vorbereitetem, noch nicht gesendetem Text öffnen (z. B. „Mit Marc schreiben“ im Wissen). */
+export function openBenniDraft(text: string) {
+  if (!captureAccountScope()) return
+  S.active = null; pendingDraft = text; bump()
+  window.dispatchEvent(new Event('th-benni-office'))
+}
 /** Neuen Chat öffnen, optional gleich mit einer Frage (z. B. „Mit Marc lernen“ aus dem Onboarding). */
 export function openNewBenniChat(question?: string) {
   if (!captureAccountScope()) return
@@ -464,6 +471,8 @@ function Composer({ busy, variant, onSend, draftKey }: { busy: boolean; variant:
   const { t, lang, employee } = useApp()
   const [scope] = useState(() => captureAccountScope(employee.id))
   const [v, setV] = useState(() => drafts.get(draftKey) ?? ''), [files, setFiles] = useState<Attach[]>([]), [tier, setTier] = useState<Tier>(tierPref), [web, setWeb] = useState(false), [menu, setMenu] = useState(false)
+  // Vorbereiteter Auftrag (z. B. „Mit Marc schreiben“): Cursor gleich ans Ende, damit man direkt weiterschreibt
+  useEffect(() => { const a = area.current; if (a && a.value) { a.focus(); a.setSelectionRange(a.value.length, a.value.length) } }, []) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!isCurrentAccountScope(scope)) return
     if (v) { drafts.set(draftKey, v); if (drafts.size > 20) drafts.delete(drafts.keys().next().value!) }
@@ -587,10 +596,15 @@ function ChatList({ onPicked }: { onPicked?: () => void }) {
 
 /* ---------- Ganze Ansicht ---------- */
 const IDEAS = ['Was steht heute bei mir an?', 'Lass uns mit dem Onboarding weiterlernen.', 'Wer arbeitet morgen im Studio?', 'Das Wachsgerät in Kabine 3 ist kaputt']
+// Im Backoffice zeigt Marc, dass er auch Backoffice-Arbeit erledigt (26.10., Renée: „Wo ist Benni im Backend?“)
+const IDEAS_OFFICE = ['Schreib aus meinem Text einen Wissensartikel', 'Ersetze einen Wissensartikel durch eine neue Fassung', 'Veröffentliche eine News für alle Studios', 'Wer hat auf die nächste Schulung noch nicht geantwortet?']
+const IDEAS_LEAD = ['Gib meinem Studio eine Aufgabe für morgen', 'Leg ein Team-Meeting an', 'Frag eine Aushilfe für Samstag an', 'Wer hat auf die nächste Schulung noch nicht geantwortet?']
 
-export function BenniChat({ variant = 'app', onOpenArticle, onOpenClient, onClose, onBack }: { variant?: 'app' | 'panel'; onOpenArticle?: (id: string) => void; onOpenClient?: (id: string) => void; onClose?: () => void; onBack?: () => void }) {
+export function BenniChat({ variant = 'app', backoffice = false, onOpenArticle, onOpenClient, onClose, onBack }: { variant?: 'app' | 'panel'; backoffice?: boolean; onOpenArticle?: (id: string) => void; onOpenClient?: (id: string) => void; onClose?: () => void; onBack?: () => void }) {
   const { employee, me, t, reload } = useApp()
   const st = useBenni()
+  const copilot = backoffice && (me.app_role === 'buero' || me.app_role === 'filialleitung')
+  const ideas = !copilot ? IDEAS : me.app_role === 'buero' ? IDEAS_OFFICE : IDEAS_LEAD
   const [drawer, setDrawer] = useState(false)
   const end = useRef<HTMLDivElement>(null), messagesPane = useRef<HTMLDivElement>(null)
   const chat = st.chats.find(c => c.id === st.active) ?? null
@@ -628,9 +642,9 @@ export function BenniChat({ variant = 'app', onOpenArticle, onOpenClient, onClos
         <div className={variant === 'app' ? 'pt-6 md:pt-0 md:text-center' : 'pt-2'}>
           <BMark className={variant === 'app' ? 'w-12 h-12' : 'w-10 h-10'} />
           <h1 className={`mt-5 leading-tight ${variant === 'app' ? 'text-[28px]' : 'text-[22px]'}`}>{t('Hallo {name}, wie kann ich helfen?', { name: me.first })}</h1>
-          <p className="mt-1.5 text-[14.5px] text-mute">{t('Termine, Kunden, Wissen, Dateien: frag einfach.')}</p>
-          <div className={`mt-6 rounded-[16px] divide-y divide-line ${variant === 'app' ? 'bg-white md:hidden' : 'border border-line'}`}>{IDEAS.map(i => <button key={i} onClick={() => send(t(i))} className="w-full text-left px-4 py-3.5 text-[17px] flex items-center gap-3"><span className="flex-1">{t(i)}</span><ArrowUpRight size={16} className="text-sage-400 shrink-0" /></button>)}</div>
-          {variant === 'app' && <div className="hidden md:flex mt-7 flex-wrap justify-center gap-2">{IDEAS.map(i => <button key={i} onClick={() => send(t(i))} className="h-9 px-3.5 rounded-full bg-white border border-line text-[15px] text-ink/80 hover:border-sage-400 hover:text-ink transition">{t(i)}</button>)}</div>}
+          <p className="mt-1.5 text-[14.5px] text-mute">{copilot ? t('Ich erledige auch die Arbeit im Backoffice für dich: Wissen, News, Termine, Aufgaben, Team und Einstellungen. Jede Änderung bestätigst du mit einem Tipp.') : t('Termine, Kunden, Wissen, Dateien: frag einfach.')}</p>
+          <div className={`mt-6 rounded-[16px] divide-y divide-line ${variant === 'app' ? 'bg-white md:hidden' : 'border border-line'}`}>{ideas.map(i => <button key={i} onClick={() => send(t(i))} className="w-full text-left px-4 py-3.5 text-[17px] flex items-center gap-3"><span className="flex-1">{t(i)}</span><ArrowUpRight size={16} className="text-sage-400 shrink-0" /></button>)}</div>
+          {variant === 'app' && <div className="hidden md:flex mt-7 flex-wrap justify-center gap-2">{ideas.map(i => <button key={i} onClick={() => send(t(i))} className="h-9 px-3.5 rounded-full bg-white border border-line text-[15px] text-ink/80 hover:border-sage-400 hover:text-ink transition">{t(i)}</button>)}</div>}
         </div>
       ) : chat.loading ? <p className="pt-6 text-mute text-[15.5px]">{t('Lädt …')}</p> : (
         <div className="pt-2 space-y-5">
@@ -642,6 +656,7 @@ export function BenniChat({ variant = 'app', onOpenArticle, onOpenClient, onClos
     </>
   )
   const draftKey = employee.id + ':' + (chat?.id ?? 'new')
+  if (pendingDraft && !chat) { drafts.set(draftKey, pendingDraft); pendingDraft = null }
   const composer = <Composer key={draftKey} draftKey={draftKey} busy={!!chat?.busy} variant={variant} onSend={(text, files, opts) => send(text, files, opts)} />
   const newBtn = <button onClick={() => openChat(null)} title={t('Neuer Chat')} aria-label={t('Neuer Chat')} className="w-9 h-9 rounded-full text-ink/70 hover:bg-sage-100 flex items-center justify-center shrink-0"><SquarePen size={17} /></button>
 

@@ -1,5 +1,46 @@
 # HANDOFF — Beautylounge TeamHub
 
+### 2026-10-26 spätabends — Marc kann jetzt alles, was die Person im Backoffice darf (Renées Mail „Benni im Backend“)
+
+- **Anlass:** Renée (16:12) fand Marc im Backoffice nicht und konnte keine Artikel mit der KI erstellen oder austauschen. Ursache: Der Copilot vom Nachmittag deckte nur 9 von rund 70 Schreibstellen der Oberfläche ab, und die Startseite von „Frag Marc“ zeigte im Backoffice nur Mitarbeiter-Vorschläge. Diesmal wurde vorher jede Schreibstelle in App und Backoffice mit Feldern, Rollenregeln und Folgeschritten erfasst (Katalog unten), dann alles gebaut.
+- **Neu in `supabase/functions/assistant/`:**
+  - `records.ts`: alle übrigen Bereiche mit derselben Logik wie die Oberfläche.
+  - `wiki-md.ts`: Marcs Markdown → Bausteine, mit Platzhaltern `[[foto N]]` (angehängt), `[[bild K]]` (vorhandenes Bild aus `wiki_outline`) und `[[video URL]]`. Ein Platzhalter am Ende eines Aufzählungspunkts gehört zum Punkt.
+  - `util.ts`: gemeinsame Helfer.
+  - `READ_TOOLS` in `actions.ts` steuert, welche Werkzeuge ohne Karte laufen.
+- **Werkzeuge:**
+  - Wissen (nur Büro): `wissen_liste`; `vorschlag_wissen_artikel` (neu oder ersetzen, mehrere Fotos aus dem Chat); `vorschlag_wissen_einstellungen` (Dateien ziehen beim Sichtbarkeitswechsel mit); `vorschlag_wissen_loeschen`. `read_article` liest fürs Büro auch Entwürfe, ganz.
+  - `daten_liste`: Suche mit ids für News, Termine, Aufgaben, Checklisten, Lektionen, Quiz, Umfragen, Aushilfe, Ziele, Skills, Mitteilungen, dazu Studios und Einstellungen nur fürs Büro.
+  - News und Termine: `vorschlag_news_aendern`, `vorschlag_termin_aendern`, `vorschlag_termin_phorest`, `vorschlag_teilnahme`.
+  - Aufgaben und Lernen: `vorschlag_aufgabe_aendern`, `vorschlag_checkliste` (anlegen, ändern, ein- und ausschalten), `vorschlag_lektion`, `vorschlag_quiz` (neu/News/Artikel, 3–10 Fragen), `vorschlag_umfrage`, `vorschlag_umfrage_erinnerung`.
+  - Team und Leitung: `vorschlag_aushilfe_aendern`, `vorschlag_person_aendern` (Funktion, Skills, Studio, Rolle, aktiv), `vorschlag_ziel`, `vorschlag_kommentar`, `vorschlag_mitteilungen`, `vorschlag_loeschen` (13 Bereiche).
+  - Nur Büro: `vorschlag_skill`, `vorschlag_studio`, `vorschlag_einstellung`, `vorschlag_vorschlaege_freigeben`, `vorschlag_thema`.
+  - `vorschlag_news` kann zusätzlich ein KI-Titelbild (`newsdraft image`) und ein Wissens-Thema setzen. `vorschlag_event` kann zusätzlich den Phorest-Eintrag setzen.
+  - **Bewusst nicht:** Timebutler/Postfach verbinden (Passwörter) und Chats schreiben.
+- **Rechte:**
+  - Filialleitung wie in der Oberfläche: nur eigene News und Termine, eigene Studios, keine Gruppe „Büro“, Quiz nur an eigenen News, Personen nur im eigenen Studio ohne Rolle oder Studio, kein Wissen und keine Einstellungen.
+  - Geprüft in `recordPropose`, zusätzlich RLS beim Ausführen mit dem Login der Person. Eine erzwungene Löschkarte für eine Büro-News lieferte `keine_berechtigung`.
+- **Änderungskarten zeigen nur, was sich wirklich ändert** (Arrays und Zeiten werden verglichen). Anlass: Beim Testen schickte Marc unveränderte Zielgruppen, Termine oder ein neues Erscheinungsdatum mit.
+  - Neufassen eines Wissensartikels ändert Sichtbarkeit und Status **nie**. Im Test hätte ein „Ausführen“ einen Büro-Entwurf sonst für alle veröffentlicht; die Karte wurde verworfen.
+  - Eine schon erschienene News wird nicht still neu datiert.
+- **Oberfläche:**
+  - „Frag Marc“ im Backoffice hat eine eigene Startseite für Büro und Filialleitung (Text und Vorschläge je Rolle, `BenniChat backoffice`).
+  - Wissen: „Mit Marc schreiben“ in der Übersicht und in jedem Thema, „Mit Marc neu fassen“ im Editor (`openBenniDraft`: öffnet Marc mit vorbereitetem Text, Cursor am Ende).
+- **Getestet über die echte Funktion** (Testkonten info@aleksa.ai Büro, info+filialleitung@ Filialleitung, Zielgruppe nur Test-Mitarbeiterin):
+  - Wissen schreiben mit Foto am Punkt, neu fassen, umbenennen, Sichtbarkeit (Foto zog nach `wiki/alle/`), löschen.
+  - News anlegen, ändern, Umfrage, Quiz, Erinnerung.
+  - Termin anlegen, verschieben, eigene Zusage.
+  - Aufgabe anlegen und abhaken.
+  - Checkliste anlegen (ausgeschaltet) und Punkt ergänzen, Lektion, Person ändern und zurück, Ziel, Skill.
+  - Einstellung 2→3→2 (laut Protokoll vorher 2), Studio anlegen und löschen (Büro-Sortierung danach von Hand auf 7), Aushilfe anfragen und absagen, Mitteilungen.
+  - Alles wieder gelöscht, Test-Chats und Kontextdateien per ID entfernt, `notify_prefs` von info@ auf `{}` zurück.
+  - Im Browser: Startseite, „Mit Marc schreiben“, Karte „Ausführen“, Artikel im Editor, „Mit Marc neu fassen“.
+  - Stand: 89 Tests, Build, Function v-aktuell.
+- **Katalog aller Schreibstellen** (Stand 26.10., für künftige Erweiterungen; jede neue Schreibstelle im Backoffice braucht ein Gegenstück bei Marc):
+  - News (+Umfrage/Erinnerung/KI-Entwurf), Termine (+Erinnerung, Phorest-Abgleich), Einzelaufgaben, Studio-Checklisten (+Vorschläge freigeben), Lektionen und Lern-Einstellungen, Quiz.
+  - Wissen (Artikel, Themen, Symbole, Dateien), Team (anlegen, Skills, Profil, aktiv, löschen, Rolle, Skill-Katalog), Studios, Einstellungen (`app_settings`, Mitteilungen), Aushilfe, Meldungen (zuweisen, Status, löschen, Kommentar), Ziele.
+  - Persönlich: Zusage, Lesebestätigung, Abhaken, Meldung, Stimme, Aushilfe-Tage und -Antworten, Profil, Chats.
+
 ### 2026-10-26 abends — Renées vierte Mail (15:14 „Aufzählungszeichen und Folien“) + Büro-Zugänge
 
 - **Bild/Video je Aufzählungspunkt:** neues Feld `WikiBlock.media` (parallel zu `items`, `ItemMedia = {t:'img'|'video', src?|url?, name?}`). Im Editor eigenes `ListItem` mit Attributen `m/src/url/name/show` (`show` = signierte Anzeigeadresse, wird nie gespeichert) und Vorschau rechts am Punkt mit ×. Steht der Cursor in einem Punkt, heissen die Knöpfe „Bild zum Punkt“, „Video zum Punkt hochladen“, „YouTube-Link zum Punkt“; Einfügen/Hineinziehen in einen Punkt hängt das Foto ebenfalls an. Enter erzeugt einen Punkt ohne Bild (`keepOnSplit: false`). `docToBlocks` nimmt das Attribut oder das erste Bild im Punkt; ein Hinweis oder zweites Bild im Punkt teilt die Liste. Speichern verschiebt auch diese Dateien bei Sichtbarkeitswechsel (`pathsOf` in `admin/Wiki.tsx`).

@@ -13,6 +13,12 @@
       "dependencies": [
         "npm:@supabase/supabase-js@2.117.2",
         "npm:@tailwindcss/vite@^4.3.3",
+        "npm:@tiptap/extension-image@3.31.3",
+        "npm:@tiptap/extension-list@3.31.3",
+        "npm:@tiptap/extensions@3.31.3",
+        "npm:@tiptap/pm@3.31.3",
+        "npm:@tiptap/react@3.31.3",
+        "npm:@tiptap/starter-kit@3.31.3",
         "npm:@types/node@^24.13.3",
         "npm:@types/react-dom@^19.2.7",
         "npm:@types/react@^19.2.18",

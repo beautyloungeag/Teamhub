@@ -12,7 +12,7 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2.117.2'
 import { appendToolRound, CONTEXT_BUCKET, contextPathAllowed, privateRequest, readContext, saveContext, type Context, type Item } from './privacy-context.ts'
 import { contactPolicy } from './contact-policy.ts'
-import { actionDefs, decide, propose, readTool, stage, SYSTEM_NOTE, type Action, type Ctx } from './actions.ts'
+import { actionDefs, decide, propose, readTool, READ_TOOLS, stage, SYSTEM_NOTE, type Action, type Ctx } from './actions.ts'
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -286,7 +286,7 @@ Deno.serve(async (req) => {
     const actx: Ctx = { db, me, branches: branches as any, chatId: chat?.id ?? null, images: files.filter((f) => f.data && f.mime.startsWith('image/')).map((f) => ({ name: f.name, mime: f.mime, data: f.data! })), fn: fnCall }
     const clientCards = new Map<string, Record<string, unknown>>()
     const runTool = async (name: string, args: any): Promise<unknown> => {
-      if (['team_list', 'events_overview', 'tickets_list', 'wiki_outline'].includes(name)) { emit({ step: 'backoffice' }); return readTool(name, args, actx) }
+      if (READ_TOOLS.has(name)) { emit({ step: 'backoffice' }); return readTool(name, args, actx) }
       if (name.startsWith('vorschlag_')) {
         if (!chat) return { error: 'nur_im_chat' }
         if (proposals.length >= 5) return { error: 'hoechstens_5_vorschlaege' }
@@ -362,9 +362,13 @@ Deno.serve(async (req) => {
       if (name === 'read_article') {
         const id = String(args.id ?? '')
         emit({ step: 'article', detail: byId.get(id) ?? '' })
-        const { data } = byId.has(id) ? await db.from('wiki_articles').select('id, title, category, body').eq('id', id).eq('published', true).maybeSingle() : { data: null }
+        // Büro liest auch Entwürfe, ganz (zum Neufassen); sonst nur freigegebene aus der Vorauswahl
+        const office = me.app_role === 'buero'
+        let rq = db.from('wiki_articles').select('id, title, category, body').eq('id', id)
+        if (!office) rq = rq.eq('published', true)
+        const { data } = office || byId.has(id) ? await rq.maybeSingle() : { data: null }
         if (data) readIds.add(data.id)
-        return data ? { id: data.id, titel: data.title, kategorie: data.category, text: String(data.body ?? '').slice(0, 7000) } : { error: 'nicht_gefunden' }
+        return data ? { id: data.id, titel: data.title, kategorie: data.category, text: String(data.body ?? '').slice(0, office ? 30000 : 7000) } : { error: 'nicht_gefunden' }
       }
       if (name === 'news') {
         emit({ step: 'news' })

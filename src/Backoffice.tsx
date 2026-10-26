@@ -36,6 +36,7 @@ export default function Backoffice({ onSwitch }: { onSwitch?: () => void }) {
   const nav = me.app_role === 'buero' ? NAV : NAV.filter(([k]) => ['overview', 'book', 'news', 'tasks', 'tickets', 'events', 'standby', 'learn', 'team', 'performance', 'settings'].includes(k))
   const allowed = new Set(nav.map(([k]) => k))
   const go = (k: View) => { if (allowed.has(k)) setV(k) }
+  useEffect(() => { const f = () => setV('benni'); window.addEventListener('th-benni-office', f); return () => window.removeEventListener('th-benni-office', f) }, [])
   useEffect(() => { if (!allowed.has(v) && v !== 'benni' && v !== 'me') setV('overview') }, [v]) // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div className="flex h-full bg-white overflow-hidden">
@@ -45,7 +46,7 @@ export default function Backoffice({ onSwitch }: { onSwitch?: () => void }) {
           { key: 'ai', label: `Frag ${ASSISTANT}`, active: v === 'benni', icon: <BMark className="w-[18px] h-[18px]" />, onClick: () => setV('benni') }]}
         onProfile={() => setV('me')} profileActive={v === 'me'} onLogout={signOut} />
       <main className={`flex-1 no-scrollbar ${v === 'benni' ? 'overflow-hidden bg-sage-50' : v === 'book' ? 'p-8 flex flex-col overflow-hidden' : 'p-8 overflow-y-auto'}`}>
-        {v === 'benni' && <BenniChat variant="app" />}
+        {v === 'benni' && <BenniChat variant="app" backoffice />}
         {v === 'me' && <ProfileAdmin onSettings={() => setV('settings')} />}
         {v === 'book' && <><H>Kundentermine</H><div className="flex-1 min-h-0"><Terminbuch /></div></>}
         {v === 'overview' && <Overview go={go} can={k => allowed.has(k as View)} />}{allowed.has('news') && v === 'news' && <NewsAdmin />}{v === 'tasks' && <TasksAdmin />}
