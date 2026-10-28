@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { captureAccountScope, isCurrentAccountScope } from '../lib/account-scope'
 import { postgresTextArray, profilePatch, type EditableProfile, type ProfileDraft } from '../lib/person-profile-draft'
-import { ArrowLeft, ChevronLeft, ChevronRight, Search, Smartphone, Bell, Trash2, X } from 'lucide-react'
+import { ArrowLeft, ChevronLeft, ChevronRight, Search, Smartphone, Bell, Trash2, X, Pencil } from 'lucide-react'
 import { useApp, addDays, fmtDate, inNewsAudience, type Staff } from '../store'
 import { supabase } from '../lib/supabase'
 import { phorest, type StaffWeek } from '../lib/phorest'
@@ -202,7 +202,7 @@ function PersonPage({ p, pos, onBack, onStep }: { p: Staff; pos: { i: number; n:
     <div className="flex items-center gap-5">
       <Avatar s={p} photo={p.photo} size="w-20 h-20 text-[24px]" />
       <div className="min-w-0">
-        <h1 className="text-[30px] leading-tight">{p.first} {p.last}</h1>
+        <PersonName key={p.id} p={p} canEdit={office} />
         <p className="text-[14px] text-mute mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
           <span>{p.role} · {p.branch}</span>
           {roleKey(p) !== 'mitarbeiterin' && <span className="text-olive-700">{ROLE5[roleKey(p)]}</span>}
@@ -263,6 +263,45 @@ function PersonPage({ p, pos, onBack, onStep }: { p: Staff; pos: { i: number; n:
       <span className="ml-auto"><InfoTip side="left" text="Deaktivierte Personen können sich nicht mehr anmelden, ihr Verlauf bleibt. Löschen kann nur das Büro." /></span>
     </div>}
   </>)
+}
+
+/** Name ändern (28.10., Sarah ohne Nachnamen): nur das Büro, auch beim eigenen Profil. Gespeichert wird nur, wenn der
+ *  Name seit dem Öffnen gleich geblieben ist, sonst würde eine gleichzeitige Änderung still überschrieben. */
+function PersonName({ p, canEdit }: { p: Staff; canEdit: boolean }) {
+  const { reload, me } = useApp()
+  const [edit, setEdit] = useState(false), [first, setFirst] = useState(''), [last, setLast] = useState(''), [busy, setBusy] = useState(false), [err, setErr] = useState('')
+  const base = useRef({ first: p.first, last: p.last })
+  const open = () => { base.current = { first: p.first, last: p.last }; setFirst(p.first); setLast(p.last); setErr(''); setEdit(true) }
+  const save = async () => {
+    const f = first.trim().replace(/\s+/g, ' '), l = last.trim().replace(/\s+/g, ' ')
+    if (!f) { setErr('Der Vorname darf nicht leer sein.'); return }
+    if (f === base.current.first && l === base.current.last) { setEdit(false); return }
+    const scope = captureAccountScope(me.id)
+    if (!scope || busy) return
+    setBusy(true); setErr('')
+    try {
+      const { data, error } = await supabase!.from('employees').update({ first_name: f, last_name: l, updated_at: new Date().toISOString() })
+        .eq('id', p.id).eq('first_name', base.current.first).eq('last_name', base.current.last).select('id').abortSignal(scope.signal).maybeSingle()
+      if (!isCurrentAccountScope(scope)) return
+      if (error || !data) { setErr(error ? 'Speichern hat nicht geklappt. Bitte noch einmal versuchen.' : 'Der Name wurde inzwischen geändert. Bitte abbrechen und neu öffnen.'); await reload(); return }
+      setEdit(false); toast('Name gespeichert'); await reload()
+    } catch { if (isCurrentAccountScope(scope)) setErr('Speichern hat nicht geklappt. Bitte noch einmal versuchen.') }
+    finally { if (isCurrentAccountScope(scope)) setBusy(false) }
+  }
+  if (!edit) return <div className="flex items-center gap-2 min-w-0">
+    <h1 className="text-[30px] leading-tight truncate">{p.first} {p.last}</h1>
+    {canEdit && <button onClick={open} className="h-8 px-2.5 rounded-[8px] text-[13px] text-mute hover:text-ink hover:bg-sage-50 flex items-center gap-1.5 shrink-0"><Pencil size={14} />Name ändern</button>}
+  </div>
+  const key = (e: React.KeyboardEvent) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEdit(false) }
+  return <div>
+    <div className="flex flex-wrap items-end gap-2">
+      <label className="flex flex-col gap-1 w-48"><span className="text-xs text-mute">Vorname</span><input autoFocus value={first} disabled={busy} onChange={e => { setFirst(e.target.value); setErr('') }} onKeyDown={key} className={inpStone} /></label>
+      <label className="flex flex-col gap-1 w-56"><span className="text-xs text-mute">Nachname</span><input value={last} disabled={busy} onChange={e => { setLast(e.target.value); setErr('') }} onKeyDown={key} className={inpStone} /></label>
+      <button disabled={busy} onClick={save} className={btn}>{busy ? 'Speichert …' : 'Name speichern'}</button>
+      <button disabled={busy} onClick={() => setEdit(false)} className={btn2}>Abbrechen</button>
+    </div>
+    <p role={err ? 'alert' : undefined} className={`mt-2 text-[13px] min-h-[18px] ${err ? 'text-alert' : 'text-mute'}`}>{err || 'Gilt überall in TeamHub. Frühere Einträge behalten den alten Namen.'}</p>
+  </div>
 }
 
 /** Rolle einer Person ändern (Büro für alle ausser sich selbst; Filialleitung nur zwischen Mitarbeiterin, Lehrling und Praktikantin) */

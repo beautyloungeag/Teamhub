@@ -46,6 +46,7 @@
   - `npm test` 89/89, Typprüfung und Build grün.
   - Beim Durchklicken gefunden und behoben: Absturz beim Tippen in der Meldungssuche (Hilfsfunktion vor ihrer Definition benutzt), Studio-Kennung statt Name, abgeschnittene Kopfzeilen, „1 Kommentare“, umbrechende Kopfzeile der App-Meldungen.
 - **Testdaten gelöscht** (per ID): Artikel, Thema, zwei Aufgaben, Abwesenheit, Ersatzperson des Testkontos, Marc-Testchat.
+- **Name ändern (Nachtrag 28.10.):** Das Büro kann auf der Personenseite im Backoffice Vor- und Nachnamen ändern, auch beim eigenen Profil („Name ändern“ neben dem Namen, `PersonName` in `admin/Team.tsx`). Gespeichert wird nur, wenn der Name seit dem Öffnen gleich geblieben ist. Der Vorname darf nicht leer sein. Anlass: Sarah (admin@) steht ohne Nachnamen als „Sarah Büro“ drin und soll ihn selbst ergänzen. Geprüft: per Oberfläche am Testkonto Filialleitung, per API Büro selbst ja, Mitarbeiterin nein (Schreibschutz `guard_employee_write`).
 - **Offen:**
   - Antwort an Matteo, ein Entwurf liegt bei Aleksa.
   - Renées und Matteos Reaktion auf den neuen Stand abwarten.
