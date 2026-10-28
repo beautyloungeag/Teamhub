@@ -38,7 +38,7 @@ export function EventsAdmin() {
     <H action={<New onClick={() => setForm('neu')}>Neuer Termin</New>}>Schulungen & Events</H>
     <div className="mb-6"><Seg value={when} onChange={setWhen} items={[['kommend', 'Kommend'], ['vergangen', 'Vergangen'], ['jahr', 'Jahresplan']]} /></div>
     {when === 'jahr' ? <YearPlan events={visible} onOpen={x => setOpen(x.id)} /> : list.length === 0 ? <Empty>{when === 'kommend' ? 'Keine kommenden Termine.' : 'Noch keine vergangenen Termine.'}</Empty> : (
-      <table className="tbl w-full text-[14px] table-fixed"><thead><tr><th className="w-[84px] border-b border-line" /><Th>Termin</Th><th className="w-[200px] text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">Plätze</th><th className="w-[230px] text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">Antworten</th><th className="w-10 border-b border-line" /></tr></thead>
+      <table className="tbl tbl-lead w-full text-[14px] table-fixed"><thead><tr><th className="w-[84px] border-b border-line" /><Th>Termin</Th><th className="w-[200px] text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">Plätze</th><th className="w-[230px] text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">Antworten</th><th className="w-10 border-b border-line" /></tr></thead>
         <tbody className="divide-y divide-line">{list.map(x => { const st = stats(x)
           return <tr key={x.id} onClick={() => setOpen(x.id)} className="cursor-pointer hover:bg-sage-50/70">
             <td className="px-4 py-3"><span className="block font-display text-[22px] leading-none">{fmtDate(x.startsAt, { day: 'numeric' })}</span><span className="block text-[11.5px] text-mute uppercase tracking-wide mt-1">{fmtDate(x.startsAt, { month: 'short' })}</span></td>
@@ -85,7 +85,7 @@ function EventPage({ e, onBack, onEdit }: { e: Ev; onBack: () => void; onEdit: (
         </div>
       </div>
 
-      <div className="grid grid-cols-[minmax(0,1fr)_340px] gap-14 mt-8">
+      <div className="grid grid-cols-1 min-[900px]:grid-cols-[minmax(0,1fr)_340px] gap-8 min-[900px]:gap-14 mt-8">
         <div>
           <DataRow label="Datum" value={fmtDate(e.startsAt, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })} />
           <DataRow label="Zeit" value={`${fmtTime(e.startsAt)}${e.endsAt ? ` – ${fmtTime(e.endsAt)}` : ''}`} />

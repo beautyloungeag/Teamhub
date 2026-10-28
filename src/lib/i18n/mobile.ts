@@ -881,4 +881,6 @@ export default {
   "du vertrittst": ["you are covering", "tu remplaces"],
   "Schon vorgeschlagen? Dann einfach upvoten.": ["Already suggested? Just upvote it.", "Déjà proposé ? Il suffit de voter pour."],
   "1 Kommentar": ["1 comment", "1 commentaire"],
+  "Verwaltung": ["Admin", "Administration"],
+  "Backoffice wie am Computer": ["Back office, as on the computer", "Back-office comme sur l’ordinateur"],
 } as Record<string, [string, string]>

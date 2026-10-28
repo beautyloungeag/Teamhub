@@ -70,7 +70,7 @@ function NewsPage({ n, people, onBack, onEdit }: { n: News; people: Staff[]; onB
         <div className="min-w-0"><p className="text-[13px] text-mute flex items-center gap-2"><Tag tone={toneOf(newsCat(n), n.mustRead)}>{newsCat(n)}</Tag>{n.author} · {n.date}{n.mustRead ? ' · Pflicht' : ''}</p><h1 className="text-[28px] leading-tight mt-1">{n.title}</h1></div>
         {canEdit && <div className="flex items-center gap-2 shrink-0"><button onClick={del} title="Löschen" className="w-10 h-10 rounded-[10px] text-mute hover:text-alert hover:bg-sage-50 flex items-center justify-center"><Trash2 size={16} /></button><button onClick={onEdit} className={`${btn2} flex items-center gap-2`}><Pencil size={14} />Bearbeiten</button></div>}
       </div>
-      <div className="grid grid-cols-[minmax(0,1fr)_300px] gap-12 mt-6">
+      <div className="grid grid-cols-1 min-[900px]:grid-cols-[minmax(0,1fr)_300px] gap-8 min-[900px]:gap-12 mt-6">
         <div>{n.image && <img src={n.image} alt="" className="w-full aspect-[3/2] object-cover rounded-[14px] mb-5" />}<div className="space-y-3 text-[15px] leading-relaxed text-ink/85">{n.body.split('\n\n').map((p, i) => <p key={i}>{p}</p>)}</div></div>
         <div className="self-start">
           <DataRow label="Für" value={n.audience} />
@@ -224,7 +224,7 @@ function Compose({ edit, onClose }: { edit: News | null; onClose: () => void }) 
   const toggle = (on: boolean, label: string, onClick: () => void, disabled = false) => <button type="button" disabled={disabled} onClick={onClick} className={`h-9 px-3 rounded-[9px] flex items-center gap-2 text-[13px] transition disabled:opacity-50 ${on ? 'bg-olive-700 text-white' : 'bg-white text-ink/80'}`}>{on && <Check size={13} strokeWidth={2.6} />}{label}</button>
   return (
     <Modal width={980} title={edit ? 'News bearbeiten' : 'Neue News'} onClose={onClose} footer={<><span className="mr-auto text-[13px] text-olive-700">Erreicht {reach} {reach === 1 ? 'Person' : 'Personen'}{edit ? ' · beim Speichern geht keine neue Mitteilung raus' : ''}</span><button onClick={onClose} className={btn2}>Abbrechen</button><button disabled={busy || !loaded} onClick={publish} className={btn}>{edit ? 'Speichern' : f.when ? 'Einplanen' : 'Veröffentlichen'}</button></>}>
-      {!loaded ? <p className="text-[14px] text-mute py-6">Lädt …</p> : <div className="grid grid-cols-[minmax(0,1fr)_300px] gap-6">
+      {!loaded ? <p className="text-[14px] text-mute py-6">Lädt …</p> : <div className="grid grid-cols-1 min-[900px]:grid-cols-[minmax(0,1fr)_300px] gap-6">
         <div className="space-y-3">
           {!edit && <div className="flex gap-2 items-center rounded-[12px] bg-sage-50 p-2"><BMark className="w-7 h-7" working={!!ai} />
             <input value={brief} onChange={e => setBrief(e.target.value)} onKeyDown={e => e.key === 'Enter' && draft()} placeholder="Worum geht es? Marc schreibt einen Entwurf" className="flex-1 h-9 bg-transparent px-1 text-[14px] outline-none" />
@@ -233,8 +233,8 @@ function Compose({ edit, onClose }: { edit: News | null; onClose: () => void }) 
           <input value={f.teaser} onChange={e => setF({ ...f, teaser: e.target.value })} placeholder="Kurzfassung für die Karte (optional)" className="w-full text-[15px] outline-none text-ink/70" />
           <textarea value={f.body} onChange={e => setF({ ...f, body: e.target.value })} rows={8} placeholder="Text. Absätze mit einer Leerzeile trennen." className="w-full resize-none outline-none text-[15px] rounded-[12px] bg-sage-50 p-3" />
           {preview ? <div className="relative"><img src={preview} alt="" className="w-full aspect-[3/2] object-cover rounded-[12px]" /><button onClick={() => { setF({ ...f, image: '' }); setPreview(null) }} className="absolute top-2 right-2 h-8 px-3 rounded-[8px] bg-white/90 text-[13px]">Bild entfernen</button></div>
-            : <div className="flex gap-2"><button disabled={!!ai} onClick={() => photoInput.current?.click()} className={`${btn2} shrink-0 flex items-center gap-1.5 disabled:opacity-40`}><ImagePlus size={15} />Eigenes Foto</button>
-              <input value={imgPrompt} onChange={e => setImgPrompt(e.target.value)} placeholder="… oder Bild beschreiben und erzeugen lassen" className={inpStone} />
+            : <div className="flex flex-wrap min-[900px]:flex-nowrap gap-2"><button disabled={!!ai} onClick={() => photoInput.current?.click()} className={`${btn2} shrink-0 flex items-center gap-1.5 disabled:opacity-40`}><ImagePlus size={15} />Eigenes Foto</button>
+              <input value={imgPrompt} onChange={e => setImgPrompt(e.target.value)} placeholder="… oder Bild beschreiben und erzeugen lassen" className={`${inpStone} order-last basis-full min-[900px]:order-none min-[900px]:basis-auto`} />
               <button disabled={!(imgPrompt || f.title).trim() || !!ai} onClick={image} className={`${btn2} shrink-0 disabled:opacity-40`}>{ai === 'image' ? 'Bild entsteht …' : 'Bild erzeugen'}</button>
               <input ref={photoInput} type="file" accept="image/*" className="hidden" onChange={e => { const file = e.target.files?.[0]; e.target.value = ''; void ownPhoto(file) }} /></div>}
 

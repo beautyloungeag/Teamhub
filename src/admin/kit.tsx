@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { motion } from 'motion/react'
-import { AlertCircle, ArrowLeft, Check, CheckCircle2, ChevronDown, ChevronRight, Circle, CircleDashed, Copy, Hourglass, Info, Link2, Lock, Plus, Search, X, XCircle } from 'lucide-react'
+import { AlertCircle, ArrowLeft, Monitor, Check, CheckCircle2, ChevronDown, ChevronRight, Circle, CircleDashed, Copy, Hourglass, Info, Link2, Lock, Plus, Search, X, XCircle } from 'lucide-react'
 import { toast } from '../Toast'
 import { tr } from '../lib/i18n'
 import { supabase } from '../lib/supabase'
@@ -14,7 +14,22 @@ import { markUnsaved } from '../lib/unsaved'
 // Bausteine des Backoffice: überall gleich aussehen und sich gleich verhalten (Design System Olive/Stein/Messing).
 
 export const H = ({ children, action, info }: { children: ReactNode; action?: ReactNode; info?: string }) =>
-  <div className="flex items-center justify-between gap-4 mb-6"><h1 className="text-[28px] flex items-center gap-2">{children}{info && <InfoTip text={info} />}</h1>{action}</div>
+  <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 mb-5 min-[900px]:mb-6"><h1 className="text-[24px] min-[900px]:text-[28px] flex items-center gap-2">{children}{info && <InfoTip text={info} />}</h1>{action}</div>
+
+/** Am Handy: Seiten, die am Computer bequemer sind (28.10.). Hinweis zuerst, öffnen geht trotzdem. */
+export function OnComputer({ title, hint, marc, onMarc, children }: { title: string; hint?: string; marc?: string; onMarc?: () => void; children: ReactNode }) {
+  const [open, setOpen] = useState(false)
+  if (open) return <>{children}</>
+  return <div className="max-w-[420px] mx-auto pt-8 text-center">
+    <span className="mx-auto w-12 h-12 rounded-[14px] bg-sage-50 text-ink/70 flex items-center justify-center"><Monitor size={22} strokeWidth={1.6} /></span>
+    <p className="mt-4 text-[19px] font-medium">{title}</p>
+    <p className="mt-2 text-[14.5px] text-mute">Hier sind breite Tabellen und viele Felder, das klappt am Handy nur mühsam.{hint ? ` ${hint}` : ''}</p>
+    <div className="mt-6 flex flex-col gap-2">
+      {onMarc && <button onClick={onMarc} className={`${btn} h-11`}>{marc ?? 'Frag Marc'}</button>}
+      <button onClick={() => setOpen(true)} className={`${btn2} h-11`}>Trotzdem öffnen</button>
+    </div>
+  </div>
+}
 export const New = ({ children, onClick }: { children: ReactNode; onClick?: () => void }) =>
   <button onClick={onClick} className="h-10 px-4 rounded-[10px] bg-olive-700 hover:bg-olive-800 transition text-white text-[14px] flex items-center gap-1.5 shrink-0"><Plus size={16} />{children}</button>
 // Fläche für Formulare und Vorschläge: Stein ohne Rahmen
@@ -117,8 +132,9 @@ export function Select({ value, onChange, options, placeholder = 'Auswählen …
 /** Segmente (z. B. Offen · Erledigt): die Markierung gleitet weich zum gewählten Teil. */
 export function Seg<T extends string>({ value, onChange, items }: { value: T; onChange: (v: T) => void; items: [T, ReactNode][] }) {
   const id = useId()
-  return <div className="inline-flex gap-1 p-1 rounded-[10px] bg-sage-50 shrink-0">{items.map(([k, l]) =>
-    <button key={k} onClick={() => onChange(k)} className={`relative h-8 px-3 rounded-[8px] text-[13px] transition-colors whitespace-nowrap ${value === k ? 'text-ink' : 'text-ink/60 hover:text-ink'}`}>
+  // Zu breit fürs Handy: der Schalter scrollt seitlich statt aus der Seite zu laufen
+  return <div className="inline-flex gap-1 p-1 rounded-[10px] bg-sage-50 shrink-0 max-w-full overflow-x-auto no-scrollbar">{items.map(([k, l]) =>
+    <button key={k} onClick={() => onChange(k)} className={`relative shrink-0 h-8 px-3 rounded-[8px] text-[13px] transition-colors whitespace-nowrap ${value === k ? 'text-ink' : 'text-ink/60 hover:text-ink'}`}>
       {value === k && <motion.span layoutId={`seg-${id}`} transition={{ duration: .3, ease: [.22, 1, .36, 1] }} className="absolute inset-0 rounded-[8px] bg-white shadow-[0_1px_2px_rgba(29,34,28,.08)]" />}
       <span className="relative">{l}</span></button>)}</div>
 }
@@ -140,14 +156,14 @@ export function Modal({ title, onClose, children, footer, width = 560 }: { title
   const closeRef = useRef(tryClose); closeRef.current = tryClose
   useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === 'Escape') closeRef.current() }; document.addEventListener('keydown', k); return () => document.removeEventListener('keydown', k) }, [])
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-6" onMouseDown={tryClose}>
+    <div className="office-modal fixed inset-0 z-50 flex items-center justify-center p-3 min-[900px]:p-6" onMouseDown={tryClose}>
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="absolute inset-0 bg-ink/20 backdrop-blur-[6px]" />
       <motion.div initial={{ opacity: 0, y: 12, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: 0.16 }} onMouseDown={e => e.stopPropagation()} onInput={onType}
-        style={{ maxWidth: width }} className="relative w-full max-h-[calc(100dvh-48px)] flex flex-col rounded-[20px] bg-white shadow-[0_24px_64px_-24px_rgba(29,34,28,.45)]">
-        <div className="flex items-center justify-between gap-4 px-6 pt-5 pb-3"><p className="text-[18px] font-medium">{title}</p>
+        style={{ maxWidth: width }} className="office-modal-panel relative w-full max-h-[calc(100dvh-48px)] flex flex-col rounded-[20px] bg-white shadow-[0_24px_64px_-24px_rgba(29,34,28,.45)]">
+        <div className="flex items-center justify-between gap-4 px-4 min-[900px]:px-6 pt-4 min-[900px]:pt-5 pb-3"><p className="text-[18px] font-medium min-w-0">{title}</p>
           <button onClick={tryClose} aria-label="Schliessen" className="w-9 h-9 rounded-full text-mute hover:text-ink hover:bg-sage-50 flex items-center justify-center"><X size={18} /></button></div>
-        <div className="px-6 pb-5 overflow-y-auto">{children}</div>
-        {footer && <div className="px-6 py-4 border-t border-line flex items-center justify-end gap-2">{footer}</div>}
+        <div className="px-4 min-[900px]:px-6 pb-5 overflow-y-auto overscroll-contain">{children}</div>
+        {footer && <div className="px-4 min-[900px]:px-6 py-3 min-[900px]:py-4 border-t border-line flex flex-wrap items-center justify-end gap-2">{footer}</div>}
       </motion.div>
     </div>
   )
@@ -165,7 +181,7 @@ export const Back = ({ onClick, children }: { onClick: () => void; children: Rea
 
 /** Abschnittskopf: Titel in Satzschreibung, Zähler, rechts eine Aktion. */
 export const Section = ({ title, count, action, children, className = '' }: { title: ReactNode; count?: number | string; action?: ReactNode; children?: ReactNode; className?: string }) =>
-  <section className={className}><div className="flex items-baseline justify-between gap-3 mb-2"><h2 className="font-sans text-[15px] font-medium tracking-normal">{title}{count !== undefined && <span className="ml-2 text-mute font-normal tabular-nums">{count}</span>}</h2>{action}</div>{children}</section>
+  <section className={className}><div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 mb-2"><h2 className="font-sans text-[15px] font-medium tracking-normal">{title}{count !== undefined && <span className="ml-2 text-mute font-normal tabular-nums">{count}</span>}</h2>{action}</div>{children}</section>
 
 /** Ein leerer Bereich: ein Satz, eine Aktion, oben links. */
 export const Empty = ({ children, action }: { children: ReactNode; action?: ReactNode }) =>
@@ -216,11 +232,11 @@ export function ToneTile({ tone, label, figure, meta, value, total, onClick }: {
   const body = <>
     <span className={`text-[13.5px] font-semibold ${TONE[tone].fg}`}>{label}</span>
     <span className="mt-2.5 flex items-center gap-3.5">
-      {total !== undefined && <Donut value={value ?? 0} total={total} size={50} stroke={6} tone={TONE_HEX[tone]} />}
-      <span className="min-w-0"><span className="block font-display text-[26px] leading-tight tabular-nums text-ink whitespace-nowrap">{figure}</span>{meta && <span className="block text-[12.5px] text-ink/65 truncate">{meta}</span>}</span>
+      {total !== undefined && <span className="hidden min-[900px]:inline-flex"><Donut value={value ?? 0} total={total} size={50} stroke={6} tone={TONE_HEX[tone]} /></span>}
+      <span className="min-w-0"><span className="block font-display text-[22px] min-[900px]:text-[26px] leading-tight tabular-nums text-ink whitespace-nowrap">{figure}</span>{meta && <span className="block text-[12.5px] text-ink/65 truncate">{meta}</span>}</span>
     </span>
   </>
-  const cls = `text-left rounded-[20px] p-5 min-w-0 flex flex-col ${TONE[tone].bg}`
+  const cls = `text-left rounded-[20px] p-4 min-[900px]:p-5 min-w-0 flex flex-col ${TONE[tone].bg}`
   return onClick ? <button onClick={onClick} className={`${cls} hover:brightness-[.98] transition`}>{body}</button> : <div className={cls}>{body}</div>
 }
 

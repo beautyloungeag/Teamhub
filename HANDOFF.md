@@ -1,5 +1,28 @@
 # HANDOFF — Beautylounge TeamHub
 
+### 2026-10-28 abends — Backoffice auf jedem Gerät (Aleksa: „Büro und Filialleitung sollen überall dieselben Funktionen haben“)
+
+- **Vorher:** Das Backoffice gab es nur auf Geräten mit Maus und mindestens 768 px Breite. Am Handy und auf dem iPad bekamen Büro und Filialleitung nur die Mitarbeiter-App. Ihre Rechte hatten sie dort zwar (RLS, Marc-Werkzeuge hängen an der Rolle), verwalten konnten sie aber nur über Marc.
+- **Start (`App.tsx`):** Computer und Tablet (`TABLET_MEDIA` = mindestens 700 px breit und 600 px hoch, ein gedrehtes Handy bleibt draussen) starten im Backoffice, das Handy in der App. Im App-Menü steht für Büro und Filialleitung ganz oben „Verwaltung“, dazu in der Desktop-Seitenleiste. Am Handy wird das Backoffice erst beim ersten Öffnen geladen (`OfficeMount`, spart Phorest-Abfragen beim App-Start).
+- **Rahmen unter 900 px (`Backoffice.tsx`, `lib/compact.ts`):**
+  - Kopfzeile mit Menüknopf, Seitentitel und „App“. Die Seitenleiste klappt als Menü auf (`SideNav drawer`).
+  - Weniger Rand. Jede Seite beginnt oben.
+  - Fenster (`Modal`) stehen über der Tastatur (`.office-modal` nutzt `--app-height`/`--app-top`).
+- **Tabellen als Listen:** Unter 900 px wird jede `table.tbl` zu Karten. Der erste Wert steht voll, die übrigen zweispaltig mit Spaltennamen darüber. `labelTables` schreibt die Spaltenköpfe per MutationObserver als `data-label` in die Zellen. Tabellen mit Datum vorne tragen `tbl-lead`: das Datum steht links, der Rest daneben (Termine, Aushilfe-Anfragen).
+- **Seiten angepasst:**
+  - Übersicht: Kacheln zweispaltig, ohne Ring.
+  - Meldungen: Status oben, Filter in Zweierreihen.
+  - Team: Filter, Personenkopf mit Name ändern, Performance-Block.
+  - Termine, News (Bildzeile).
+  - Schalter (`Seg`) scrollen seitlich statt aus der Seite zu laufen. Abschnittsköpfe brechen um.
+- **Am Handy vorerst Computer-Seiten:** Wissen, Performance und Einstellungen zeigen zuerst einen Hinweis (`OnComputer` in `kit.tsx`) mit „Trotzdem öffnen“, bei Wissen dazu „Frag Marc“.
+- **Geprüft:**
+  - Mit echten Tipps am Handy (375 px) als Büro: Übersicht, Menü, Meldungen samt Status ändern und zurück an der Testmeldung, Aufgaben samt Zuweisen-Fenster (nur geöffnet), Team mit Personenseite und Stellvertretung, News samt Neu-Fenster (nur geöffnet), Termine, Aushilfe, Chats samt Raum (nichts gesendet), Wissen-Hinweis und „Trotzdem öffnen“.
+  - Als Test-Filialleitung am Handy: Menü ohne Wissen, Team nur Basel 1.
+  - Tablet 768 startet im Backoffice. Desktop 1280 ist unverändert.
+  - `npm test` 89/89.
+  - Echtes iPad und iPhone mit Tastatur sind noch nicht getestet.
+
 ### 2026-10-28 — Renées Mail „Div“ (27.10.) und Matteos „TeamHub Updates“ (28.10.) komplett umgesetzt
 
 - **Anlass:** Renée (27.10. 08:47) wollte eine Startseite zum Wischen, keinen Chat-Balken auf der Startseite und das Onboarding im Menü. Matteo (28.10., Renée in CC, sie hat alles freigegeben) schickte eine Liste mit 8 Punkten und einem PDF-Entwurf für Wissen und Chats. Umgesetzt ist alles, ausser der Antwort an Matteo, die Aleksa selbst schickt.

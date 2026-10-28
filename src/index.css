@@ -132,9 +132,35 @@ input[type=checkbox]{accent-color:#495940}
   .ticket-attachments button{min-height:44px}
   .ticket-studio-picker{display:block;flex:1 1 100%}
   .ticket-studio-menu{position:static;width:100%;margin-top:8px;max-height:240px;overflow-y:auto}
+  /* Backoffice am Handy: Fenster und Menü in der sichtbaren Fläche über der Tastatur (28.10.) */
+  .office-modal,.office-drawer{top:var(--app-top,0px);bottom:auto;height:var(--app-height,100dvh)}
+  .office-modal-panel{max-height:100%}
 }
 
 @media(max-width:359px){.home-quick-action{flex-direction:column;align-items:flex-start;gap:8px}.home-metric{padding-inline:10px}.home-metric>span:last-child{font-size:13px;overflow-wrap:normal}}
+
+/* Backoffice am Handy und schmalen Tablet (28.10.): Menü statt Seitenleiste, Fenster über der Tastatur,
+   Tabellen als Listen mit Spaltennamen (data-label setzt labelTables in lib/compact.ts). */
+.office-topbar{padding-top:max(6px,env(safe-area-inset-top))}
+.office-drawer-panel{padding-top:max(20px,env(safe-area-inset-top));padding-bottom:max(16px,env(safe-area-inset-bottom))}
+.office-shell .chat-app-header{padding-top:12px}
+@media (max-width: 899px){
+  .office-shell .tbl,.office-shell .tbl tbody{display:block;width:100%}
+  .office-shell .tbl thead{display:none}
+  .office-shell .tbl tr{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 14px;padding:14px 2px;border-bottom:1px solid var(--color-line)}
+  .office-shell .tbl td{display:block;padding:0!important;width:auto!important;min-width:0;text-align:left;white-space:normal}
+  .office-shell .tbl td:first-child,.office-shell .tbl td:not([data-label]){grid-column:1/-1}
+  .office-shell .tbl td[data-label]::before{content:attr(data-label);display:block;font-size:12px;line-height:1.3;color:var(--color-mute);margin-bottom:3px}
+  .office-shell .tbl td:empty,.office-shell .tbl td:has(> svg:only-child){display:none}
+  .office-shell .tbl td:first-child .truncate{white-space:normal;overflow:visible;text-overflow:clip}
+  /* Tabellen mit Datum vorne (Termine, Aushilfe): Datum links, alles andere daneben untereinander */
+  .office-shell .tbl-lead tr{grid-template-columns:52px minmax(0,1fr);row-gap:0}
+  .office-shell .tbl-lead td:not(:first-child):not(:last-child){margin-bottom:10px}
+  .office-shell .tbl-lead td:first-child{grid-column:1;grid-row:1/span 8}
+  .office-shell .tbl-lead td:not(:first-child){grid-column:2}
+  .office-shell .tbl-lead td:nth-child(2)::before{display:none}
+  .office-shell .tbl-lead td:nth-child(2) .truncate{white-space:normal;overflow:visible;text-overflow:clip}
+}
 
 /* Login is a native document flow, not the fixed authenticated app canvas.
    Its layout must not depend on the keyboard-adjusted --app-height. */

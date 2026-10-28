@@ -53,10 +53,10 @@ export function TicketsAdmin() {
     <H action={secret.length > 0 || me.app_role === 'buero' ? <Seg value={view} onChange={v => { setView(v); setBr(''); setOpen(null) }} items={[['team', `Meldungen & Ideen · ${openCount(team)}`], ['vertraulich', <span key="v" className="flex items-center gap-1.5"><Lock size={13} />Vertraulich · {openCount(secret)}</span>]]} /> : undefined}>{view === 'vertraulich' ? 'Vertrauliche Anliegen' : 'Meldungen & Ideen'}</H>
     {view === 'vertraulich' && <p className="-mt-3 mb-5 text-[13px] text-mute flex items-center gap-2"><Lock size={14} />Sichtbar nur für die meldende Person und das Büro.</p>}
     <div className="flex flex-wrap items-center gap-3 mb-5">
-      <div className="h-10 flex-1 min-w-[200px] rounded-[10px] bg-sage-50 px-3 flex items-center gap-2"><Search size={16} className="text-mute" /><input value={q} onChange={e => setQ(e.target.value)} placeholder="Suchen: Titel, Text, Name" className="flex-1 outline-none text-[14px] bg-transparent" />{q && <button onClick={() => setQ('')} aria-label="Suche leeren" className="text-mute"><X size={14} /></button>}</div>
-      {view === 'team' && <Select tone="stone" className="w-36" value={f} onChange={v => setF(v as typeof f)} options={[{ value: 'Alle', label: 'Alle Arten' }, { value: 'Meldung', label: 'Meldungen' }, { value: 'Idee', label: 'Ideen' }, { value: 'Learning', label: 'Learnings' }]} />}
-      <Select tone="stone" className="w-40" value={br} onChange={setBr} options={[{ value: '', label: 'Alle Studios' }, ...(pool.some(t => t.allStudios) ? [{ value: 'alle', label: 'Für alle Studios' }] : []), ...studios.map(b => ({ value: b.id, label: b.name }))]} />
-      <Select tone="stone" className="w-48" value={sort} onChange={v => setSort(v as Sort)} options={[{ value: 'neu', label: 'Neueste zuerst' }, { value: 'alt', label: st === 'offen' ? 'Am längsten offen' : 'Älteste zuerst' }, ...(view === 'team' ? [{ value: 'stimmen', label: 'Meiste Unterstützung' }] : []), { value: 'studio', label: 'Nach Studio' }]} />
+      <div className="h-10 basis-full min-[900px]:basis-auto flex-1 min-w-[200px] rounded-[10px] bg-sage-50 px-3 flex items-center gap-2"><Search size={16} className="text-mute" /><input value={q} onChange={e => setQ(e.target.value)} placeholder="Suchen: Titel, Text, Name" className="flex-1 outline-none text-[14px] bg-transparent" />{q && <button onClick={() => setQ('')} aria-label="Suche leeren" className="text-mute"><X size={14} /></button>}</div>
+      {view === 'team' && <Select tone="stone" className="w-[calc(50%-6px)] min-[900px]:w-36" value={f} onChange={v => setF(v as typeof f)} options={[{ value: 'Alle', label: 'Alle Arten' }, { value: 'Meldung', label: 'Meldungen' }, { value: 'Idee', label: 'Ideen' }, { value: 'Learning', label: 'Learnings' }]} />}
+      <Select tone="stone" className="w-[calc(50%-6px)] min-[900px]:w-40" value={br} onChange={setBr} options={[{ value: '', label: 'Alle Studios' }, ...(pool.some(t => t.allStudios) ? [{ value: 'alle', label: 'Für alle Studios' }] : []), ...studios.map(b => ({ value: b.id, label: b.name }))]} />
+      <Select tone="stone" className="w-[calc(50%-6px)] min-[900px]:w-48" value={sort} onChange={v => setSort(v as Sort)} options={[{ value: 'neu', label: 'Neueste zuerst' }, { value: 'alt', label: st === 'offen' ? 'Am längsten offen' : 'Älteste zuerst' }, ...(view === 'team' ? [{ value: 'stimmen', label: 'Meiste Unterstützung' }] : []), { value: 'studio', label: 'Nach Studio' }]} />
       <Seg value={st} onChange={setSt} items={[['offen', `Offen · ${openCount(pool)}`], ['erledigt', 'Erledigt']]} />
     </div>
     {list.length === 0 ? <Empty>{filtered ? <>Nichts gefunden. <button onClick={() => { setQ(''); setBr(''); setF('Alle') }} className="underline underline-offset-2">Filter zurücksetzen</button></> : st === 'offen' ? 'Nichts offen.' : 'Noch nichts erledigt.'}</Empty> :
@@ -90,14 +90,14 @@ function TicketPage({ tk, canEdit, assignees, onBack }: { tk: Ticket; canEdit: b
       <Back onClick={onBack}>Meldungen & Ideen</Back>
       <p className="text-[13px] text-mute flex items-center gap-2"><Tag tone={(KIND_LOOK[tk.kind] ?? KIND_LOOK.Meldung).tone}>{tk.kind}</Tag>{studio}</p>
       <h1 className="text-[28px] leading-tight mt-1">{tk.title}</h1>
-      <div className="grid grid-cols-[minmax(0,1fr)_320px] gap-12 mt-6">
+      <div className="grid grid-cols-1 min-[900px]:grid-cols-[minmax(0,1fr)_320px] gap-8 min-[900px]:gap-12 mt-6">
         <div>
           {tk.kind === 'Anliegen' && <p className="mb-4 text-[13px] text-mute flex items-center gap-2"><Lock size={14} />Vertraulich · sichtbar für die meldende Person und das Büro.</p>}
           {tk.body && <p className="text-[15px] leading-relaxed whitespace-pre-wrap">{tk.body}</p>}
           {tk.photo && <div className="mt-5 max-w-[520px]"><Media tk={tk} /></div>}
           <Section className="mt-10" title="Verlauf"><Comments tk={tk} /></Section>
         </div>
-        <div className="self-start">
+        <div className="self-start order-first min-[900px]:order-none">
           <DataRow label="Status" value={canEdit ? <Select compact className="w-40" value={tk.status} onChange={v => setStatus(tk.id, v as Ticket['status'])} options={STATES.map(x => ({ value: x, label: x }))} /> : <TicketStatus s={tk.status} />} />
           <DataRow label="Zuständig" value={canEdit ? <Select compact className="w-40" value={tk.assignee ?? ''} onChange={v => assign(tk.id, v)} placeholder="Zuweisen …" options={assignees.map(a => ({ value: a, label: a }))} /> : tk.assignee ?? '–'} />
           <DataRow label="Gemeldet von" value={tk.who} />

@@ -163,7 +163,7 @@ function Shell({ onLogout, onSwitch }: { onLogout: () => void; onSwitch?: () => 
     case 'perf': screen = <MyPerformance />; break
     default:
       screen = tab === 'home' ? <Today open={open} go={go} /> : tab === 'tasks' ? <Tasks open={open} /> : tab === 'ai' ? <ChatHub onOpenMarc={() => open({ k: 'marc' })} onOpenRoom={id => open({ k: 'chat', id })} onOpenTickets={() => open({ k: 'tickets' })} />
-        : tab === 'wiki' ? <Wiki open={open} /> : <MenuView open={open} onLogout={onLogout} />
+        : tab === 'wiki' ? <Wiki open={open} /> : <MenuView open={open} onLogout={onLogout} onSwitch={onSwitch} />
   }
   const key = (sub ? sub.k + ('item' in sub ? String((sub.item as { id?: string }).id) : '') : tab) + stack.length
   // Chats (Team + Marc angeheftet) statt eines eigenen Marc-Reiters, Fokus auf Austausch im Team (Inhaberin 21.10.)
@@ -176,7 +176,7 @@ function Shell({ onLogout, onSwitch }: { onLogout: () => void; onSwitch?: () => 
         <SideNav
           items={nav.map(([x, label, Icon]) => ({ key: x, label: t(label), active: tab === x && (!sub || x === 'ai' && (sub.k === 'marc' || sub.k === 'chat')), dot: (x === 'home' && mustOpen > 0) || (x === 'ai' && chatUnread > 0), onClick: () => go(x),
             icon: <Icon size={18} strokeWidth={1.6} /> }))}
-          extra={onSwitch ? [{ key: 'switch', label: t('Büro-Backoffice'), icon: <Monitor size={18} strokeWidth={1.6} />, onClick: onSwitch }] : []}
+          extra={onSwitch ? [{ key: 'switch', label: t('Verwaltung'), icon: <Monitor size={18} strokeWidth={1.6} />, onClick: onSwitch }] : []}
           onProfile={() => open({ k: 'me' })} profileActive={sub?.k === 'me'} onLogout={onLogout} />
       </div>
       <div className="app-column relative flex-1 min-w-0 min-h-0 flex flex-col">
@@ -1117,7 +1117,7 @@ function Onboarding({ open }: { open: (s: Sub) => void }) {
 }
 
 /* ---------- Menü ---------- */
-function MenuView({ open, onLogout }: { open: (s: Sub) => void; onLogout: () => void }) {
+function MenuView({ open, onLogout, onSwitch }: { open: (s: Sub) => void; onLogout: () => void; onSwitch?: () => void }) {
   const { me, t, tickets, news, read, staff, steps, obDone } = useApp()
   const mailUnread = useMailUnread()
   const obComplete = useOnboardingComplete()
@@ -1138,6 +1138,8 @@ function MenuView({ open, onLogout }: { open: (s: Sub) => void; onLogout: () => 
         <List>
           <Row title={`${me.first} ${me.last}`} sub={`${me.role} · ${me.branch}`} onClick={() => open({ k: 'me' })} />
         </List>
+        {/* Büro und Filialleitung: dasselbe Backoffice wie am Computer (28.10.) */}
+        {onSwitch && <div className="mt-3"><List><Row icon={<Monitor size={19} strokeWidth={1.6} />} title={t('Verwaltung')} sub={t('Backoffice wie am Computer')} onClick={onSwitch} /></List></div>}
         <div className="mt-3"><List>
           {tiles.map(([title, sub, Icon, target]) => <Row key={title} icon={<Icon size={19} strokeWidth={1.6} />} title={t(title)} sub={sub} onClick={() => open(target)} />)}
         </List></div>

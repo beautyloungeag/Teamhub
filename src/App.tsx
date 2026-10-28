@@ -33,6 +33,18 @@ function useDesktop() {
   return d
 }
 
+// Tablets (auch iPad ohne Maus) zählen für Büro und Filialleitung wie ein Computer und starten im Backoffice (28.10.).
+// Die Mindesthöhe hält ein gedrehtes Handy draussen.
+export const TABLET_MEDIA = '(min-width: 700px) and (min-height: 600px)'
+function useTablet() {
+  const [d, setD] = useState(() => window.matchMedia(TABLET_MEDIA).matches)
+  useEffect(() => {
+    const m = window.matchMedia(TABLET_MEDIA); const on = () => setD(m.matches)
+    m.addEventListener('change', on); return () => m.removeEventListener('change', on)
+  }, [])
+  return d
+}
+
 // Anmeldung: am Handy randlos, am Desktop als Karte mit Studio-Bild links.
 function LoginFrame({ children }: { children: React.ReactNode }) {
   // iOS must be allowed to scroll/pan the document to the focused login field.
@@ -49,10 +61,17 @@ function LoginFrame({ children }: { children: React.ReactNode }) {
   </div>
 }
 
+function OfficeMount({ show, onSwitch }: { show: boolean; onSwitch: () => void }) {
+  const [seen, setSeen] = useState(show)
+  useEffect(() => { if (show) setSeen(true) }, [show])
+  if (!seen && !show) return null
+  return <div className={show ? 'teamhub-app-shell office-shell w-full h-[100dvh] bg-white' : 'hidden'}><Backoffice onSwitch={onSwitch} /></div>
+}
+
 function Gate() {
   const { ready, employee, orphan, offline, retry } = useAuth()
   const data = useApp()
-  const desktop = useDesktop()
+  const desktop = useDesktop(), tablet = useTablet()
   // Direktlink: ?open=… zeigt die App, ?bo=… das Backoffice
   const [mode, setMode] = useState<'app' | 'office' | null>(() => startParams.has('open') ? 'app' : startParams.has('bo') ? 'office' : null)
   useEffect(() => { const open = () => setMode('app'); window.addEventListener('th-open-app', open); return () => window.removeEventListener('th-open-app', open) }, [])
@@ -71,17 +90,17 @@ function Gate() {
   if (data?.loadError) return <div className="min-h-full flex flex-col items-center justify-center gap-3 p-6 text-center"><p>{tr('Keine Verbindung zum TeamHub.')}</p><button onClick={() => void data.reload()} className="h-11 px-5 rounded-[10px] bg-olive-700 text-white">{tr('Erneut versuchen')}</button></div>
   // Vorschau eines Wissensartikels aus dem Backoffice (Rahmen mit Handybreite)
   if (startParams.has('vorschau')) return <WikiPreviewFrame />
-  // Backoffice nur für Filialleitung und Büro am Desktop (Rechte prüft zusätzlich die Datenbank per RLS).
-  // Am Desktop starten sie im Backoffice, am Handy immer in der App.
-  const office = employee.app_role !== 'mitarbeiterin' && desktop
-  const view = office ? mode ?? 'office' : 'app'
+  // Backoffice für Filialleitung und Büro auf jedem Gerät (Rechte prüft zusätzlich die Datenbank per RLS, 28.10.).
+  // Computer und Tablet starten im Backoffice, das Handy in der App; „Verwaltung“ im Menü wechselt.
+  const office = employee.app_role !== 'mitarbeiterin'
+  const view = office ? mode ?? (desktop || tablet ? 'office' : 'app') : 'app'
   return (
     <>
       {/* Beide bleiben gemountet, damit der gemeinsame Zustand beim Umschalten erhalten bleibt */}
       <div className={view === 'app' ? 'teamhub-app-shell relative w-full h-[100dvh] bg-paper flex flex-col overflow-hidden' : 'hidden'}>
         <Mobile onSwitch={office ? () => setMode('office') : undefined} />
       </div>
-      {office && <div className={view === 'office' ? 'w-full h-[100dvh]' : 'hidden'}><Backoffice onSwitch={() => setMode('app')} /></div>}
+      {office && <OfficeMount show={view === 'office'} onSwitch={() => setMode('app')} />}
     </>
   )
 }

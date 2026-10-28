@@ -50,12 +50,12 @@ export function TeamAdmin() {
       {office ? 'Team' : `Team · ${studios.map(x => x.name).join(', ')}`}
     </H>
     <div className="flex flex-wrap gap-2 mb-2">
-      <div className="h-10 flex-1 min-w-[240px] rounded-[10px] bg-sage-50 px-3 flex items-center gap-2"><Search size={16} className="text-mute" /><input value={q} onChange={e => setQ(e.target.value)} placeholder="Name, E-Mail oder Skill" className="flex-1 outline-none text-[14px] bg-transparent" />{q && <button onClick={() => setQ('')} className="text-mute"><X size={14} /></button>}</div>
-      <Select tone="stone" className="w-48" value={fn} onChange={setFn} options={[{ value: '', label: 'Alle Funktionen' }, ...roles.map(r => ({ value: r, label: r }))]} />
-      <Select tone="stone" className="w-40" value={rl} onChange={setRl} options={[{ value: '', label: 'Alle Rollen' }, ...Object.entries(ROLE5).map(([value, label]) => ({ value, label }))]} />
-      {studios.filter(x => !x.is_office).length > 1 && <Select tone="stone" className="w-40" value={br} onChange={setBr} options={[{ value: '', label: 'Alle Studios' }, ...studios.map(x => ({ value: x.id, label: x.name }))]} />}
-      <Select tone="stone" className="w-44" value={sk} onChange={setSk} options={[{ value: '', label: 'Alle Skills' }, { value: '-', label: 'Ohne Skills' }, ...skills.map(k => ({ value: k, label: k }))]} />
-      <Select tone="stone" className="w-36" value={st} onChange={setSt} options={[{ value: 'aktiv', label: 'Aktiv' }, { value: 'inaktiv', label: 'Deaktiviert' }, { value: 'alle', label: 'Alle' }]} />
+      <div className="h-10 basis-full min-[900px]:basis-auto flex-1 min-w-[240px] rounded-[10px] bg-sage-50 px-3 flex items-center gap-2"><Search size={16} className="text-mute" /><input value={q} onChange={e => setQ(e.target.value)} placeholder="Name, E-Mail oder Skill" className="flex-1 outline-none text-[14px] bg-transparent" />{q && <button onClick={() => setQ('')} className="text-mute"><X size={14} /></button>}</div>
+      <Select tone="stone" className="w-[calc(50%-4px)] min-[900px]:w-48" value={fn} onChange={setFn} options={[{ value: '', label: 'Alle Funktionen' }, ...roles.map(r => ({ value: r, label: r }))]} />
+      <Select tone="stone" className="w-[calc(50%-4px)] min-[900px]:w-40" value={rl} onChange={setRl} options={[{ value: '', label: 'Alle Rollen' }, ...Object.entries(ROLE5).map(([value, label]) => ({ value, label }))]} />
+      {studios.filter(x => !x.is_office).length > 1 && <Select tone="stone" className="w-[calc(50%-4px)] min-[900px]:w-40" value={br} onChange={setBr} options={[{ value: '', label: 'Alle Studios' }, ...studios.map(x => ({ value: x.id, label: x.name }))]} />}
+      <Select tone="stone" className="w-[calc(50%-4px)] min-[900px]:w-44" value={sk} onChange={setSk} options={[{ value: '', label: 'Alle Skills' }, { value: '-', label: 'Ohne Skills' }, ...skills.map(k => ({ value: k, label: k }))]} />
+      <Select tone="stone" className="w-[calc(50%-4px)] min-[900px]:w-36" value={st} onChange={setSt} options={[{ value: 'aktiv', label: 'Aktiv' }, { value: 'inaktiv', label: 'Deaktiviert' }, { value: 'alle', label: 'Alle' }]} />
     </div>
     <p className="text-[12.5px] text-mute mb-2 px-1">{list.length} {list.length === 1 ? 'Person' : 'Personen'}</p>
     <table className="tbl w-full text-[14px]"><thead><tr><Th>Name</Th><Th>Funktion</Th><Th>Studio</Th><Th>Skills</Th><Th>App</Th><Th /></tr></thead>
@@ -199,8 +199,8 @@ function PersonPage({ p, pos, onBack, onStep }: { p: Staff; pos: { i: number; n:
         <button onClick={() => onStep(1)} disabled={pos.i === pos.n - 1} aria-label="Nächste Person" className="w-9 h-9 rounded-full hover:bg-sage-50 flex items-center justify-center disabled:opacity-30"><ChevronRight size={18} /></button>
       </div>}
     </div>
-    <div className="flex items-center gap-5">
-      <Avatar s={p} photo={p.photo} size="w-20 h-20 text-[24px]" />
+    <div className="flex items-center gap-4 min-[900px]:gap-5">
+      <Avatar s={p} photo={p.photo} size="w-14 h-14 text-[18px] min-[900px]:w-20 min-[900px]:h-20 min-[900px]:text-[24px]" />
       <div className="min-w-0">
         <PersonName key={p.id} p={p} canEdit={office} />
         <p className="text-[14px] text-mute mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -212,7 +212,7 @@ function PersonPage({ p, pos, onBack, onStep }: { p: Staff; pos: { i: number; n:
       </div>
     </div>
 
-    <div className="grid grid-cols-[1.1fr_1fr] gap-8 mt-8">
+    <div className="grid grid-cols-1 min-[900px]:grid-cols-[1.1fr_1fr] gap-8 mt-8">
       <div className="space-y-8 min-w-0">
         <Section title="Kontakt">
           <DataRow label="Telefon" value={p.phone || 'keine Nummer hinterlegt'} muted={!p.phone} copy={p.phone} href={p.phone ? `tel:${p.phone.replace(/\s/g, '')}` : undefined} />
@@ -288,8 +288,8 @@ function PersonName({ p, canEdit }: { p: Staff; canEdit: boolean }) {
     } catch { if (isCurrentAccountScope(scope)) setErr('Speichern hat nicht geklappt. Bitte noch einmal versuchen.') }
     finally { if (isCurrentAccountScope(scope)) setBusy(false) }
   }
-  if (!edit) return <div className="flex items-center gap-2 min-w-0">
-    <h1 className="text-[30px] leading-tight truncate">{p.first} {p.last}</h1>
+  if (!edit) return <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
+    <h1 className="text-[24px] min-[900px]:text-[30px] leading-tight break-words min-w-0">{p.first} {p.last}</h1>
     {canEdit && <button onClick={open} className="h-8 px-2.5 rounded-[8px] text-[13px] text-mute hover:text-ink hover:bg-sage-50 flex items-center gap-1.5 shrink-0"><Pencil size={14} />Name ändern</button>}
   </div>
   const key = (e: React.KeyboardEvent) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEdit(false) }

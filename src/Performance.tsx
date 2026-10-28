@@ -78,8 +78,8 @@ export function KpiGrid({ p, admin }: { p: Perf; admin?: boolean }) {
     [t('Online gebucht'), `${m.online_pct} %`, m.online_pct, pv.online_pct],
     [t('Bewertungen'), m.reviews.avg !== null ? `${m.reviews.avg.toFixed(1)} ★` : '–', m.reviews.avg, pv.reviews.avg, m.reviews.count === 1 ? t('1 Bewertung') : t('{n} Bewertungen', { n: m.reviews.count })],
   ]
-  return <div className={admin ? 'grid grid-cols-3 xl:grid-cols-6 border-t border-line' : 'grid grid-cols-2 gap-2.5'}>
-    {items.map(([l, v, a, b, sub], i) => <div key={l} className={admin ? `pt-4 pb-3 pr-4 ${i % 6 ? 'pl-5 border-l border-line' : ''}` : 'rounded-[16px] bg-white p-4'}>
+  return <div className={admin ? 'grid grid-cols-2 min-[900px]:grid-cols-3 xl:grid-cols-6 border-t border-line' : 'grid grid-cols-2 gap-2.5'}>
+    {items.map(([l, v, a, b, sub], i) => <div key={l} className={admin ? `pt-4 pb-3 pr-4 ${i % 2 ? 'pl-4 border-l border-line' : ''} ${i % 6 ? 'min-[900px]:pl-5 min-[900px]:border-l min-[900px]:border-line' : 'min-[900px]:pl-0 min-[900px]:border-l-0'}` : 'rounded-[16px] bg-white p-4'}>
       <p className="text-[12.5px] text-mute">{l}</p>
       <p className={`font-display ${admin ? 'text-[26px]' : 'text-[24px]'} leading-tight mt-1 tabular-nums whitespace-nowrap`}>{v}</p>
       <p className="mt-0.5 flex items-center gap-2 min-w-0"><Delta now={a} before={b} />{sub && <span className="text-[11.5px] text-mute truncate">{sub}</span>}</p>
@@ -222,11 +222,11 @@ export function PersonPerformance({ person }: { person: Staff }) {
   const [goals, reloadGoals] = useGoals({ employeeId: person.id })
   const [adding, setAdding] = useState(false)
   return <div>
-    <div className="flex items-center justify-between gap-3 mb-3"><p className="rubric text-ink/70">Performance</p>
-      <div className="flex gap-1 p-1 rounded-[10px] bg-sage-50">{PERIODS.slice(0, 4).map(([key, l]) => <button key={key} onClick={() => setK(key)} className={`h-7 px-2.5 rounded-[7px] text-[12.5px] ${k === key ? 'bg-white shadow-[0_1px_2px_rgba(29,34,28,.08)]' : 'text-ink/60'}`}>{l}</button>)}</div></div>
+    <div className="flex flex-wrap items-center justify-between gap-3 mb-3"><p className="rubric text-ink/70">Performance</p>
+      <div className="flex gap-1 p-1 rounded-[10px] bg-sage-50 max-w-full overflow-x-auto no-scrollbar">{PERIODS.slice(0, 4).map(([key, l]) => <button key={key} onClick={() => setK(key)} className={`shrink-0 whitespace-nowrap h-7 px-2.5 rounded-[7px] text-[12.5px] ${k === key ? 'bg-white shadow-[0_1px_2px_rgba(29,34,28,.08)]' : 'text-ink/60'}`}>{l}</button>)}</div></div>
     {!p ? <div className="h-24 rounded-[12px] bg-sage-50 animate-pulse" /> : !p.ok ? <p className="text-[13.5px] text-mute">Phorest antwortet gerade nicht.</p>
       : p.mapped === false ? <p className="text-[13.5px] text-mute">Keine Phorest-Spalte zugeordnet, deshalb keine Zahlen.</p> : <KpiGrid p={p} admin />}
-    <div className="grid grid-cols-2 gap-8 mt-6">
+    <div className="grid grid-cols-1 min-[900px]:grid-cols-2 gap-8 mt-6">
       <div><div className="flex items-baseline justify-between mb-1"><p className="rubric text-ink/70">Ziele</p>{!adding && <button onClick={() => setAdding(true)} className="text-[13px] text-olive-700">Ziel setzen</button>}</div>
         {adding && <div className="rounded-[12px] border border-line p-4 mb-2"><GoalForm admin scope="person" employeeId={person.id} onCancel={() => setAdding(false)} onDone={() => { setAdding(false); reloadGoals() }} /></div>}
         {goals && <GoalList goals={goals} staff={staff} onChanged={reloadGoals} canDeleteOf={() => me.app_role !== 'mitarbeiterin'} emptyText="Keine Ziele." />}</div>

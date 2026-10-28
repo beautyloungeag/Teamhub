@@ -92,14 +92,14 @@ export function Overview({ go, can }: { go: Go; can: (v: string) => boolean }) {
   const short = (d: string) => fmtDate(d + 'T12:00:00Z', { weekday: 'short', day: 'numeric' })
   return (
     <div className="max-w-[1200px]">
-      <div className="flex items-end justify-between gap-6 mb-8">
+      <div className="flex flex-col min-[900px]:flex-row min-[900px]:items-end justify-between gap-4 min-[900px]:gap-6 mb-6 min-[900px]:mb-8">
         <div><p className="text-[13px] text-mute">{fmtDate(new Date().toISOString(), { weekday: 'long', day: 'numeric', month: 'long' })}</p>
-          <h1 className="text-[28px] mt-1">{hour < 11 ? 'Guten Morgen' : hour < 17 ? 'Hallo' : 'Guten Abend'}, {me.first}</h1></div>
+          <h1 className="text-[24px] min-[900px]:text-[28px] mt-1">{hour < 11 ? 'Guten Morgen' : hour < 17 ? 'Hallo' : 'Guten Abend'}, {me.first}</h1></div>
         {studios.length > 1 && <Seg value={scope} onChange={setScope} items={[...(office ? [['', 'Alle Studios'] as [string, string]] : []), ...studios.map(s => [s.id, s.name] as [string, string])]} />}
       </div>
 
       {/* Kennzahlen als farbige Kacheln wie auf der Startseite der App (22.10.), jede führt auf ihre Seite */}
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 min-[900px]:grid-cols-4 gap-3">
         <ToneTile tone="done" onClick={can('tasks') ? () => go('tasks') : undefined} label="Checklisten heute"
           figure={t0 ? `${t0.done} von ${t0.total}` : '…'} value={t0?.done ?? 0} total={t0?.total ?? 0}
           meta={t0?.late ? <span className="text-duty font-semibold">{t0.late} überfällig</span> : t0 && t0.total && t0.done === t0.total ? 'alles erledigt' : 'erledigt'} />
@@ -113,7 +113,7 @@ export function Overview({ go, can }: { go: Go; can: (v: string) => boolean }) {
           meta={span === '7' && change !== null ? `${change > 0 ? '+' : ''}${change} % zur Vorwoche` : 'aus Phorest'} />
       </div>
 
-      <div className="grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-12 mt-10">
+      <div className="grid grid-cols-1 min-[900px]:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-10 min-[900px]:gap-12 mt-10">
         <Section title="Termine je Tag" action={<Seg value={span} onChange={setSpan} items={[['7', '7 Tage'], ['28', '28 Tage']]} />}>
           {!series ? <div className="h-[220px] rounded-[12px] bg-sage-50 animate-pulse" /> : <LineChart height={220} aLabel={span === '7' ? 'Diese Woche' : 'Letzte 28 Tage'} bLabel="Zeitraum davor"
             data={series.map(x => ({ label: span === '7' ? short(x.date) : fmtDate(x.date + 'T12:00:00Z', { day: 'numeric', month: 'numeric' }), hint: fmtDate(x.date + 'T12:00:00Z', { weekday: 'long', day: 'numeric', month: 'long' }), a: x.a, b: x.b }))} />}
@@ -126,7 +126,7 @@ export function Overview({ go, can }: { go: Go; can: (v: string) => boolean }) {
         </Section>
       </div>
 
-      <div className="grid grid-cols-2 gap-12 mt-12">
+      <div className="grid grid-cols-1 min-[900px]:grid-cols-2 gap-10 min-[900px]:gap-12 mt-10 min-[900px]:mt-12">
         <Section title="Checklisten · letzte 14 Tage" action={avg !== null ? <span className="text-[13px] text-mute">im Schnitt {avg} % erledigt</span> : undefined}>
           {!hist ? <div className="h-[160px] rounded-[12px] bg-sage-50 animate-pulse" /> :
             <Columns height={140} data={hist.map(x => ({ label: fmtDate(x.d + 'T12:00:00Z', { day: 'numeric' }), hint: fmtDate(x.d + 'T12:00:00Z', { weekday: 'short', day: 'numeric', month: 'numeric' }) + ` · ${x.done} von ${x.total}`, value: x.total ? Math.round(x.done / x.total * 100) : null }))} />}
@@ -143,17 +143,17 @@ export function Overview({ go, can }: { go: Go; can: (v: string) => boolean }) {
         </Section>
       </div>
 
-      <div className="grid grid-cols-2 gap-12 mt-12 mb-6">
+      <div className="grid grid-cols-1 min-[900px]:grid-cols-2 gap-10 min-[900px]:gap-12 mt-10 min-[900px]:mt-12 mb-6">
         <Section title="Als Nächstes" action={can('events') ? <button onClick={() => go('events')} className="text-[13px] text-olive-700">Alle Termine</button> : undefined}>
           {next.length === 0 ? <Empty>Keine Termine geplant.</Empty> : <ul className="divide-y divide-line">{next.map(e => { const yes = registrations.filter(r => r.event_id === e.id && r.coming && !r.waitlist).length
             return <li key={e.id} className="py-2.5 flex items-center gap-4 text-[14px]">
               <span className="w-12 shrink-0 text-center"><span className="block font-display text-[19px] leading-none">{fmtDate(e.startsAt, { day: 'numeric' })}</span><span className="block text-[11px] text-mute uppercase mt-0.5">{fmtDate(e.startsAt, { month: 'short' })}</span></span>
               <span className="flex-1 min-w-0"><span className="block truncate">{e.title}</span><span className="block text-[12.5px] text-mute">{e.kind} · {fmtTime(e.startsAt)}</span></span>
-              <span className="text-[13px] tabular-nums text-ink/80">{yes}{e.capacity ? ` / ${e.capacity}` : ''} <span className="text-mute">zugesagt</span></span>
+              <span className="text-[13px] tabular-nums text-ink/80 shrink-0 text-right">{yes}{e.capacity ? ` / ${e.capacity}` : ''} <span className="text-mute">zugesagt</span></span>
             </li> })}</ul>}
         </Section>
         <Section title="Startbereitschaft">
-          <div className="flex items-center gap-8 mb-5">
+          <div className="flex flex-wrap items-center gap-x-8 gap-y-4 mb-5">
             <span className="flex items-center gap-3"><Donut value={rApp} total={rn} size={56} stroke={6} /><span className="text-[13.5px]"><span className="block">App installiert</span><span className="text-mute tabular-nums">{rApp} von {rn}</span></span></span>
             <span className="flex items-center gap-3"><Donut value={rPush} total={rn} size={56} stroke={6} /><span className="text-[13.5px]"><span className="block">Mitteilungen an</span><span className="text-mute tabular-nums">{rPush} von {rn}</span></span></span>
           </div>
