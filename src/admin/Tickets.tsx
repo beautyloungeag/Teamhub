@@ -33,6 +33,7 @@ export function TicketsAdmin() {
   const assignees = ['Facility', ...new Set(staff.filter(s => real(s) && s.app_role !== 'mitarbeiterin').map(s => `${s.first} ${s.last}`))]
   const officeAssignees = ['Büro', ...staff.filter(s => real(s) && s.app_role === 'buero').map(s => `${s.first} ${s.last}`)]
   const canEdit = (tk: Ticket) => me.app_role === 'buero' || (tk.kind !== 'Anliegen' && me.app_role === 'filialleitung' && tk.branchId !== 'buero' && (tk.branchId === me.branch_id || (me.extra ?? []).includes(tk.branchId)))
+  const studioName = (t: Ticket) => t.allStudios ? 'Alle Studios' : branches.find(b => b.id === t.branchId)?.name ?? t.branch
   // Vertrauliches (Anliegen) steht getrennt, nie gemischt mit den Meldungen des Teams
   const secret = tickets.filter(t => t.kind === 'Anliegen'), team = tickets.filter(t => t.kind !== 'Anliegen')
   const pool = view === 'vertraulich' ? secret : team
@@ -40,9 +41,9 @@ export function TicketsAdmin() {
   const list = pool
     .filter(t => (view === 'vertraulich' || f === 'Alle' || t.kind === f) && (st === 'offen' ? t.status !== 'Erledigt' : t.status === 'Erledigt'))
     .filter(t => !br || (br === 'alle' ? t.allStudios : t.branchId === br && !t.allStudios))
-    .filter(t => !q.trim() || fuzzyIncludes([t.title, t.body, t.who, t.branch, t.assignee ?? '', ...t.comments.map(c => c.body)].join(' '), q))
+    .filter(t => !q.trim() || fuzzyIncludes([t.title, t.body, t.who, studioName(t), t.assignee ?? '', ...t.comments.map(c => c.body)].join(' '), q))
     .sort((a, b) => sort === 'stimmen' ? b.votes - a.votes || (b.createdAt ?? '').localeCompare(a.createdAt ?? '')
-      : sort === 'studio' ? a.branch.localeCompare(b.branch) || (b.createdAt ?? '').localeCompare(a.createdAt ?? '')
+      : sort === 'studio' ? studioName(a).localeCompare(studioName(b)) || (b.createdAt ?? '').localeCompare(a.createdAt ?? '')
       : sort === 'alt' ? (a.createdAt ?? '').localeCompare(b.createdAt ?? '') : (b.createdAt ?? '').localeCompare(a.createdAt ?? ''))
   const openCount = (xs: Ticket[]) => xs.filter(t => t.status !== 'Erledigt').length
   const tk = open ? tickets.find(x => x.id === open) : null
@@ -52,10 +53,10 @@ export function TicketsAdmin() {
     <H action={secret.length > 0 || me.app_role === 'buero' ? <Seg value={view} onChange={v => { setView(v); setBr(''); setOpen(null) }} items={[['team', `Meldungen & Ideen · ${openCount(team)}`], ['vertraulich', <span key="v" className="flex items-center gap-1.5"><Lock size={13} />Vertraulich · {openCount(secret)}</span>]]} /> : undefined}>{view === 'vertraulich' ? 'Vertrauliche Anliegen' : 'Meldungen & Ideen'}</H>
     {view === 'vertraulich' && <p className="-mt-3 mb-5 text-[13px] text-mute flex items-center gap-2"><Lock size={14} />Sichtbar nur für die meldende Person und das Büro.</p>}
     <div className="flex flex-wrap items-center gap-3 mb-5">
-      <div className="h-10 flex-1 min-w-[240px] rounded-[10px] bg-sage-50 px-3 flex items-center gap-2"><Search size={16} className="text-mute" /><input value={q} onChange={e => setQ(e.target.value)} placeholder="Suchen: Titel, Text, Name" className="flex-1 outline-none text-[14px] bg-transparent" />{q && <button onClick={() => setQ('')} aria-label="Suche leeren" className="text-mute"><X size={14} /></button>}</div>
-      {view === 'team' && <Select tone="stone" className="w-40" value={f} onChange={v => setF(v as typeof f)} options={[{ value: 'Alle', label: 'Alle Arten' }, { value: 'Meldung', label: 'Meldungen' }, { value: 'Idee', label: 'Ideen' }, { value: 'Learning', label: 'Learnings' }]} />}
-      <Select tone="stone" className="w-44" value={br} onChange={setBr} options={[{ value: '', label: 'Alle Studios' }, ...(pool.some(t => t.allStudios) ? [{ value: 'alle', label: 'Für alle Studios' }] : []), ...studios.map(b => ({ value: b.id, label: b.name }))]} />
-      <Select tone="stone" className="w-52" value={sort} onChange={v => setSort(v as Sort)} options={[{ value: 'neu', label: 'Neueste zuerst' }, { value: 'alt', label: st === 'offen' ? 'Am längsten offen zuerst' : 'Älteste zuerst' }, ...(view === 'team' ? [{ value: 'stimmen', label: 'Meiste Unterstützung' }] : []), { value: 'studio', label: 'Nach Studio' }]} />
+      <div className="h-10 flex-1 min-w-[200px] rounded-[10px] bg-sage-50 px-3 flex items-center gap-2"><Search size={16} className="text-mute" /><input value={q} onChange={e => setQ(e.target.value)} placeholder="Suchen: Titel, Text, Name" className="flex-1 outline-none text-[14px] bg-transparent" />{q && <button onClick={() => setQ('')} aria-label="Suche leeren" className="text-mute"><X size={14} /></button>}</div>
+      {view === 'team' && <Select tone="stone" className="w-36" value={f} onChange={v => setF(v as typeof f)} options={[{ value: 'Alle', label: 'Alle Arten' }, { value: 'Meldung', label: 'Meldungen' }, { value: 'Idee', label: 'Ideen' }, { value: 'Learning', label: 'Learnings' }]} />}
+      <Select tone="stone" className="w-40" value={br} onChange={setBr} options={[{ value: '', label: 'Alle Studios' }, ...(pool.some(t => t.allStudios) ? [{ value: 'alle', label: 'Für alle Studios' }] : []), ...studios.map(b => ({ value: b.id, label: b.name }))]} />
+      <Select tone="stone" className="w-48" value={sort} onChange={v => setSort(v as Sort)} options={[{ value: 'neu', label: 'Neueste zuerst' }, { value: 'alt', label: st === 'offen' ? 'Am längsten offen' : 'Älteste zuerst' }, ...(view === 'team' ? [{ value: 'stimmen', label: 'Meiste Unterstützung' }] : []), { value: 'studio', label: 'Nach Studio' }]} />
       <Seg value={st} onChange={setSt} items={[['offen', `Offen · ${openCount(pool)}`], ['erledigt', 'Erledigt']]} />
     </div>
     {list.length === 0 ? <Empty>{filtered ? <>Nichts gefunden. <button onClick={() => { setQ(''); setBr(''); setF('Alle') }} className="underline underline-offset-2">Filter zurücksetzen</button></> : st === 'offen' ? 'Nichts offen.' : 'Noch nichts erledigt.'}</Empty> :
@@ -63,7 +64,7 @@ export function TicketsAdmin() {
       <tbody className="divide-y divide-line">{list.map(t => { const age = since(t.createdAt), late = st === 'offen' && age.days >= 7 && t.status === 'Neu'
         return <tr key={t.id} onClick={() => setOpen(t.id)} className="cursor-pointer hover:bg-sage-50/70">
         <td className="px-4 py-3"><span className="flex items-center gap-3 min-w-0">{kindIcon(t.kind)}<span className="min-w-0"><span className="block truncate">{t.title}</span><span className="block text-[12.5px] text-mute truncate">{t.kind === 'Anliegen' ? 'Vertraulich' : t.kind} · {t.who}{t.photo ? ` · ${t.mediaKind === 'video' ? 'Video' : 'Foto'}` : ''}{t.comments.length ? ` · ${t.comments.length} Kommentar${t.comments.length > 1 ? 'e' : ''}` : ''}{t.kind === 'Idee' && t.votes ? ` · ${t.votes} unterstützen` : ''}{t.viaAI ? ` · über ${ASSISTANT}` : ''}</span></span></span></td>
-        <td className="px-4 text-mute truncate">{t.branch}</td>
+        <td className="px-4 text-mute truncate">{studioName(t)}</td>
         <td className={`px-4 truncate ${late ? 'text-alert' : 'text-mute'}`} title={late ? 'Seit über einer Woche nicht angefasst' : undefined}>{st === 'offen' ? age.text : t.when}</td>
         <td className="px-4" onClick={e => e.stopPropagation()}>{canEdit(t) ? <Select compact className="w-full" value={t.assignee ?? ''} onChange={v => assign(t.id, v)} placeholder="Zuweisen …" options={(t.kind === 'Anliegen' ? officeAssignees : assignees).map(a => ({ value: a, label: a }))} /> : <span className="text-mute">{t.assignee ?? '–'}</span>}</td>
         <td className="px-4" onClick={e => e.stopPropagation()}>{canEdit(t) ? <Select compact className="w-full" value={t.status} onChange={v => setStatus(t.id, v as Ticket['status'])} options={STATES.map(x => ({ value: x, label: x }))} /> : <span className="text-[13px]"><TicketStatus s={t.status} /></span>}</td>
@@ -73,7 +74,8 @@ export function TicketsAdmin() {
 }
 
 function TicketPage({ tk, canEdit, assignees, onBack }: { tk: Ticket; canEdit: boolean; assignees: string[]; onBack: () => void }) {
-  const { assign, setStatus, reload } = useApp()
+  const { assign, setStatus, reload, branches } = useApp()
+  const studio = tk.allStudios ? 'Alle Studios' : branches.find(b => b.id === tk.branchId)?.name ?? tk.branch
   // Löschen: zuerst Foto/Video (die Speicherregel prüft über die Meldung), dann die Meldung samt Kommentaren und Stimmen
   const del = async () => {
     if (!confirm(`${tk.kind} „${tk.title}“ endgültig löschen? Kommentare und Foto werden mitgelöscht.`)) return
@@ -86,7 +88,7 @@ function TicketPage({ tk, canEdit, assignees, onBack }: { tk: Ticket; canEdit: b
   return (
     <div className="max-w-[1000px]">
       <Back onClick={onBack}>Meldungen & Ideen</Back>
-      <p className="text-[13px] text-mute flex items-center gap-2"><Tag tone={(KIND_LOOK[tk.kind] ?? KIND_LOOK.Meldung).tone}>{tk.kind}</Tag>{tk.branch}</p>
+      <p className="text-[13px] text-mute flex items-center gap-2"><Tag tone={(KIND_LOOK[tk.kind] ?? KIND_LOOK.Meldung).tone}>{tk.kind}</Tag>{studio}</p>
       <h1 className="text-[28px] leading-tight mt-1">{tk.title}</h1>
       <div className="grid grid-cols-[minmax(0,1fr)_320px] gap-12 mt-6">
         <div>
@@ -100,7 +102,7 @@ function TicketPage({ tk, canEdit, assignees, onBack }: { tk: Ticket; canEdit: b
           <DataRow label="Zuständig" value={canEdit ? <Select compact className="w-40" value={tk.assignee ?? ''} onChange={v => assign(tk.id, v)} placeholder="Zuweisen …" options={assignees.map(a => ({ value: a, label: a }))} /> : tk.assignee ?? '–'} />
           <DataRow label="Gemeldet von" value={tk.who} />
           <DataRow label="Wann" value={tk.when} />
-          <DataRow label="Studio" value={tk.branch} />
+          <DataRow label="Studio" value={studio} />
           {tk.kind === 'Idee' && <DataRow label="Unterstützen" value={String(tk.votes)} />}
           {tk.viaAI && <DataRow label="Erfasst" value={`über ${ASSISTANT}`} muted />}
           {canEdit && <button onClick={del} className="mt-6 text-[13px] text-mute hover:text-alert flex items-center gap-1.5"><Trash2 size={14} />{tk.kind} löschen</button>}

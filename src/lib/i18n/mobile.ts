@@ -880,4 +880,5 @@ export default {
   "Morgen um 8 Uhr": ["Tomorrow at 8 am", "Demain à 8 h"],
   "du vertrittst": ["you are covering", "tu remplaces"],
   "Schon vorgeschlagen? Dann einfach upvoten.": ["Already suggested? Just upvote it.", "Déjà proposé ? Il suffit de voter pour."],
+  "1 Kommentar": ["1 comment", "1 commentaire"],
 } as Record<string, [string, string]>

@@ -265,8 +265,8 @@ export function StudioPerformance({ header }: { header: (action: ReactNode) => R
   return <>
     {header(<div className="flex gap-3 items-center">
       {studios.length > 1 && <Select tone="stone" className="w-44" value={b} onChange={setB} options={[{ value: 'all', label: 'Alle Studios' }, ...studios.map(s => ({ value: s.id, label: s.name }))]} />}
-      <div className="flex gap-1 p-1 rounded-[10px] bg-sage-50">{PERIODS.map(([key, l]) => <button key={key} onClick={() => setK(key)} className={`h-8 px-3 rounded-[8px] text-[13px] whitespace-nowrap ${k === key ? 'bg-white shadow-[0_1px_2px_rgba(29,34,28,.08)]' : 'text-ink/60'}`}>{l}</button>)}
-        <RangeButton active={k === 'custom'} value={custom} onApply={v => { setCustom(v); setK('custom') }} /></div>
+      <Select tone="stone" className="w-44" value={k} onChange={v => setK(v as PeriodKey)} placeholder="Eigener Zeitraum" options={PERIODS.map(([value, label]) => ({ value, label }))} />
+      <RangeButton active={k === 'custom'} value={custom} onApply={v => { setCustom(v); setK('custom') }} />
     </div>)}
     {k === 'custom' && custom && <p className="-mt-2 mb-4 text-[13px] text-mute">Zeitraum {fmtDay(custom.from)} bis {fmtDay(custom.to)} · {days(custom)} Tage</p>}
     {!p ? <><div className="h-28 rounded-[16px] bg-sage-50 animate-pulse" />{all && <p className="mt-2 text-[12.5px] text-mute">Alle Studios werden aus Phorest geladen, das dauert einen Moment.</p>}</> : !p.ok ? <p className="text-[14px] text-mute">Phorest antwortet gerade nicht.</p> : <>
@@ -310,8 +310,8 @@ function RangeButton({ active, value, onApply }: { active: boolean; value: { fro
   const box = useRef<HTMLDivElement>(null)
   useEffect(() => { if (!open) return; const out = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false) }; document.addEventListener('mousedown', out); return () => document.removeEventListener('mousedown', out) }, [open])
   return <div ref={box} className="relative">
-    <button onClick={() => setOpen(!open)} aria-expanded={open} className={`h-8 px-3 rounded-[8px] text-[13px] whitespace-nowrap flex items-center gap-1.5 ${active ? 'bg-white shadow-[0_1px_2px_rgba(29,34,28,.08)]' : 'text-ink/60'}`}><CalendarRange size={14} />{active && value ? `${fmtDay(value.from)} – ${fmtDay(value.to)}` : 'Zeitraum …'}</button>
-    {open && <div className="absolute right-0 top-10 z-30 w-[300px] rounded-[14px] bg-white p-4 shadow-[0_16px_40px_-16px_rgba(29,34,28,.45)] border border-line">
+    <button onClick={() => setOpen(!open)} aria-expanded={open} className={`h-10 px-3 rounded-[10px] text-[14px] whitespace-nowrap flex items-center gap-2 transition ${active ? 'bg-olive-700 text-white' : 'bg-sage-50 text-ink/80 hover:bg-sage-100'}`}><CalendarRange size={15} />{active && value ? `${fmtDay(value.from)} – ${fmtDay(value.to)}` : 'Zeitraum …'}</button>
+    {open && <div className="absolute right-0 top-12 z-30 w-[300px] rounded-[14px] bg-white p-4 shadow-[0_16px_40px_-16px_rgba(29,34,28,.45)] border border-line">
       <div className="grid grid-cols-2 gap-3 text-[13px]">
         <label className="flex flex-col gap-1"><span className="text-mute text-xs">Von</span><input type="date" value={from} max={today} onChange={e => setFrom(e.target.value)} className="h-9 px-2 rounded-[9px] bg-sage-50 outline-none" /></label>
         <label className="flex flex-col gap-1"><span className="text-mute text-xs">Bis</span><input type="date" value={to} max={today} onChange={e => setTo(e.target.value)} className="h-9 px-2 rounded-[9px] bg-sage-50 outline-none" /></label>

@@ -1481,7 +1481,7 @@ function Tickets({ open, learning }: { open: (s: Sub) => void; learning?: boolea
                 <p className="mt-1 text-[17px] leading-snug">{x.title}</p>
                 <div className="mt-3 flex items-center gap-2">
                   <button onClick={() => toggleVote(x.id)} aria-pressed={x.voted} className={`h-9 px-3 rounded-full text-[14.5px] flex items-center gap-1.5 ${x.voted ? 'bg-olive-700 text-white' : 'bg-sage-50 text-ink/80'}`}><ArrowBigUp size={15} />{t('Hilfreich')} · {x.votes}</button>
-                  <button onClick={() => open({ k: 'ticket', id: x.id })} className="h-9 px-3 rounded-full bg-sage-50 text-[14.5px] text-ink/80">{x.comments.length ? t('{n} Kommentare', { n: x.comments.length }) : t('Kommentieren')}</button>
+                  <button onClick={() => open({ k: 'ticket', id: x.id })} className="h-9 px-3 rounded-full bg-sage-50 text-[14.5px] text-ink/80">{x.comments.length ? (x.comments.length === 1 ? t('1 Kommentar') : t('{n} Kommentare', { n: x.comments.length })) : t('Kommentieren')}</button>
                 </div>
               </div>
             </div>))}</div>
@@ -1491,9 +1491,9 @@ function Tickets({ open, learning }: { open: (s: Sub) => void; learning?: boolea
         <List>{list.length === 0 && <Empty>{view === 'offen' ? t('Nichts offen.') : t('Noch nichts erledigt.')}</Empty>}{list.map(x => (
           <div key={x.id} className="px-4 py-3 flex gap-3 items-start">
             <button onClick={() => open({ k: 'ticket', id: x.id })} className="flex-1 min-w-0 text-left">
-              <div className="flex items-center gap-2 text-[13px] text-mute"><span className="text-olive-700">{t(x.kind)}</span>·<span>{x.branch}</span>·<span>{x.when}</span>{!x.mine && <span>· {x.who}</span>}</div>
+              <p className="text-[13px] text-mute truncate"><span className="text-olive-700">{t(x.kind)}</span> · {x.branch} · {x.when}{!x.mine && ` · ${x.who}`}</p>
               <p className="text-[17px] mt-1">{x.title}</p>
-              <p className="text-[13px] mt-1 flex items-center gap-2"><Status s={x.status} />{x.assignee && <span className="text-mute">· {x.assignee}</span>}{x.comments.length > 0 && <span className="text-mute">· {t('{n} Kommentare', { n: x.comments.length })}</span>}</p>
+              <p className="text-[13px] mt-1 flex items-center gap-2"><Status s={x.status} />{x.assignee && <span className="text-mute">· {x.assignee}</span>}{x.comments.length > 0 && <span className="text-mute">· {(x.comments.length === 1 ? t('1 Kommentar') : t('{n} Kommentare', { n: x.comments.length }))}</span>}</p>
             </button>
             {x.kind !== 'Anliegen' && <button onClick={() => toggleVote(x.id)} aria-pressed={x.voted} title={t('Upvote')} className={`shrink-0 w-11 py-1.5 rounded-[10px] flex flex-col items-center text-[13px] transition ${x.voted ? 'bg-olive-700 text-white' : 'bg-sage-50 text-ink/70 hover:bg-sage-100'}`}><ArrowBigUp size={16} strokeWidth={1.8} />{x.votes}</button>}
           </div>
