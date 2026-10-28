@@ -295,7 +295,7 @@ Deno.serve(async (req) => {
         const a = await stage(p, actx)
         if ('error' in a) return a
         proposals.push(a)
-        return { ok: 'vorgeschlagen', karte: a.title, hinweis: 'Noch nicht ausgeführt. Die Person bestätigt in der Karte mit „Ausführen“.' }
+        return { ok: 'vorgeschlagen', karte: a.title, inhalt_der_karte: a.lines, hinweis: 'Noch nicht ausgeführt. Die Person bestätigt in der Karte mit „Ausführen“. Beschreibe nur, was in der Karte steht.' }
       }
       if (name === 'my_day') {
         if (!okDate(args.date)) return { error: 'datum_ungueltig', erlaubt: `${zDay(-60)} bis ${zDay(60)}` }

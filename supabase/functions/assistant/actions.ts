@@ -26,6 +26,16 @@ export { zIso }
 /** Lesende Werkzeuge des Copiloten (laufen ohne Karte) */
 export const READ_TOOLS = new Set(['team_list', 'events_overview', 'tickets_list', 'wiki_outline', 'wissen_liste', ...RECORD_READ])
 const LEVELS: Record<string, string> = { alle: 'Alle', filialleitung: 'Leitung und Büro', buero: 'Nur Büro' }
+const RANK: Record<string, number> = { alle: 0, filialleitung: 1, buero: 2 }
+// Bereiche mit eigener Sichtbarkeit (z. B. „Filialleitung“): ein Artikel darin ist mindestens so geschützt wie der Bereich,
+// gleiche Regel wie im Editor (enforceAreaLevel). Sonst könnte Marc einen Leitungsartikel für alle sichtbar anlegen.
+async function areaFloor(db: any, category: string): Promise<string> {
+  const { data: cat } = await db.from('wiki_categories').select('area_key').eq('key', category.trim().toLowerCase()).maybeSingle()
+  if (!cat?.area_key) return 'alle'
+  const { data: area } = await db.from('wiki_areas').select('access_level').eq('key', cat.area_key).maybeSingle()
+  return area?.access_level && RANK[area.access_level] !== undefined ? area.access_level : 'alle'
+}
+const atLeast = (level: string, floor: string) => (RANK[level] ?? 0) >= RANK[floor] ? level : floor
 
 /* ---------- Werkzeuge für das Modell ---------- */
 type Def = [string, string, Record<string, unknown>, string[]]
@@ -290,7 +300,8 @@ export async function propose(name: string, a: any, c: Ctx): Promise<Proposal> {
     if (!title) return { error: 'titel_noetig' }
     if (!category) return { error: 'thema_noetig', hinweis: 'bestehende Themen mit wissen_liste' }
     // Beim Neufassen bleiben Sichtbarkeit und Status, wie sie sind (sonst würde ein Entwurf unbemerkt veröffentlicht)
-    const level = replace ? old!.access_level : LEVELS[a.sichtbar_fuer] ? a.sichtbar_fuer : 'alle'
+    const wanted = replace ? old!.access_level : LEVELS[a.sichtbar_fuer] ? a.sichtbar_fuer : 'alle'
+    const level = atLeast(wanted, await areaFloor(db, category))
     const published = replace ? old!.published : a.veroeffentlichen === true
     const { blocks, bad } = mdToBlocks(s(a.inhalt, 40000), imagesOf((old?.blocks ?? []) as any[]))
     if (bad.length) return { error: 'platzhalter_ungueltig', welche: bad, hinweis: '[[foto N]] nur für angehängte Fotos, [[bild K]] nur mit Nummer aus wiki_outline' }
@@ -304,7 +315,7 @@ export async function propose(name: string, a: any, c: Ctx): Promise<Proposal> {
     const first = blocks.find((b) => b.t === 'p' || b.t === 'h')?.text ?? ''
     return { kind: 'wiki_article', title: replace ? 'Wissensartikel neu fassen' : 'Wissensartikel anlegen',
       payload: { id: old?.id ?? null, title, intro: s(a.kurzfassung, 300) || (replace ? old!.intro ?? '' : ''), category, level, published, blocks, imgs: used },
-      lines: [`„${title}“${replace && title !== old!.title ? ` (vorher „${old!.title}“)` : ''}`, `Thema ${category} · ${LEVELS[level]} · ${published ? 'sichtbar' : 'Entwurf'}`,
+      lines: [`„${title}“${replace && title !== old!.title ? ` (vorher „${old!.title}“)` : ''}`, `Thema ${category} · ${LEVELS[level]}${level !== wanted ? ' (verlangt der Bereich)' : ''} · ${published ? 'sichtbar' : 'Entwurf'}`,
         `${n('h')} Abschnitte, ${n('ul') + n('ol')} Listen, ${n('quote')} Hinweise, ${pics} Bilder${n('video') ? `, ${n('video')} Videos` : ''}`,
         ...(replace ? [`Ersetzt den bisherigen Inhalt${dropped ? `, ${dropped} bisherige Bilder fallen weg` : ', alle bisherigen Bilder bleiben'}`] : []), plain(first).slice(0, 180)] }
   }
@@ -318,6 +329,9 @@ export async function propose(name: string, a: any, c: Ctx): Promise<Proposal> {
     if (s(a.thema, 60) && s(a.thema, 60) !== old.category) { upd.category = s(a.thema, 60); lines.push(`Thema ${old.category} → ${upd.category}`) }
     if (LEVELS[a.sichtbar_fuer] && a.sichtbar_fuer !== old.access_level) { upd.access_level = a.sichtbar_fuer; lines.push(`Sichtbar ${LEVELS[old.access_level]} → ${LEVELS[a.sichtbar_fuer]}`) }
     if (typeof a.veroeffentlichen === 'boolean' && a.veroeffentlichen !== old.published) { upd.published = a.veroeffentlichen; lines.push(a.veroeffentlichen ? 'Wird sichtbar' : 'Wird Entwurf') }
+    const floor = await areaFloor(db, String(upd.category ?? old.category))
+    const lvl = String(upd.access_level ?? old.access_level)
+    if (atLeast(lvl, floor) !== lvl) { upd.access_level = floor; lines.push(`Sichtbar → ${LEVELS[floor]} (verlangt der Bereich)`) }
     if (lines.length === 1) return { error: 'nichts_zu_aendern' }
     return { kind: 'wiki_settings', title: 'Wissensartikel ändern', payload: { id: old.id, upd }, lines }
   }

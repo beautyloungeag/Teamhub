@@ -1,5 +1,56 @@
 # HANDOFF — Beautylounge TeamHub
 
+### 2026-10-28 — Renées Mail „Div“ (27.10.) und Matteos „TeamHub Updates“ (28.10.) komplett umgesetzt
+
+- **Anlass:** Renée (27.10. 08:47) wollte eine Startseite zum Wischen, keinen Chat-Balken auf der Startseite und das Onboarding im Menü. Matteo (28.10., Renée in CC, sie hat alles freigegeben) schickte eine Liste mit 8 Punkten und einem PDF-Entwurf für Wissen und Chats. Umgesetzt ist alles, ausser der Antwort an Matteo, die Aleksa selbst schickt.
+- **Datenbank:** Migration `20261028120000_matteo_paket.sql`, live angewendet. Sie bringt `employees.staff_kind` (lehrling/praktikantin), `employees.deputy_id` und `employee_absences` mit `my_covered()`/`covered_branches()`. Die Aufgaben-Regeln lassen jetzt Ersatzpersonen zu. Dazu kommen `todos.group_id/remind_at/reminded_at/handed_from_name`, die RPC `todo_handover`, `wiki_areas` (Bereiche, mit `access_level`), `wiki_categories.area_key`, `wiki_articles.review_due`, `events.image_path` und der Bucket `chat-photos` mit Rechten je Raum.
+- **Functions deployt:**
+  - `notify`: Erinnerungen zu Aufgaben, Mitteilung an die Ersatzperson zu Beginn einer Abwesenheit, Hinweise zu überfälligen Checklisten auch an die Vertretung, „weitergegeben von“.
+  - `privacy-retention`: räumt auch Chat-Fotos auf.
+  - `phorest`: `performance` mit `branch: 'all'`. Das Büro sieht alle Studios, eine Filialleitung ihre eigenen, Mitarbeiterinnen bekommen 403. Die Antwort enthält `studios` je Studio, und Personen werden über Studios hinweg zusammengezählt. Gemessen 4,5 s für 6 Studios.
+  - `assistant`: siehe „Marc“ unten.
+- **Startseite (App):** Neuigkeiten zum Wischen: ungelesene News, Wissensartikel der letzten 30 Tage und neue Schulungen mit Bild. Was gelesen ist, verschwindet in seinen Bereich. Den Chat-Teil ersetzt eine Kachel „Frag Marc“. Das Onboarding steht im Menü, sobald es samt Fragen erledigt ist.
+- **Wissen in der App** (nach Matteos PDF):
+  - „Dein Fortschritt“ steht oben, darunter drei aufklappbare Kacheln: Neu im Wissen, Hauptbereiche (je Bereich mit Beschreibung, Themen, Lesestand und „Alle Artikel öffnen“) und Meistgelesen. „Onboarding für Neue“ steht unten, „Von Kolleginnen geteilt“ ist entfernt.
+  - Die Suche findet andere Schreibweisen (`fold()`/`fuzzyIncludes()` in `lib/wiki.ts`, Pediküre = Pedicure, Tippfehler bis 1 Zeichen).
+  - Kein Haken mehr je Folie. Die letzte Folie zeigt „Ende“, darunter steht eine eigene Karte „Alles gelesen?“, die erst nach 1,2 s tippbar wird, damit niemand sie statt „Weiter“ erwischt.
+- **Wissen im Backoffice:**
+  - Reiter „Alle Artikel“ mit Filter, Sortierung, Prüfdatum und Mehrfachauswahl. Eine feste Leiste unten bietet Sichtbar, Entwurf, Thema ändern und Löschen (mit Dateien).
+  - Unter „Bereiche & Themen“ legt das Büro Bereiche (Symbol, Farbe, Sichtbarkeit) und Kacheln selbst an.
+  - Der Bereich **Filialleitung** ist nur für Leitung und Büro sichtbar. Artikel darin werden beim Speichern, Verschieben und Bereichswechsel mindestens auf „Leitung und Büro“ gehoben, die Dateien ziehen mit (`enforceAreaLevel`).
+- **Chats:**
+  - Marc und „Melden & Ideen“ stehen als halbe Kacheln oben, mit offener Anzahl.
+  - „Team-Chats“: Ganzes Team mit Gruppensymbol, Studios mit Kürzel (B1, B2, OB, PR, RE, RI), sortiert nach der neuesten Nachricht.
+  - In Studio-Chats lassen sich Fotos senden (`chat-photos/<raum>/<id>`).
+  - Chats gibt es auch im Backoffice.
+  - Kanalnamen sind eindeutig, sonst stürzte das Backoffice ab, wenn App und Backoffice gleichzeitig zählten.
+- **Aufgaben:**
+  - Stellvertretung im Profil (Team → Person → rechts „Stellvertretung“): Ersatzperson und Abwesenheiten. Büro und Filialleitung können sie setzen. Während einer Abwesenheit sieht die Ersatzperson die Aufgaben und Checklisten und bekommt die Mitteilungen.
+  - Aufgaben lassen sich weitergeben.
+  - Eine Aufgabe kann an mehrere Studios und Personen gehen, mit Rollenfilter. Jede Person bekommt eine eigene Zeile mit `group_id`.
+  - Erinnerungen: „1 Std. vor der Frist“, „Morgens um 8 Uhr“ oder eine eigene Zeit.
+  - Beim Erledigen gibt es eine kleine Animation (`lib/celebrate.ts`, mit Rücksicht auf „weniger Bewegung“).
+- **Meldungen im Backoffice** (`admin/Tickets.tsx`):
+  - Suche (mit anderen Schreibweisen), Filter nach Art und Studio, Sortierung (Neueste, Am längsten offen, Meiste Unterstützung, Nach Studio), Spalte „Offen seit“ (rot ab 7 Tagen im Status Neu).
+  - Vertrauliche Anliegen stehen getrennt im Reiter „Vertraulich“, den nur das Büro sieht.
+- **App „Melden & Ideen“:** Der Verlauf zeigt genau die gewählte Art. Vorher standen unter „Idee“ die Meldungen.
+- **Performance:** Studio-Auswahl mit „Alle Studios“ (Summe, Tabelle je Studio mit Vergleich, Personen über alle Studios) und freiem Zeitraum (Von–Bis, höchstens 92 Tage, Vergleich mit gleich langem Zeitraum davor). Die Ziele bleiben je Studio.
+- **Rollen:** Lehrling und Praktikantin mit denselben Rechten wie Mitarbeiterin (`staff_kind`), im Team filterbar und beim Zuweisen wählbar. Eine Filialleitung darf nur zwischen diesen drei wechseln.
+- **Marc (`assistant`):**
+  - Vorschläge für Wissensartikel halten die Sichtbarkeit des Bereichs ein (`areaFloor`/`atLeast` in `actions.ts`). Vorher hätte Marc einen Artikel im Bereich Filialleitung für alle anlegen können.
+  - Marc bekommt den Inhalt der Karte zurück (`inhalt_der_karte`), damit sein Begleitsatz nicht der Karte widerspricht.
+  - Beides ist mit echtem Chat getestet und danach gelöscht.
+- **Geprüft:**
+  - Durchgeklickt mit echten Klicks und Tastatur: Büro-Testkonto bei 1280 px, Mitarbeiterin bei 375 px.
+  - Rechte per API mit den Testkonten: Fotos nur im eigenen Studio, Filialleitungs-Bereich, Vertretung, `todo_handover` von Fremden „forbidden“, Performance je Rolle.
+  - `npm test` 89/89, Typprüfung und Build grün.
+  - Beim Durchklicken gefunden und behoben: Absturz beim Tippen in der Meldungssuche (Hilfsfunktion vor ihrer Definition benutzt), Studio-Kennung statt Name, abgeschnittene Kopfzeilen, „1 Kommentare“, umbrechende Kopfzeile der App-Meldungen.
+- **Testdaten gelöscht** (per ID): Artikel, Thema, zwei Aufgaben, Abwesenheit, Ersatzperson des Testkontos, Marc-Testchat.
+- **Offen:**
+  - Antwort an Matteo, ein Entwurf liegt bei Aleksa.
+  - Renées und Matteos Reaktion auf den neuen Stand abwarten.
+  - Die fünf eigenen Wissensartikel der Inhaberin: Löschen der alten Artikel geht jetzt über die Mehrfachauswahl. Das machen sie selbst.
+
 ### 2026-10-26 nachts — Durchgeklickt wie Renée: Wissen-Editor, Vorschau, Folienregel, News-Foto, Eingaben schützen
 
 - **Anlass:** Aleksa wollte sicher sein, dass Renées Kritik („benutzerunfreundlich“) nicht wiederkommt. Die Prüfungen am Tag liefen zum Teil über Skripte. Deshalb wurde das Backoffice diesmal mit echten Klicks und Tastatur bedient (Büro-Testkonto, 1280 und 1024 px), ebenso die App mit 375 px. Gefunden und behoben:
