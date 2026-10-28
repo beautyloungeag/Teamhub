@@ -3,23 +3,26 @@ import { useAuth, type Employee } from './lib/auth'
 import { supabase } from './lib/supabase'
 import { captureAccountScope, isCurrentAccountScope, type AccountScope } from './lib/account-scope'
 
+import { setWikiStructure, type AreaRow } from './lib/wiki'
 import { tr, setCurrentLang, savedLang, locale, type Lang } from './lib/i18n'
 import { toast } from './Toast'
 export type { Lang }
 
 /* ---------- Typen ---------- */
-export type Staff = { id: string; first: string; last: string; branch: string; branch_id: string; role: string; skills: string[]; photo: string | null; app_role: string; active: boolean; email: string; phone?: string | null; appInstalled?: boolean; pushEnabled?: boolean; extra?: string[]; about?: string | null }
+export type Staff = { id: string; first: string; last: string; branch: string; branch_id: string; role: string; skills: string[]; photo: string | null; app_role: string; active: boolean; email: string; phone?: string | null; appInstalled?: boolean; pushEnabled?: boolean; extra?: string[]; about?: string | null; kind?: 'lehrling' | 'praktikantin' | null; deputyId?: string | null }
+// Abwesenheit (Stellvertretung, 28.10.): in dieser Zeit gehen Aufgaben an die Ersatzperson
+export type Absence = { id: string; employeeId: string; from: string; until: string; note: string }
 export type News = { id: string; title: string; teaser: string; body: string; author: string; authorId: string | null; date: string; tag: string; mustRead: boolean; audience: string; audienceBranches: string[]; audienceGroups: string[]; audienceSkills: string[]; audiencePeople: string[]; publishAt: string; wikiCategory: string | null; image: string | null; orig: { title: string; teaser: string; body: string } | null }
 export type TaskItem = { id: string; title: string; time: string; group: string; prio: boolean; proof: boolean; articleId: string | null; linkUrl: string | null }
 export type Template = { id: string; name: string; repeat: 'daily' | 'weekly' | 'monthly'; weekday: number | null; monthday: number | null; branchIds: string[]; items: TaskItem[]; active: boolean; proposed: boolean; sample: boolean }
 export type Done = { by: string; byId: string | null; at: string; photo: string | null }
 export type Ticket = { id: string; kind: 'Meldung' | 'Idee' | 'Learning' | 'Anliegen'; title: string; body: string; branch: string; branchId: string; allStudios: boolean; status: 'Neu' | 'Zugewiesen' | 'In Arbeit' | 'Erledigt'; who: string; when: string; assignee: string | null; photo: string | null; mediaKind: 'photo' | 'video'; viaAI: boolean; mine: boolean; votes: number; voted: boolean; comments: Comment[] }
 export type Comment = { id: string; author: string; authorId: string | null; body: string; when: string }
-export type Ev = { id: string; title: string; kind: string; description: string; startsAt: string; endsAt: string | null; place: string; link: string | null; capacity: number | null; registerUntil: string | null; audienceBranches: string[]; audienceSkills: string[]; audiencePeople: string[]; phorestSync: boolean; phorestPaid: boolean; taken: number; waiting: number; createdBy: string | null; raw: { title: string; description: string; place: string } }
+export type Ev = { id: string; title: string; kind: string; description: string; startsAt: string; endsAt: string | null; place: string; link: string | null; capacity: number | null; registerUntil: string | null; audienceBranches: string[]; audienceSkills: string[]; audiencePeople: string[]; phorestSync: boolean; phorestPaid: boolean; taken: number; waiting: number; createdBy: string | null; raw: { title: string; description: string; place: string }; image: string | null; imagePath: string | null; createdAt: string }
 // Bild oder Video zu einem Aufzählungspunkt (26.10., Renée): media[j] gehört zu items[j]
 export type ItemMedia = { t: 'img' | 'video'; src?: string; url?: string; name?: string }
 export type WikiBlock = { t: 'h' | 'p' | 'ul' | 'ol' | 'quote' | 'img' | 'video' | 'file'; text?: string; items?: string[]; media?: (ItemMedia | null)[]; src?: string; url?: string; name?: string; level?: number }
-export type WikiArticle = { id: string; cat: string; catKey: string; title: string; minutes: number; updated: string; at: string; body: string[]; mediaKind: string; mediaUrl: string | null; published: boolean; fromNews?: boolean; intro: string; tags: string[]; accessLevel: 'alle' | 'filialleitung' | 'buero'; imported: boolean }
+export type WikiArticle = { id: string; cat: string; catKey: string; title: string; minutes: number; updated: string; at: string; body: string[]; mediaKind: string; mediaUrl: string | null; published: boolean; fromNews?: boolean; intro: string; tags: string[]; accessLevel: 'alle' | 'filialleitung' | 'buero'; imported: boolean; createdAt?: string; reviewDue?: string | null; ownerId?: string | null }
 export type Step = { id: string; title: string; minutes: number; articleId: string | null; proposed: boolean; branchIds: string[] }
 export type Branch = { id: string; name: string; is_office: boolean }
 export type Quiz = { id: string; newsId: string | null; articleId: string | null; title: string; passPct: number; sample: boolean }
@@ -81,7 +84,8 @@ type Ctx = {
   /** Einzel- und eigene Gruppenchats (Büro schaltet sie ein, app_settings chat_private) */
   privateChats: boolean
   quizzes: Quiz[]; attempts: Attempt[]; submitQuiz: (quizId: string, answers: Record<string, number[] | string>) => Promise<QuizResult | null>
-  wiki: WikiArticle[]; reloadWiki: () => Promise<void>; catEmojis: Record<string, string>; steps: Step[]; allSteps: Step[]; obDone: Set<string>; toggleStep: (id: string) => Promise<void>
+  wiki: WikiArticle[]; reloadWiki: () => Promise<void>; catEmojis: Record<string, string>; wikiStructure: number; catAreas: Record<string, string>;
+  absences: Absence[]; covering: Staff[]; reloadAbsences: () => Promise<void>; steps: Step[]; allSteps: Step[]; obDone: Set<string>; toggleStep: (id: string) => Promise<void>
   skills: string[]
   photo: string | null; setPhotoFile: (f: File) => Promise<void>
   myPhorest: { branch_id: string; staff_id: string }[]
@@ -95,6 +99,7 @@ export const useApp = () => useContext(C)!
 const toStaff = (e: any, branches: Branch[], photos: Map<string, string>): Staff => ({
   id: e.id, first: e.first_name, last: e.last_name, branch: branches.find(b => b.id === e.branch_id)?.name ?? e.branch_id, branch_id: e.branch_id, extra: e.extra_branch_ids ?? [],
   role: e.job_title, skills: e.skills ?? [], photo: e.photo_path ? photos.get(e.photo_path) ?? null : null, app_role: e.app_role, active: e.active, email: e.email, phone: e.phone ?? null, appInstalled: !!e.app_installed_at, pushEnabled: !!e.push_enabled, about: e.about ?? null,
+  kind: e.staff_kind ?? null, deputyId: e.deputy_id ?? null,
 })
 
 // Fetch pagination must fail explicitly; an unavailable table is not an empty list.
@@ -164,19 +169,31 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const newsForWiki = useRef<any[]>([])
   const [wikiRows, setWikiRows] = useState<any[]>([])
   const [catEmojis, setCatEmojis] = useState<Record<string, string>>({})
+  const [wikiStructure, setWikiStructureVer] = useState(0), [catAreas, setCatAreas] = useState<Record<string, string>>({})
+  const [absences, setAbsences] = useState<Absence[]>([])
   // Wissen: nur Liste laden (ohne Inhalte), einmal beim Start und nach Änderungen im Backoffice
   const reloadWiki = useCallback(async () => {
     if (!supabase || !employee || !scope || !current()) return
     const version = ++wikiVersion.current
-    const [articles, categories] = await Promise.all([
-      supabase.from('wiki_articles').select('id, category, title, minutes, updated_at, media_kind, media_url, published, access_level, tags, intro, source_id, is_sample, i18n_en:i18n->EN, i18n_fr:i18n->FR').order('category').order('sort').order('title').abortSignal(scope.signal),
-      supabase.from('wiki_categories').select('key, emoji').abortSignal(scope.signal),
-    ]).catch(() => [{ data: null, error: true }, { data: null, error: true }])
+    const [articles, categories, areas] = await Promise.all([
+      supabase.from('wiki_articles').select('id, category, title, minutes, updated_at, created_at, review_due, media_kind, media_url, published, access_level, tags, intro, source_id, is_sample, owner_id, i18n_en:i18n->EN, i18n_fr:i18n->FR').order('category').order('sort').order('title').abortSignal(scope.signal),
+      supabase.from('wiki_categories').select('key, emoji, area_key').abortSignal(scope.signal),
+      supabase.from('wiki_areas').select('key, name, description, icon, tone, access_level, sort').order('sort').abortSignal(scope.signal),
+    ]).catch(() => [{ data: null, error: true }, { data: null, error: true }, { data: null, error: true }])
     if (!current() || version !== wikiVersion.current) return
     if (articles.error || categories.error) { setWikiError(true); return }
     setWikiError(false)
     setWikiRows(articles.data ?? [])
-    setCatEmojis(Object.fromEntries((categories.data ?? []).map((c: { key: string; emoji: string }) => [c.key, c.emoji])))
+    setCatEmojis(Object.fromEntries((categories.data ?? []).filter((c: { emoji: string | null }) => c.emoji).map((c: { key: string; emoji: string }) => [c.key, c.emoji])))
+    // Bereiche und Zuordnung der Themen (Büro, seit 28.10.); ohne Tabelle bleiben die eingebauten fünf
+    if (!areas.error) setWikiStructure((areas.data ?? []) as AreaRow[], (categories.data ?? []) as { key: string; area_key: string | null }[])
+    setCatAreas(Object.fromEntries((categories.data ?? []).filter((c: { area_key: string | null }) => c.area_key).map((c: { key: string; area_key: string }) => [c.key, c.area_key])))
+    setWikiStructureVer(v => v + 1)
+  }, [employee, scope, current])
+  const reloadAbsences = useCallback(async () => {
+    if (!supabase || !employee || !scope || !current()) return
+    const { data, error } = await supabase.from('employee_absences').select('id, employee_id, from_day, until_day, note').gte('until_day', addDays(-1)).order('from_day').abortSignal(scope.signal)
+    if (current() && !error) setAbsences((data ?? []).map((a: any) => ({ id: a.id, employeeId: a.employee_id, from: a.from_day, until: a.until_day, note: a.note ?? '' })))
   }, [employee, scope, current])
 
   const signedUrl = useCallback(async (bucket: string, path: string) => {
@@ -269,6 +286,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!hadData.current) setLoading(true)
     setLoadError(false)
     void reloadWiki()
+    void reloadAbsences()
     const valid = () => current() && version === requestVersion.current
     try {
     const sb = supabase
@@ -277,7 +295,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const all = (q: () => any) => allRows(q, scope)
     const [br, em, sk, nw, rd, tt, ti, tc, tk, ev, cnt, rg, wk, ob, obp, mp, fl, tcm, tvt, sbd, qz, qa, pl, plq, pla] = await Promise.all([
       sb.from('branches').select('id, name, is_office').order('sort').abortSignal(scope.signal),
-      sb.from('employees').select('id, email, phone, first_name, last_name, job_title, app_role, branch_id, extra_branch_ids, skills, photo_path, active, app_installed_at, push_enabled, about').order('first_name').abortSignal(scope.signal),
+      sb.from('employees').select('id, email, phone, first_name, last_name, job_title, app_role, branch_id, extra_branch_ids, skills, photo_path, active, app_installed_at, push_enabled, about, staff_kind, deputy_id').order('first_name').abortSignal(scope.signal),
       sb.from('skills').select('name').order('sort').abortSignal(scope.signal),
       sb.from('news').select('*').order('publish_at', { ascending: false }).abortSignal(scope.signal),
       all(() => sb.from('news_reads').select('news_id, employee_id, confirmed_at').order('news_id')),
@@ -312,7 +330,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const tks = keep(tk.data)
     const [photos, nImgs, tkPhotos] = await Promise.all([
       signedMap('profile-photos', (em.data ?? []).map((e: any) => e.photo_path).filter(Boolean), scope),
-      signedMap('media', keep(nw.data).map((n: any) => n.image_path).filter(Boolean), scope),
+      signedMap('media', [...keep(nw.data).map((n: any) => n.image_path), ...keep(ev.data).map((e: any) => e.image_path)].filter(Boolean), scope),
       signedMap('ticket-photos', tks.map((x: any) => x.photo_path).filter(Boolean), scope),
     ])
     if (!valid()) return
@@ -343,6 +361,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       id: e.id, title: tx(e, 'title', lang), kind: e.kind, description: tx(e, 'description', lang), startsAt: e.starts_at, endsAt: e.ends_at, place: tx(e, 'place', lang), link: e.link, createdBy: e.created_by ?? null, raw: { title: e.title, description: e.description ?? '', place: e.place ?? '' },
       capacity: e.capacity, registerUntil: e.register_until, audienceBranches: e.audience_branches ?? [], audienceSkills: e.audience_skills ?? [], audiencePeople: e.audience_people ?? [], phorestSync: !!e.phorest_sync, phorestPaid: e.phorest_paid !== false, taken: progressCurrent ? counts.get(e.id) ?? 0 : previous.find(x => x.id === e.id)?.taken ?? 0,
       waiting: !progressCurrent ? previous.find(x => x.id === e.id)?.waiting ?? 0 : ((rg.data ?? []) as any[]).filter(r => r.event_id === e.id && r.coming && r.waitlist).length,
+      image: e.image_path ? nImgs.get(e.image_path) ?? null : null, imagePath: e.image_path ?? null, createdAt: e.created_at,
     })))
     if (progressCurrent) setRegistrations((rg.data ?? []) as Ctx['registrations'])
     if (ticketRevision === ticketVersion.current) setTickets(ticketSnapshot(tks, tcm.data ?? [], tvt.data ?? [], tkPhotos, brs, employee.id))
@@ -365,7 +384,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } catch {
       if (valid()) { setLoadError(true); setLoading(false) }
     }
-  }, [employee, lang, scope, current, reloadWiki, refreshProgress])
+  }, [employee, lang, scope, current, reloadWiki, reloadAbsences, refreshProgress])
 
   useEffect(() => {
     if (!employee) return
@@ -421,7 +440,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const arts: WikiArticle[] = wikiRows.filter((a: any) => demoData || !a.is_sample).map((a: any) => ({
       id: a.id, catKey: a.category, cat: lang === 'EN' ? a.i18n_en?.category ?? a.category : lang === 'FR' ? a.i18n_fr?.category ?? a.category : a.category,
       title: lang === 'EN' ? a.i18n_en?.title ?? a.title : lang === 'FR' ? a.i18n_fr?.title ?? a.title : a.title, minutes: a.minutes, updated: fmtDate(a.updated_at, { day: '2-digit', month: '2-digit', year: 'numeric' }), at: a.updated_at,
-      body: [], mediaKind: a.media_kind, mediaUrl: a.media_url, published: a.published, intro: (lang === 'EN' ? a.i18n_en?.intro : lang === 'FR' ? a.i18n_fr?.intro : null) || a.intro || '', tags: a.tags ?? [], accessLevel: a.access_level, imported: !!a.source_id,
+      body: [], mediaKind: a.media_kind, mediaUrl: a.media_url, published: a.published, intro: (lang === 'EN' ? a.i18n_en?.intro : lang === 'FR' ? a.i18n_fr?.intro : null) || a.intro || '', tags: a.tags ?? [], accessLevel: a.access_level, imported: !!a.source_id, createdAt: a.created_at, reviewDue: a.review_due ?? null, ownerId: a.owner_id ?? null,
     }))
     // News mit Wissens-Kategorie erscheinen auch im Wissen (BLTH-16 News-zu-Wiki)
     for (const n of newsForWiki.current) if (n.wiki_category && new Date(n.publish_at) <= new Date()) arts.push({
@@ -437,6 +456,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const officeBranch = branches.find(b => b.id === myBranch)?.is_office ?? false
   const tasks = useMemo(() => templates.filter(x => x.active && appliesOn(x, today, myBranch) && (!officeBranch || x.branchIds.includes(myBranch))).flatMap(x => x.items).sort((a, b) => (a.time || '99').localeCompare(b.time || '99')), [templates, today, myBranch, officeBranch])
   const done = useMemo(() => new Map(completions.filter(c => c.branch_id === myBranch && c.day === today).map(c => [c.item_id, { by: c.done_by_name, byId: c.done_by ?? null, at: fmtTime(c.done_at), photo: c.photo_path }])), [completions, myBranch, today])
+  // Wen vertrete ich heute? (Ersatzperson eingetragen und Abwesenheit läuft)
+  const covering = useMemo(() => staff.filter(s => s.active && s.deputyId === employee?.id && absences.some(a => a.employeeId === s.id && a.from <= today && a.until >= today)), [staff, absences, employee, today])
   const myReads = newsReads.filter(r => r.employee_id === employee?.id)
   const read = useMemo(() => new Set(myReads.filter(r => r.confirmed_at).map(r => r.news_id)), [myReads])
   const opened = useMemo(() => new Set(myReads.map(r => r.news_id)), [myReads])
@@ -568,7 +589,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       toast(error ? tr('Das hat nicht geklappt') : had ? tr('Aushilfe-Tag entfernt') : tr('Aushilfe-Tag eingetragen'), error ? 'error' : 'ok')
     },
     setDemoData: async (on) => { if (!current()) return; await sb.from('app_settings').upsert({ key: 'demo_data', value: on, updated_at: new Date().toISOString() }).abortSignal(scope!.signal); await reload(); await reloadWiki() },
-    wiki, reloadWiki, catEmojis, steps, allSteps, obDone,
+    wiki, reloadWiki, catEmojis, wikiStructure, catAreas, absences, covering, reloadAbsences, steps, allSteps, obDone,
     toggleStep: async (id) => {
       if (!current()) return
       if (obDone.has(id)) await sb.from('onboarding_progress').delete().match({ step_id: id, employee_id: employee.id }).abortSignal(scope!.signal)

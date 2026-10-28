@@ -5,7 +5,8 @@ import { openBenniDraft } from '../BenniChat'
 import { useApp, type WikiBlock } from '../store'
 import { supabase } from '../lib/supabase'
 import { emojiOf, catKey, EMOJI_CHOICES, AREAS, areaOf } from '../lib/wiki'
-import { AREA_LOOK, PREVIEW_KEY } from '../Mobile'
+import { PREVIEW_KEY } from '../Mobile'
+import { areaLook } from '../lib/area-look'
 import { markUnsaved } from '../lib/unsaved'
 import { toast } from '../Toast'
 import { ArticleBody } from './ArticleBody'
@@ -46,7 +47,7 @@ function Home({ onCat, onOpen }: { onCat: (name: string) => void; onOpen: (id: s
     </Section> : <div className="space-y-10">
       {/* Neueste zuerst sehen, ohne durch die Themen zu klicken (26.10.) */}
       <Section title="Zuletzt erstellt oder geändert" count={Math.min(5, own.length)}><ArticleTable items={[...own].sort((x, y) => (y.at ?? '').localeCompare(x.at ?? '')).slice(0, 5)} onOpen={a => onOpen(a.id, a.catKey)} showCat /></Section>
-      {AREAS.map(ar => { const look = AREA_LOOK[ar.key], Icon = look.icon, mine = cats.filter(c => areaOfCat(c.name) === ar.key)
+      {AREAS.map(ar => { const look = areaLook(ar.key), Icon = look.icon, mine = cats.filter(c => areaOfCat(c.name) === ar.key)
       if (!mine.length) return null
       const n = own.filter(a => areaOf(a.catKey, a.title) === ar.key).length
       return <section key={ar.key}>
@@ -66,7 +67,7 @@ function Home({ onCat, onOpen }: { onCat: (name: string) => void; onOpen: (id: s
 function ArticleTable({ items, onOpen, showCat }: { items: ReturnType<typeof useApp>['wiki']; onOpen: (a: ReturnType<typeof useApp>['wiki'][number]) => void; showCat?: boolean }) {
   const { quizzes } = useApp()
   const tested = new Set(quizzes.map(q => q.articleId))
-  const icon = (a: ReturnType<typeof useApp>['wiki'][number]) => { const look = AREA_LOOK[areaOf(a.catKey, a.title)] ?? AREA_LOOK.studio, I = look.icon; return <IconBox tone={look.tone} size="w-8 h-8 rounded-[10px]"><I size={15} /></IconBox> }
+  const icon = (a: ReturnType<typeof useApp>['wiki'][number]) => { const look = areaLook(areaOf(a.catKey, a.title)), I = look.icon; return <IconBox tone={look.tone} size="w-8 h-8 rounded-[10px]"><I size={15} /></IconBox> }
   return <table className="tbl w-full text-[14px] table-fixed"><thead><tr><Th>Artikel</Th>{showCat && <th className="w-[160px] text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">Thema</th>}<th className="w-[190px] text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">Sichtbar für</th><th className="w-[130px] text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">Aktualisiert</th><th className="w-[130px] text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">Status</th><th className="w-10 border-b border-line" /></tr></thead>
     <tbody className="divide-y divide-line">{items.map(a => <tr key={a.id} onClick={() => onOpen(a)} className="cursor-pointer hover:bg-sage-50/70">
       <td className="px-4 py-3"><span className="flex items-center gap-3 min-w-0">{icon(a)}<span className="min-w-0"><span className="flex items-center gap-2 min-w-0"><span className="truncate">{a.title}</span>{tested.has(a.id) && <Tag tone="duty">mit Test</Tag>}{(a.mediaKind === 'video' || a.mediaKind === 'youtube') && <Tag tone="learn">Video</Tag>}</span>{a.intro && <span className="block text-[12.5px] text-mute truncate">{a.intro}</span>}</span></span></td>

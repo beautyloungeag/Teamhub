@@ -1,5 +1,5 @@
 import { ViewportOverlay } from './ViewportOverlay'
-import { assignedToEvent } from './lib/event-access'
+import { assignedToEvent, eventPhoto } from './lib/event-access'
 import { useEffect, useMemo, useState } from 'react'
 import { ChevronDown, ChevronLeft, ChevronRight, MapPin, Search, Check, CalendarDays, X } from 'lucide-react'
 import { useApp, isoDay, addDays, fmtTime, zurichHour, type Ev } from './store'
@@ -193,11 +193,13 @@ const COLOR = { phorest: '#6F7D66', event: '#B08A52' } as const
 type Filter = 'all' | 'phorest' | 'event'
 const ymd = (y: number, m: number, d: number) => `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
 
-export function EventCalendar() {
+export function EventCalendar({ focus }: { focus?: string } = {}) {
   const { joined, declined, waiting, registrations, me, toggleEvent, declineEvent, events, myPhorest, t } = useApp()
   const mapped = myPhorest.length > 0
   const t0 = isoDay()
-  const [y, setY] = useState(Number(t0.slice(0, 4))), [m, setM] = useState(Number(t0.slice(5, 7))), [sel, setSel] = useState(t0)
+  // Aus den Neuigkeiten auf der Startseite: gleich den Tag der Schulung zeigen
+  const f0 = focus ? events.find(e => e.id === focus) : undefined, d0 = f0 ? isoDay(new Date(f0.startsAt)) : t0
+  const [y, setY] = useState(Number(d0.slice(0, 4))), [m, setM] = useState(Number(d0.slice(5, 7))), [sel, setSel] = useState(d0)
   const [filter, setFilter] = useState<Filter>('all')
   const [view, setView] = useState<'calendar' | 'list'>('calendar')
   const [day, setDay] = useState<MyDay | null>(null)
@@ -270,6 +272,7 @@ export function EventCalendar() {
             <div className="flex-1 min-w-0 flex gap-3">
               <span className="w-[3px] rounded-full shrink-0" style={{ background: COLOR[x.src] }} />
               <div className="min-w-0 flex-1">
+                {x.ev && <img src={x.ev.image ?? eventPhoto(x.ev.kind)} alt="" className="mb-2 w-full h-[140px] rounded-[12px] object-cover bg-sage-100" />}
                 <p className="text-[15px]">{x.title}</p><p className="text-[13px] text-mute">{x.sub}</p>
                 {x.ev?.description && <p className="text-[13px] mt-1">{x.ev.description}</p>}
                 {x.ev?.link && assignedToEvent(me, x.ev) && <a href={x.ev.link} target="_blank" rel="noreferrer" className="text-[13px] text-sage-800 underline">{t('Zum Meeting')}</a>}
@@ -295,6 +298,7 @@ export function EventCalendar() {
         <div className="rounded-[16px] bg-white divide-y divide-sage-50 overflow-hidden">
           {upcoming.map(e => { const k = isoDay(new Date(e.startsAt)), j = joined.has(e.id), no = declined.has(e.id)
             return <button key={e.id} onClick={() => { goTo(k); setView('calendar') }} className="w-full text-left flex items-center gap-3 px-4 py-3">
+              <img src={e.image ?? eventPhoto(e.kind)} alt="" className="w-12 h-12 rounded-[10px] object-cover bg-sage-100 shrink-0" />
               <span className="w-11 shrink-0 text-center"><span className="block text-[11px] text-mute uppercase">{new Intl.DateTimeFormat(locale(), { timeZone: 'Europe/Zurich', month: 'short' }).format(new Date(e.startsAt))}</span><span className="block font-display text-[19px] leading-tight">{new Intl.DateTimeFormat('de-CH', { timeZone: 'Europe/Zurich', day: 'numeric' }).format(new Date(e.startsAt))}</span></span>
               <span className="flex-1 min-w-0"><span className="block text-[15px] truncate">{e.title}</span><span className="block text-[12px] text-mute truncate">{fmtTime(e.startsAt)} · {e.link ? t('Online') : e.place}</span></span>
               <span className={`text-[12px] shrink-0 inline-flex items-center gap-1.5 ${j ? 'text-ok' : no ? 'text-mute' : 'text-brass'}`}><span className={`w-[6px] h-[6px] rounded-full ${j ? 'bg-ok' : no ? 'bg-sage-400' : 'bg-brass'}`} />{!assignedToEvent(me, e) ? t('Zur Ansicht') : j ? t('Zugesagt') : no ? t('Abgesagt') : t('Offen')}</span>

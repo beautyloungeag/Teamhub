@@ -6,7 +6,7 @@ import {
   Home, ListChecks, BookOpen, LayoutGrid, Sparkles, ChevronLeft, ChevronRight, Check, Camera, MapPin, Users,
   Search, Lightbulb, AlertTriangle, CalendarDays, Send, Newspaper, Plane, Play, Video,
   ArrowUp, ArrowUpRight, LogOut, Phone, ArrowBigUp, GraduationCap, Link2, Lock, FileText, Smartphone, ExternalLink, Monitor,
-  TrendingUp, MessageCircle, Clock, Share2, Circle, ShieldAlert, Mail, X,
+  TrendingUp, MessageCircle, Clock, Share2, Circle, Mail, X, ChevronDown, Layers, Flame,
 } from 'lucide-react'
 import { useAuth } from './lib/auth'
 import { supabase } from './lib/supabase'
@@ -16,11 +16,13 @@ import { useApp, isoDay, addDays, zurichHour, type Lang, type News, type WikiArt
 import { Terminbuch, EventCalendar } from './Calendar'
 import { TONE, toneOf, type Tone } from './tones'
 import { tr, locale } from './lib/i18n'
-import { emojiOf, AREAS, areaOf } from './lib/wiki'
+import { emojiOf, AREAS, areaOf, fuzzyIncludes } from './lib/wiki'
 import { wikiProgress } from './lib/wiki-progress'
+import { areaLook } from './lib/area-look'
 import { buildSlides, expandList, planArticle, type Slide, type SlideBody, type SlideItem } from './lib/wiki-slides'
 import { ViewportOverlay } from './ViewportOverlay'
-import { ChatHub, ChatRoom, useChatUnread, loadChatSummaries } from './Chats'
+import { ChatHub, ChatRoom, useChatUnread } from './Chats'
+import { assignedToEvent, eventPhoto } from './lib/event-access'
 import { TimeView } from './Time'
 import { Inbox, MailRead, useMailUnread, type MailItem } from './Mail'
 import { ContactLocked } from './ContactLock'
@@ -42,7 +44,7 @@ export const ASSISTANT = 'Marc'
 
 type Tab = 'home' | 'tasks' | 'ai' | 'wiki' | 'menu'
 type Sub = null | { k: 'news-list' } | { k: 'news'; item: News } | { k: 'wiki'; item: WikiArticle } | { k: 'wiki-cat'; key: string; name: string } | { k: 'onboarding' } | { k: 'team' } | { k: 'profile'; item: Staff }
-  | { k: 'me' } | { k: 'conn' } | { k: 'book' } | { k: 'tickets'; learning?: boolean } | { k: 'ticket'; id: string } | { k: 'clients'; cid?: string } | { k: 'events' } | { k: 'inbox' } | { k: 'time' } | { k: 'install' } | { k: 'perf' }
+  | { k: 'me' } | { k: 'conn' } | { k: 'book' } | { k: 'tickets'; learning?: boolean } | { k: 'ticket'; id: string } | { k: 'clients'; cid?: string } | { k: 'events'; focus?: string } | { k: 'inbox' } | { k: 'time' } | { k: 'install' } | { k: 'perf' }
   | { k: 'marc' } | { k: 'chat'; id: string } | { k: 'area'; key: string } | { k: 'mail'; uid: number; item?: MailItem }
 
 
@@ -150,7 +152,7 @@ function Shell({ onLogout, onSwitch }: { onLogout: () => void; onSwitch?: () => 
     case 'area': screen = <WikiArea k={sub.key} open={open} />; break
     case 'ticket': screen = <TicketDetail id={sub.id} />; break
     case 'clients': screen = <ClientHistoryView cid={sub.cid} />; break
-    case 'events': screen = <Events />; break
+    case 'events': screen = <Events focus={sub.focus} />; break
     case 'conn': screen = <Connections />; break
     case 'book': screen = <div className="calendar-screen h-full min-h-0 flex flex-col px-4 pb-3"><div className="chat-app-header shrink-0"><button onClick={back} className="h-11 flex items-center text-sage-800"><ChevronLeft size={22} />{t('Zurück')}</button><h1 className="text-[26px] font-medium tracking-tight mb-3">{t('Kundentermine')}</h1></div><div className="flex-1 min-h-0"><Terminbuch compact /></div></div>; break
     case 'inbox': screen = <Inbox onOpen={(uid, item) => open({ k: 'mail', uid, item })} />; break
@@ -248,7 +250,7 @@ function useMyDay() {
   return day
 }
 function Today({ open, go }: { open: (s: Sub) => void; go: (t: Tab) => void }) {
-  const { me, t, done, read, tasks, news: allNews, quizzes, branches, photo, wiki, tickets } = useApp()
+  const { me, t, done, read, opened, tasks, news: allNews, quizzes, branches, photo, wiki, tickets, events, joined, declined } = useApp()
   const news = live(allNews)
   const day = useMyDay()
   const due = useDue()
@@ -269,6 +271,18 @@ function Today({ open, go }: { open: (s: Sub) => void; go: (t: Tab) => void }) {
   const nextRead = [...articles].filter(a => !runs.read.has(a.id)).sort(newestFirst)[0]
   const learning = tickets.find(x => x.kind === 'Learning')
   const mailUnread = useMailUnread()
+  // Neuigkeiten der letzten 30 Tage, die diese Person noch nicht gelesen hat
+  const since = Date.now() - 30 * 864e5
+  const fresh: Fresh[] = [
+    ...news.filter(n => !n.mustRead && !opened.has(n.id) && new Date(n.publishAt).getTime() > since).map(n => ({
+      key: 'n' + n.id, at: n.publishAt, kind: t(newsCat(n)), tone: toneOf(newsCat(n)), title: n.title, teaser: n.teaser, photo: newsPhoto(n), go: () => open({ k: 'news', item: n }) })),
+    ...articles.filter(a => a.createdAt && new Date(a.createdAt).getTime() > since && !runs.read.has(a.id)).map(a => ({
+      key: 'w' + a.id, at: a.createdAt!, kind: t('Wissen'), tone: 'learn' as Tone, title: a.title, teaser: a.intro || `${catName(a.cat)} · ${t('{n} Min.', { n: a.minutes })}`, photo: COVER_PHOTO[areaOf(a.catKey, a.title)] ?? '/hero-studio.jpg', go: () => open({ k: 'wiki', item: a }) })),
+    ...events.filter(e => new Date(e.startsAt).getTime() > Date.now() && new Date(e.createdAt).getTime() > since && !joined.has(e.id) && !declined.has(e.id) && assignedToEvent(me, e)).map(e => ({
+      key: 'e' + e.id, at: e.createdAt, kind: t(e.kind === 'Schulung' ? 'Schulung' : e.kind === 'Team' ? 'Team-Event' : 'Meeting'), tone: (e.kind === 'Schulung' ? 'learn' : 'plum') as Tone, title: e.title,
+      teaser: `${new Intl.DateTimeFormat(locale(), { timeZone: 'Europe/Zurich', weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(e.startsAt))}${e.link ? ' · ' + t('Online') : e.place ? ' · ' + e.place : ''}`,
+      photo: e.image ?? eventPhoto(e.kind), go: () => open({ k: 'events', focus: e.id }) })),
+  ].sort((x, y) => y.at.localeCompare(x.at))
   const tile = (tone: Tone, big: string, label: string, onClick: () => void) =>
     <button onClick={onClick} className={`home-metric min-w-0 rounded-[18px] p-3 text-left flex flex-col gap-1 min-h-[84px] ${TONE[tone].bg} ${TONE[tone].fg}`}><span className="font-display text-[26px] leading-none">{big}</span><span className="text-[14.5px] font-semibold leading-tight">{label}</span></button>
   return (
@@ -311,12 +325,10 @@ function Today({ open, go }: { open: (s: Sub) => void; go: (t: Tab) => void }) {
         {must.some(n => quizzes.some(q => q.newsId === n.id)) && <p className="mt-2 px-1 text-[14px] text-mute">{t('Bei manchen News folgt ein kurzes Quiz.')}</p>}
       </>}
 
-      {/* News gleich nach den Pflicht-News, neueste zuerst (Renée 26.10.: „Wo sind die News?“) */}
-      {/* Immer sichtbar, damit man die News findet, auch solange es noch keine gibt */}
-      <Label action={<button onClick={() => open({ k: 'news-list' })} className="text-[14.5px] text-sage-800">{t('Alle News')}</button>}>{t('Neueste News')}</Label>
-      {news.filter(n => !n.mustRead).length > 0
-        ? <div className="space-y-3">{news.filter(n => !n.mustRead).slice(0, 3).map(n => <NewsCard key={n.id} n={n} onClick={() => open({ k: 'news', item: n })} />)}</div>
-        : <p className="px-1 text-[15.5px] text-mute">{t('Noch keine weiteren News. Neue News erscheinen hier zuerst.')}</p>}
+      {/* Neuigkeiten zum Wischen (Renée 27.10.): News, neue Wissensartikel und neue Schulungen zusammen, das Neueste zuerst.
+          Gelesenes verschwindet von hier und bleibt in seiner Rubrik (News, Wissen, Kalender). */}
+      <Label action={<button onClick={() => open({ k: 'news-list' })} className="text-[14.5px] text-sage-800">{t('Alle News')}</button>}>{t('Neu für dich')}</Label>
+      <FreshStrip items={fresh} />
 
       {myTodos.length > 0 && <>
         <Label action={<button onClick={() => { tasksView = 'me'; go('tasks') }} className="text-[14.5px] text-sage-800">{t('Alle')}</button>}>{t('Für dich')}</Label>
@@ -336,7 +348,12 @@ function Today({ open, go }: { open: (s: Sub) => void; go: (t: Tab) => void }) {
         </Card>
       </>}
 
-      <TodayChats go={go} open={open} />
+      {/* Frag Marc statt der Chat-Vorschau (Matteo 28.10.): die Chats sind unten im Reiter */}
+      <button onClick={() => { go('ai'); open({ k: 'marc' }) }} className="mt-7 w-full rounded-[20px] bg-white p-4 flex items-center gap-3.5 text-left">
+        <BMark className="w-12 h-12" />
+        <span className="flex-1 min-w-0"><span className="block text-[17.5px] font-semibold">{t('Frag {name}', { name: ASSISTANT })}</span><span className="block text-[15px] text-mute">{t('Dein Assistent für Wissen, Abläufe und Kunden')}</span></span>
+        <ChevronRight size={18} className="text-sage-400 shrink-0" />
+      </button>
 
       {nextRead && <>
         <Label action={<button onClick={() => go('wiki')} className="text-[14.5px] text-sage-800">{t('Wissen')}</button>}>{t('Weiterlernen')}</Label>
@@ -358,27 +375,6 @@ function Today({ open, go }: { open: (s: Sub) => void; go: (t: Tab) => void }) {
     </div>
   )
 }
-/** Die letzten Team-Chats auf der Startseite */
-function TodayChats({ go, open }: { go: (t: Tab) => void; open: (s: Sub) => void }) {
-  const { me, staff, t } = useApp()
-  const [list, setList] = useState<Awaited<ReturnType<typeof loadChatSummaries>> | null>(null)
-  useEffect(() => { let alive = true; const scope = captureAccountScope(me.id); setList(null); if (scope) void loadChatSummaries(me.id).then(rows => { if (alive && isCurrentAccountScope(scope)) setList(rows) }).catch(() => { if (alive && isCurrentAccountScope(scope)) setList([]) }); return () => { alive = false } }, [me.id])
-  const recent = (list ?? []).filter(x => x.last).sort((a, b) => b.last!.created_at.localeCompare(a.last!.created_at)).slice(0, 3)
-  return <>
-    <Label action={<button onClick={() => go('ai')} className="text-[14.5px] text-sage-800">{t('Alle Chats')}</button>}>{t('Chats')}</Label>
-    <List>
-      {recent.length === 0 && <button onClick={() => go('ai')} className="w-full px-4 py-3.5 flex items-center gap-3 text-left"><span className="w-10 h-10 rounded-full bg-studio-50 text-studio flex items-center justify-center shrink-0"><MessageCircle size={18} /></span><span className="flex-1 text-[16px] text-ink/80">{t('Schreib deinem Studio oder dem ganzen Team.')}</span><ChevronRight size={18} className="text-sage-400" /></button>}
-      {recent.map(x => { const who = staff.find(s => s.id === x.last!.sender_id), other = staff.find(s => s.id === x.members.find(m => m !== me.id))
-        return <button key={x.room.id} onClick={() => { go('ai'); open({ k: 'chat', id: x.room.id }) }} className="w-full px-4 py-3 flex items-center gap-3 text-left">
-          {who ? <Avatar s={who} photo={who.photo} size="w-10 h-10" /> : <span className="w-10 h-10 rounded-full bg-studio-50" />}
-          <span className="flex-1 min-w-0"><span className={`block text-[16px] truncate ${x.unread ? 'font-semibold' : ''}`}>{x.room.kind === 'team' ? t('Ganzes Team') : x.room.kind === 'studio' ? t('Studio {name}', { name: x.room.title ?? '' }) : x.room.title || (other ? `${other.first} ${other.last}` : t('Chat'))}</span>
-            <span className="block text-[14.5px] text-mute truncate">{who && x.last!.sender_id !== me.id ? who.first + ': ' : ''}{x.last!.body}</span></span>
-          {x.unread && <span className="w-2.5 h-2.5 rounded-full bg-duty shrink-0" />}
-        </button> })}
-    </List>
-  </>
-}
-
 /* ---------- News ---------- */
 // Kategorien wie von der Inhaberin gewünscht; „Wichtig“ umfasst auch jede Pflicht-News
 export const NEWS_CATS = ['Wichtig', 'Schulung', 'Team', 'Salon']
@@ -416,6 +412,28 @@ function useNewsProgress() {
     return () => { alive = false }
   }, [read.size, me.id, progressVersion])
   return p
+}
+type Fresh = { key: string; at: string; kind: string; tone: Tone; title: string; teaser: string; photo: string; go: () => void }
+/** Neuigkeiten als Karten zum Wischen, mit Punkten darunter */
+function FreshStrip({ items }: { items: Fresh[] }) {
+  const { t } = useApp()
+  const [idx, setIdx] = useState(0)
+  const rail = useRef<HTMLDivElement>(null)
+  if (!items.length) return <p className="px-1 text-[15.5px] text-mute">{t('Du bist auf dem neusten Stand. Neue News, Artikel und Schulungen erscheinen hier zuerst.')}</p>
+  return <div>
+    <div ref={rail} onScroll={e => { const el = e.currentTarget, w = (el.firstElementChild as HTMLElement | null)?.offsetWidth ?? el.clientWidth; setIdx(Math.round(el.scrollLeft / Math.max(1, w + 12))) }}
+      className="-mx-4 px-4 flex gap-3 overflow-x-auto snap-x snap-mandatory scroll-px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" aria-roledescription={t('Galerie')}>
+      {items.map(x => <button key={x.key} onClick={x.go} className={`${items.length > 1 ? 'w-[86%]' : 'w-full'} shrink-0 snap-start text-left rounded-[22px] bg-white overflow-hidden shadow-[0_1px_2px_rgba(29,34,28,.05)] flex flex-col justify-start`}>
+        <span className="relative block h-[176px] bg-sage-100">
+          <img src={x.photo} alt="" className="w-full h-full object-cover" />
+          <span className={`absolute left-3 top-3 px-3 py-1 rounded-full text-[14px] font-semibold text-white ${TONE[x.tone].solid}`}>{x.kind}</span>
+          <span className="absolute right-3 bottom-3 px-2.5 py-1 rounded-full bg-ink/70 text-white text-[13.5px] flex items-center gap-1.5"><Clock size={13} />{newsWhen(x.at, t)}</span>
+        </span>
+        <span className="block p-4"><span className="block font-display text-[21px] leading-snug line-clamp-2">{x.title}</span>{x.teaser && <span className="block mt-1 text-[15.5px] text-ink/70 leading-snug line-clamp-2">{x.teaser}</span>}</span>
+      </button>)}
+    </div>
+    {items.length > 1 && <div className="mt-2.5 flex justify-center gap-1.5">{items.map((x, i) => <span key={x.key} className={`h-1.5 rounded-full transition-all ${i === idx ? 'w-5 bg-olive-800' : 'w-1.5 bg-sage-200'}`} />)}</div>}
+  </div>
 }
 /** News als grosse Bildkarte (Vorlage der Inhaberin 20.10.): Etikett, Zeit, Titel, Kurztext, bei Pflicht der Bestätigungsstand */
 function NewsCard({ n, onClick }: { n: News; onClick: () => void }) {
@@ -602,7 +620,7 @@ function AI({ open, onBack }: { open: (s: Sub) => void; onBack?: () => void }) {
 const catName = (name: string) => name.slice(0, 1).toUpperCase() + name.slice(1)
 // Statt des Buchs das Zeichen des Hauptbereichs, zu dem der Artikel gehört (Wunsch der Inhaberin 22.10.)
 const articleIcon = (a: WikiArticle) => { if (a.fromNews) return <Newspaper size={17} />
-  const look = AREA_LOOK[areaOf(a.catKey, a.title)] ?? AREA_LOOK.studio, Icon = look.icon
+  const look = areaLook(areaOf(a.catKey, a.title)), Icon = look.icon
   return <span className={`w-9 h-9 rounded-[11px] flex items-center justify-center ${TONE[look.tone].bg} ${TONE[look.tone].fg}`}><Icon size={17} /></span> }
 // Suche im Wissen mit Marc daneben: wer nichts findet, fragt ihn direkt
 function WikiSearch({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder: string }) {
@@ -610,10 +628,11 @@ function WikiSearch({ value, onChange, placeholder }: { value: string; onChange:
   return <div className="flex gap-2"><div className="flex-1 min-w-0"><SearchBox value={value} onChange={onChange} placeholder={placeholder} /></div>
     <button onClick={() => openNewBenniChat(value.trim() ? t('Ich suche im Wissen nach „{q}“. Welche Anleitung passt und was steht drin?', { q: value.trim() }) : t('Ich suche eine Anleitung im Wissen.'))} className={`h-11 px-3.5 rounded-2xl font-semibold flex items-center gap-1.5 shrink-0 ${TONE.note.bg} ${TONE.note.fg}`}><MessageCircle size={17} />Marc</button></div>
 }
-// Treffer: Titel zuerst, dann alles aus dem passenden Thema oder Bereich, dann Treffer im Text
-const wikiHits = (list: WikiArticle[], q: string) => { const x = q.trim().toLowerCase(); if (!x) return list
+// Treffer: Titel zuerst, dann alles aus dem passenden Thema oder Bereich, dann Treffer im Text.
+// Auch andere Schreibweisen und kleine Tippfehler (28.10., „Pediküre“ findet „Pedicure“)
+const wikiHits = (list: WikiArticle[], q: string) => { const x = q.trim(); if (!x) return list
   const areaName = (a: WikiArticle) => AREAS.find(r => r.key === areaOf(a.catKey, a.title))?.name ?? ''
-  const rank = (a: WikiArticle) => a.title.toLowerCase().includes(x) ? 0 : `${a.cat} ${areaName(a)}`.toLowerCase().includes(x) ? 1 : [a.intro, ...a.tags, ...a.body].join(' ').toLowerCase().includes(x) ? 2 : 3
+  const rank = (a: WikiArticle) => fuzzyIncludes(a.title, x) ? 0 : fuzzyIncludes(`${a.cat} ${areaName(a)}`, x) ? 1 : fuzzyIncludes([a.intro, ...a.tags, ...a.body].join(' '), x) ? 2 : 3
   return list.map(a => [a, rank(a)] as const).filter(([, r]) => r < 3).sort((a, b) => a[1] - b[1] || a[0].title.localeCompare(b[0].title)).map(([a]) => a) }
 
 // Beliebteste Artikel (Öffnungen der letzten 30 Tage, Tabelle wiki_views)
@@ -638,10 +657,7 @@ function useWikiRuns() {
   }, [me.id, progressVersion])
   return useMemo(() => wikiProgress(v.employeeId === me.id ? v.rows : [], quizzes, attempts, me.id), [v, quizzes, attempts, me.id])
 }
-export const AREA_LOOK: Record<string, { tone: Tone; icon: typeof Home }> = {
-  behandlung: { tone: 'learn', icon: Sparkles }, hygiene: { tone: 'duty', icon: ShieldAlert }, studio: { tone: 'note', icon: LayoutGrid },
-  team: { tone: 'plum', icon: Users }, lernen: { tone: 'done', icon: GraduationCap },
-}
+export { areaLook } from './lib/area-look'
 const Bar = ({ value, total, tone = 'done' }: { value: number; total: number; tone?: Tone }) => (
   <div className="h-2 rounded-full bg-sage-100 overflow-hidden"><div className={`h-full rounded-full transition-all ${TONE[tone].solid}`} style={{ width: (total ? Math.min(100, value / total * 100) : 0) + '%' }} /></div>
 )
@@ -650,59 +666,92 @@ const pct = (a: number, b: number) => b ? Math.round(a / b * 100) : 0
 const newestFirst = (x: WikiArticle, y: WikiArticle) => (y.at ?? '').localeCompare(x.at ?? '') || x.title.localeCompare(y.title)
 const isNew = (a: WikiArticle) => !!a.at && Date.now() - new Date(a.at).getTime() < 14 * 864e5
 
+// Aufgeklappte Kacheln bleiben beim Zurückkommen offen
+const wikiOpen = new Set<string>()
+/** Onboarding ist fertig, wenn alle Schritte abgehakt und die Tests der verknüpften Artikel bestanden sind (Renée 27.10.) */
+function useOnboardingComplete() {
+  const { steps, obDone, quizzes, attempts, me } = useApp()
+  if (!steps.length) return true
+  return steps.every(s => obDone.has(s.id) && (!s.articleId || quizzes.filter(q => q.articleId === s.articleId).every(q => attempts.some(a => a.quizId === q.id && a.employeeId === me.id && a.passed))))
+}
+/** Aufklappbare Kachel im Wissen (Entwurf Matteo 28.10.) */
+function Fold({ id, tone, icon: Icon, title, sub, children }: { id: string; tone: Tone; icon: typeof Home; title: string; sub: string; children: ReactNode }) {
+  const [on, setOn] = useState(wikiOpen.has(id))
+  const toggle = () => { if (on) wikiOpen.delete(id); else wikiOpen.add(id); setOn(!on) }
+  return <div className={`relative rounded-[22px] overflow-hidden ${TONE[tone].bg}`}>
+    <Icon aria-hidden="true" size={120} strokeWidth={1} className={`absolute -right-6 -top-4 opacity-[.09] ${TONE[tone].fg}`} />
+    <button onClick={toggle} aria-expanded={on} className="relative w-full p-4 flex items-center gap-3.5 text-left">
+      <span className={`w-12 h-12 rounded-[14px] bg-white/75 flex items-center justify-center shrink-0 ${TONE[tone].fg}`}><Icon size={22} /></span>
+      <span className="flex-1 min-w-0"><span className="block font-display text-[21px] leading-tight">{title}</span><span className={`block text-[15px] mt-0.5 ${TONE[tone].fg}`}>{sub}</span></span>
+      <span className="w-10 h-10 rounded-full bg-white/80 flex items-center justify-center shrink-0"><ChevronDown size={19} className={`transition-transform ${on ? 'rotate-180' : ''}`} /></span>
+    </button>
+    {on && <div className="relative px-2.5 pb-2.5">{children}</div>}
+  </div>
+}
 function Wiki({ open }: { open: (s: Sub) => void }) {
-  const { t, wiki: allWiki, steps, obDone, tickets } = useApp()
+  const { t, wiki: allWiki, steps, obDone } = useApp()
   const wiki = allWiki.filter(a => a.published && !a.fromNews)
   const pop = usePopular()
   const { read } = useWikiRuns()
   const [q, setQ] = useState('')
+  const [area, setArea] = useState<string | null>(() => [...wikiOpen].find(x => x.startsWith('a:'))?.slice(2) ?? null)
+  const obComplete = useOnboardingComplete()
   const areas = AREAS.map(ar => {
-    const items = wiki.filter(a => areaOf(a.catKey, a.title) === ar.key)
+    const items = wiki.filter(a => areaOf(a.catKey, a.title) === ar.key).sort(newestFirst)
     const cats = [...items.reduce((m, a) => m.set(a.cat, (m.get(a.cat) ?? 0) + 1), new Map<string, number>()).entries()].sort((x, y) => y[1] - x[1]).map(([c]) => c)
     return { ...ar, items, cats, done: items.filter(a => read.has(a.id)).length }
   }).filter(ar => ar.items.length)
   const doneAll = wiki.filter(a => read.has(a.id)).length
   const popular = [...wiki].filter(a => (pop.get(a.id) ?? 0) > 0).sort((x, y) => (pop.get(y.id) ?? 0) - (pop.get(x.id) ?? 0)).slice(0, 5)
-  const learnings = tickets.filter(x => x.kind === 'Learning')
-  const newest = [...wiki].sort(newestFirst).slice(0, 4)
+  const newest = [...wiki].filter(isNew).sort(newestFirst)
+  const recent = newest.length ? newest.slice(0, 6) : [...wiki].sort(newestFirst).slice(0, 4)
   const hits = wikiHits(allWiki.filter(a => a.published), q)
+  const short = (d?: string) => d ? new Intl.DateTimeFormat(locale(), { timeZone: 'Europe/Zurich', day: 'numeric', month: 'numeric' }).format(new Date(d)) : ''
+  const rows = (list: WikiArticle[], sub: (a: WikiArticle) => string) => <div className="rounded-[18px] bg-white divide-y divide-sage-50 overflow-hidden">{list.map(a => <Row key={a.id} icon={articleIcon(a)} title={a.title} sub={sub(a)} onClick={() => open({ k: 'wiki', item: a })} right={read.has(a.id) ? <Check size={18} className="text-done shrink-0" /> : undefined} />)}</div>
+  const pickArea = (k: string) => { for (const x of [...wikiOpen]) if (x.startsWith('a:')) wikiOpen.delete(x); if (area === k) setArea(null); else { wikiOpen.add('a:' + k); setArea(k) } }
   return (
     <div className="pb-10"><Title right={<button onClick={() => open({ k: 'tickets', learning: true })} className={`mb-1 h-10 px-3.5 rounded-full text-[15px] font-semibold flex items-center gap-1.5 ${TONE.note.bg} ${TONE.note.fg}`}><Share2 size={16} />{t('Wissen teilen')}</button>}>{t('Wissen')}</Title>
       <div className="px-4">
         <WikiSearch value={q} onChange={setQ} placeholder={t('In allen Anleitungen suchen …')} />
-        {!q && <>
-          {newest.length > 0 && <><Label>{t('Neu im Wissen')}</Label>
-            <List>{newest.map(a => <Row key={a.id} icon={articleIcon(a)} title={a.title} sub={`${isNew(a) ? `${t('Neu')} · ` : ''}${catName(a.cat)} · ${a.updated}`} onClick={() => open({ k: 'wiki', item: a })} right={read.has(a.id) ? <Check size={18} className="text-done shrink-0" /> : undefined} />)}</List></>}
-          <div className="mt-4 rounded-[20px] bg-white p-4">
-            <div className="flex items-baseline justify-between"><p className="text-[17px] font-semibold">{t('Dein Fortschritt')}</p><p className="font-display text-[22px] tabular-nums">{pct(doneAll, wiki.length)} %</p></div>
+        {!q && <div className="mt-4 space-y-3">
+          <div className="rounded-[22px] bg-white p-4">
+            <div className="flex items-baseline justify-between"><p className="text-[17px] font-semibold">{t('Dein Fortschritt')}</p><p className="font-display text-[24px] tabular-nums">{pct(doneAll, wiki.length)} %</p></div>
             <div className="mt-2"><Bar value={doneAll} total={wiki.length} /></div>
             <p className="mt-2 text-[14.5px] text-mute">{t('{a} von {b} Artikeln gelesen und bestätigt', { a: doneAll, b: wiki.length })}</p>
           </div>
-          <button onClick={() => open({ k: 'tickets', learning: true })} className={`mt-3 w-full rounded-[20px] p-4 flex items-center gap-3 text-left ${TONE.note.bg}`}>
-            <span className="w-12 h-12 rounded-[14px] bg-white/70 text-note flex items-center justify-center shrink-0"><Lightbulb size={22} /></span>
-            <span className="flex-1 min-w-0"><span className={`block text-[17px] font-semibold ${TONE.note.fg}`}>{t('Von Kolleginnen geteilt')}</span><span className="block text-[14.5px] text-ink/70 mt-0.5">{learnings.length === 1 ? t('1 Tipp aus den Studios') : learnings.length ? t('{n} Tipps und Videos aus den Studios', { n: learnings.length }) : t('Teile ein Video oder einen Tipp aus deinem Alltag')}</span></span>
-            <ChevronRight size={18} className="text-note shrink-0" />
-          </button>
-          {steps.length > 0 && <button onClick={() => open({ k: 'onboarding' })} className="mt-3 w-full rounded-[20px] bg-white p-4 text-left">
+          <Fold id="neu" tone="note" icon={Sparkles} title={t('Neu im Wissen')} sub={newest.length ? (newest.length === 1 ? t('1 neuer Artikel, zuletzt {date}', { date: short(newest[0].at) }) : t('{n} neue Artikel, zuletzt {date}', { n: newest.length, date: short(newest[0].at) })) : t('Zuletzt geändert')}>
+            {rows(recent, a => `${isNew(a) ? `${t('Neu')} · ` : ''}${catName(a.cat)} · ${a.updated}`)}
+          </Fold>
+          <Fold id="bereiche" tone="done" icon={Layers} title={t('Hauptbereiche')} sub={t('{a} Bereiche, {b} Artikel', { a: areas.length, b: wiki.length })}>
+            <div className="space-y-2">{areas.map(ar => { const look = areaLook(ar.key), Icon = look.icon, on = area === ar.key
+              return <div key={ar.key} className={`rounded-[18px] bg-white overflow-hidden ${on ? 'shadow-[inset_0_0_0_1.5px_rgba(167,139,90,.35)]' : ''}`}>
+                <button onClick={() => pickArea(ar.key)} aria-expanded={on} className="w-full p-3.5 flex items-center gap-3 text-left">
+                  <span className={`w-11 h-11 rounded-[13px] flex items-center justify-center shrink-0 ${TONE[look.tone].bg} ${TONE[look.tone].fg}`}><Icon size={20} /></span>
+                  <span className="flex-1 min-w-0"><span className="block text-[17px] font-semibold leading-tight">{t(ar.name)}</span><span className="block text-[14px] text-mute mt-0.5">{t('{n} Artikel', { n: ar.items.length })} · {t('{p} % gelesen', { p: pct(ar.done, ar.items.length) })}</span></span>
+                  <span className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${on ? `${TONE.note.bg} ${TONE.note.fg}` : 'bg-sage-50'}`}><ChevronDown size={17} className={`transition-transform ${on ? 'rotate-180' : ''}`} /></span>
+                </button>
+                {on && <div className="border-t border-sage-50">
+                  <div className="px-3.5 pt-3">
+                    {ar.desc && <p className="text-[14.5px] text-ink/70">{t(ar.desc)}</p>}
+                    <div className="mt-2.5 flex flex-wrap gap-1.5">{ar.cats.slice(0, 6).map(c => <span key={c} className="px-2.5 py-1 rounded-full bg-sage-50 text-[13.5px] text-ink/75">{catName(c)}</span>)}</div>
+                    <div className="mt-3 flex items-center gap-3"><span className="flex-1"><Bar value={ar.done} total={ar.items.length} /></span><span className="text-[14px] font-semibold tabular-nums">{pct(ar.done, ar.items.length)} %</span><span className="text-[13.5px] text-mute tabular-nums">{t('{a} von {b} gelesen', { a: ar.done, b: ar.items.length })}</span></div>
+                  </div>
+                  <div className="mt-2 divide-y divide-sage-50 border-t border-sage-50">{ar.items.slice(0, 3).map(a => <Row key={a.id} icon={articleIcon(a)} title={a.title} sub={`${catName(a.cat)} · ${t('{n} Min.', { n: a.minutes })}`} onClick={() => open({ k: 'wiki', item: a })} right={read.has(a.id) ? <Check size={18} className="text-done shrink-0" /> : undefined} />)}</div>
+                  <div className="p-3"><button onClick={() => open({ k: 'area', key: ar.key })} className={`w-full h-11 rounded-[14px] text-[15.5px] font-semibold ${TONE.note.bg} ${TONE.note.fg}`}>{ar.items.length === 1 ? t('Artikel öffnen') : t('Alle {n} Artikel öffnen', { n: ar.items.length })}</button></div>
+                </div>}
+              </div> })}</div>
+          </Fold>
+          <Fold id="meist" tone="learn" icon={Flame} title={t('Meistgelesen')} sub={t('Was das Team am meisten liest')}>
+            {popular.length ? rows(popular, a => `${catName(a.cat)} · ${t('{n} Min.', { n: a.minutes })}`) : <p className="px-2 pb-2 text-[15px] text-ink/70">{t('Noch keine Zahlen. Sobald das Team liest, erscheint es hier.')}</p>}
+          </Fold>
+          {/* Onboarding nur, solange es nicht fertig ist; danach im Menü (Renée 27.10.) */}
+          {steps.length > 0 && !obComplete && <button onClick={() => open({ k: 'onboarding' })} className="w-full rounded-[22px] bg-white p-4 text-left">
             <span className="flex items-center gap-3"><span className={`w-12 h-12 rounded-[14px] flex items-center justify-center shrink-0 ${TONE.learn.bg} ${TONE.learn.fg}`}><GraduationCap size={22} /></span>
               <span className="flex-1 min-w-0"><span className="block text-[17px] font-semibold">{t('Onboarding für Neue')}</span><span className="block text-[14.5px] text-mute mt-0.5">{t('{d} von {n} Schritten erledigt', { n: steps.length, d: steps.filter(x => obDone.has(x.id)).length })}</span></span>
               <ChevronRight size={18} className="text-sage-400 shrink-0" /></span>
             <span className="block mt-3"><Bar value={steps.filter(x => obDone.has(x.id)).length} total={steps.length} tone="learn" /></span>
           </button>}
-          <Label action={<span className="text-[13px] text-mute">{t('{n} Bereiche', { n: areas.length })}</span>}>{t('Hauptbereiche')}</Label>
-          <div className="space-y-3">{areas.map(ar => { const look = AREA_LOOK[ar.key], Icon = look.icon
-            return <button key={ar.key} onClick={() => open({ k: 'area', key: ar.key })} className="w-full rounded-[20px] bg-white p-4 text-left">
-              <span className="flex items-start gap-3.5">
-                <span className={`w-12 h-12 rounded-[14px] flex items-center justify-center shrink-0 ${TONE[look.tone].bg} ${TONE[look.tone].fg}`}><Icon size={22} /></span>
-                <span className="flex-1 min-w-0"><span className="block text-[18px] font-semibold leading-tight">{t(ar.name)}</span><span className="block text-[15px] text-mute mt-0.5 leading-snug">{t(ar.desc)}</span></span>
-                <ChevronRight size={18} className="text-sage-400 shrink-0 mt-1" />
-              </span>
-              <span className="mt-3 flex flex-wrap gap-1.5">{ar.cats.slice(0, 4).map(c => <span key={c} className="px-2.5 py-1 rounded-full bg-sage-50 text-[13.5px] text-ink/75">{catName(c)}</span>)}</span>
-              <span className="mt-3 flex items-center gap-3"><span className="flex-1"><Bar value={ar.done} total={ar.items.length} /></span><span className="text-[14px] font-semibold tabular-nums">{pct(ar.done, ar.items.length)} %</span><span className="text-[13.5px] text-mute tabular-nums">{t('{a} von {b} gelesen', { a: ar.done, b: ar.items.length })}</span></span>
-            </button> })}</div>
-          {popular.length > 0 && <><Label>{t('Meistgelesen')}</Label>
-            <List>{popular.map(a => <Row key={a.id} icon={articleIcon(a)} title={a.title} sub={`${catName(a.cat)} · ${t('{n} Min.', { n: a.minutes })}`} onClick={() => open({ k: 'wiki', item: a })} right={read.has(a.id) ? <Check size={18} className="text-done shrink-0" /> : undefined} />)}</List></>}
-        </>}
+        </div>}
         {q && <><Label>{t('{n} Treffer', { n: hits.length })}</Label>
           {hits.length > 0 && <List>{hits.slice(0, 60).map(a => <Row key={a.id} icon={articleIcon(a)} title={a.title} sub={`${catName(a.cat)} · ${t('{n} Min.', { n: a.minutes })}`} onClick={() => open({ k: 'wiki', item: a })} right={read.has(a.id) ? <Check size={18} className="text-done shrink-0" /> : undefined} />)}</List>}
           {hits.length === 0 && <p className="text-[15.5px] text-mute">{t('Nichts gefunden. Frag {name} oder schick eine Idee ans Büro.', { name: ASSISTANT })}</p>}
@@ -715,7 +764,7 @@ function Wiki({ open }: { open: (s: Sub) => void }) {
 function WikiArea({ k, open }: { k: string; open: (s: Sub) => void }) {
   const { t, wiki } = useApp()
   const { read, runs } = useWikiRuns()
-  const ar = AREAS.find(x => x.key === k)!, look = AREA_LOOK[k], Icon = look.icon
+  const ar = AREAS.find(x => x.key === k) ?? AREAS[0], look = areaLook(k), Icon = look.icon
   const items = wiki.filter(a => a.published && !a.fromNews && areaOf(a.catKey, a.title) === k)
   const cats = [...new Set(items.map(a => a.cat))].sort((x, y) => items.filter(a => a.cat === y).length - items.filter(a => a.cat === x).length)
   const [c, setC] = useState('Alle'), [q, setQ] = useState('')
@@ -847,16 +896,9 @@ function WikiDetail({ a, preview }: { a: WikiArticle; preview?: WikiPreviewData 
   // Kurze nummerierte Listen ohne Zusatztext werden eine Folie mit Liste und zählen nicht als abhakbare Schritte
   const shortList = (f: { from: number; to: number }) => plan.steps.slice(f.from, f.to).every(x => x.key.startsWith('o') && !x.title && !x.parts && !x.media && (x.text ?? '').length <= 90)
   const tickSteps = mode !== 'steps' ? plan.steps : plan.flow.flatMap(f => 'from' in f && !shortList(f) ? plan.steps.slice(f.from, f.to) : [])
-  const total = tickSteps.length, doneN = tickSteps.filter(x => ticked.has(x.key)).length
+  // Kein Abhaken je Folie mehr (28.10., Matteo: einmal am Schluss reicht); die Schritte zählen nur noch für die Folien
+  const total = tickSteps.length
   const timesDone = runs.get(a.id) ?? 0
-  const tick = async (k: string) => {
-    const next = new Set(tickedRef.current); if (next.has(k)) next.delete(k); else next.add(k)
-    setTicked(next)
-    if (total && tickSteps.every(x => next.has(x.key)) && supabase && me.id && !a.fromNews && !preview) {
-      const { error } = await supabase.from('wiki_runs').insert({ article_id: a.id, employee_id: me.id, kind: 'durchgang' })
-      if (!error) { toast(t('Durchgang gespeichert. Gut gemacht!')); reloadRuns(); setTimeout(() => setTicked(new Set()), 1200) }
-    }
-  }
   const confirmRead = async () => {
     if (preview) { toast(t('Vorschau: hier wird nichts bestätigt')); return }
     if (!supabase || !me.id || a.fromNews) return
@@ -895,7 +937,7 @@ function WikiDetail({ a, preview }: { a: WikiArticle; preview?: WikiPreviewData 
   }
   const isRead = read.has(a.id)
   const area = areaOf(a.catKey, a.title)
-  const look = AREA_LOOK[area] ?? AREA_LOOK.studio, LookIcon = look.icon
+  const look = areaLook(area), LookIcon = look.icon
   // Folien (Vorlage der Inhaberin 26.10.): Galerie oben, wichtigste Info im Balken, Text und Video darunter
   const items: SlideItem[] = !blocks ? (shown ? shown.body.split(/\n\n+/).filter(Boolean).map(text => ({ k: 'block' as const, b: { t: 'p' as const, text } })) : [])
     : mode === 'sections' ? blocks.flatMap((b, i): SlideItem[] => b.t === 'h' ? [{ k: 'section', key: 'h' + i, no: plan.steps.findIndex(x => x.key === 'h' + i) + 1, title: b.text ?? '' }] : expandList(b, 'b' + i))
@@ -936,8 +978,10 @@ function WikiDetail({ a, preview }: { a: WikiArticle; preview?: WikiPreviewData 
     : x.k === 'check' ? checklist(x.items, 5000 + x.key, x.title)
     : x.b.t === 'ul' && mode !== 'plain' ? checklist(x.b.items ?? [], blocks ? blocks.indexOf(x.b) : i)
     : block(x.b, blocks ? blocks.indexOf(x.b) : i, x.b.t !== 'quote')
-  const on = cur.stepKey ? ticked.has(cur.stepKey) : false
   const next = slides[idx + 1]
+  // Bestätigen wird erst 1,2 s nach dem Ankommen auf der letzten Folie aktiv
+  const [armed, setArmed] = useState(false)
+  useEffect(() => { if (next) { setArmed(false); return } const tm = setTimeout(() => setArmed(true), 1200); return () => clearTimeout(tm) }, [idx, !!next]) // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <article className="pb-4">
       <div ref={topRef} className="scroll-mt-2 md:px-5 md:pt-2">
@@ -992,18 +1036,23 @@ function WikiDetail({ a, preview }: { a: WikiArticle; preview?: WikiPreviewData 
           {lang !== 'DE' && !a.fromNews && <p className="mt-2 text-[14.5px] text-mute">{tr8 === 'loading' ? t('Wird übersetzt …') : tr8 === 'failed' ? t('Übersetzung gerade nicht möglich, Original wird angezeigt.') : <button onClick={() => setOrig(!orig)} className="text-olive-700">{orig ? t('Übersetzung anzeigen') : t('Automatisch übersetzt · Original')}</button>}</p>}
           {!full && <p className="mt-6 text-mute">{t('Lädt …')}</p>}
         </>}
-        {cur.stepKey && total > 0 && <p className="mt-4 text-[14px] text-mute tabular-nums">{t('{a} von {b} erledigt', { a: doneN, b: total })}</p>}
         {cur.body.length > 0 && <div className="mt-4 space-y-3 text-[17.5px] leading-relaxed">{cur.body.map(bodyItem)}</div>}
-        {cur.stepKey && <div className="mt-4 flex justify-end"><button onClick={() => { const was = on; tick(cur.stepKey!); if (!was && next) setTimeout(() => go(idx + 1, true), 350) }} className={`h-11 px-4 rounded-full text-[15.5px] font-medium flex items-center gap-1.5 ${on ? `${TONE.done.bg} ${TONE.done.fg}` : 'bg-white text-ink/80'}`}>{on ? <><Check size={16} />{t('Erledigt')}</> : <><Circle size={16} />{t('Als erledigt markieren')}</>}</button></div>}
         {cur.kind === 'quiz' && quiz && <QuizRunner quiz={quiz} onPassed={reloadRuns} />}
-        {/* Eine Zeile am Ende: zurück, weiter, auf der letzten Folie bestätigen (Aleksa 26.10.: nichts doppelt, nichts fest am Rand) */}
-        {(next || !a.fromNews) && <div className={`mt-6 grid gap-2 ${idx > 0 && (next || isRead || !quiz || quizPassed) ? 'grid-cols-2' : 'grid-cols-1'}`}>
-          {idx > 0 && <button onClick={() => go(idx - 1, true)} className="h-12 px-3 rounded-[16px] bg-white text-[15.5px] font-medium flex items-center justify-center gap-1.5"><ChevronLeft size={17} />{idx === 1 ? t('Zum Anfang') : t('Zurück')}</button>}
+        {/* Zurück und Weiter; auf der letzten Folie bleibt rechts eine Lücke (28.10., Matteo: „Gelesen & bestätigen“ stand genau
+            dort, wo vorher „Weiter“ war, und wer schnell durchtippte, bestätigte aus Versehen) */}
+        {(idx > 0 || next) && <div className="mt-6 grid grid-cols-2 gap-2">
+          {idx > 0 ? <button onClick={() => go(idx - 1, true)} className="h-12 px-3 rounded-[16px] bg-white text-[15.5px] font-medium flex items-center justify-center gap-1.5"><ChevronLeft size={17} />{idx === 1 ? t('Zum Anfang') : t('Zurück')}</button> : <span />}
           {next ? <button onClick={() => go(idx + 1, true)} className="h-12 px-3 rounded-[16px] bg-olive-800 text-white text-[15.5px] font-semibold flex items-center justify-center gap-1.5 min-w-0"><span className="truncate">{next.kind === 'quiz' ? t('Zum Test') : next.kicker?.k === 'step' ? t('Zu Schritt {n}', { n: next.kicker.no }) : t('Weiter')}</span><ChevronRight size={17} className="shrink-0" /></button>
-            : isRead ? <div className={`h-12 rounded-[16px] flex items-center justify-center gap-2 font-semibold ${TONE.done.bg} ${TONE.done.fg}`}><Check size={18} />{t('Bestätigt')}</div>
-            : quiz && !quizPassed ? null
-            : full && <button disabled={busy} onClick={confirmRead} className="h-12 px-3 rounded-[16px] bg-olive-800 text-white text-[15.5px] font-semibold flex items-center justify-center gap-1.5 disabled:opacity-60"><Check size={17} />{t('Gelesen & bestätigen')}</button>}
+            : <span className="h-12 rounded-[16px] border border-dashed border-sage-200 flex items-center justify-center text-[14px] text-mute">{t('Ende')}</span>}
         </div>}
+        {/* Einmal bestätigen am Schluss, abgesetzt und erst kurz nach dem Ankommen auf der letzten Folie aktiv */}
+        {!next && !a.fromNews && (isRead ? <div className={`mt-5 h-12 rounded-[16px] flex items-center justify-center gap-2 font-semibold ${TONE.done.bg} ${TONE.done.fg}`}><Check size={18} />{t('Gelesen und bestätigt')}</div>
+          : quiz && !quizPassed ? null
+          : full && <div className="mt-5 rounded-[20px] bg-white p-4">
+            <p className="text-[16px] font-semibold">{t('Alles gelesen?')}</p>
+            <p className="mt-0.5 text-[14.5px] text-mute">{t('Bestätige, dass du den Artikel gelesen hast. Das zählt für deinen Fortschritt.')}</p>
+            <button disabled={busy || !armed} onClick={confirmRead} className="mt-3 w-full h-12 px-3 rounded-[14px] bg-done text-white text-[15.5px] font-semibold flex items-center justify-center gap-1.5 disabled:opacity-50 transition-opacity"><Check size={17} />{t('Gelesen & bestätigen')}</button>
+          </div>)}
       </div>
       {play && <ViewportOverlay label={t('Video')} onClose={() => setPlay(null)} className="bg-black flex items-center justify-center">
         {play.src ? <video src={urls[play.src] ?? (/^https?:/.test(play.src) ? play.src : undefined)} controls autoPlay playsInline className="max-w-full max-h-full" />
@@ -1058,8 +1107,9 @@ function Onboarding({ open }: { open: (s: Sub) => void }) {
 
 /* ---------- Menü ---------- */
 function MenuView({ open, onLogout }: { open: (s: Sub) => void; onLogout: () => void }) {
-  const { me, t, tickets, news, read, staff } = useApp()
+  const { me, t, tickets, news, read, staff, steps, obDone } = useApp()
   const mailUnread = useMailUnread()
+  const obComplete = useOnboardingComplete()
   const unread = live(news).filter(n => n.mustRead && !read.has(n.id)).length
   const tiles: [string, string, typeof Users, Sub][] = [
     ['News', unread ? t('{n} ungelesen', { n: unread }) : t('alles gelesen'), Newspaper, { k: 'news-list' }], ['Kalender', t('Termine, Schulungen und Events'), CalendarDays, { k: 'events' }],
@@ -1068,6 +1118,8 @@ function MenuView({ open, onLogout }: { open: (s: Sub) => void; onLogout: () => 
     ['Posteingang', mailUnread ? t('{n} ungelesen', { n: mailUnread }) : t('Deine Firmen-Mails'), Mail, { k: 'inbox' }],
     ['Zeit & Ferien', t('Stempeluhr, Ferien, Arbeitszeit'), Plane, { k: 'time' }],
     ['App & Mitteilungen', t('Auf deinem Handy einrichten'), Smartphone, { k: 'install' }],
+    // Onboarding bleibt nachlesbar, auch wenn es im Wissen nicht mehr erscheint (Renée 27.10.)
+    ...(steps.length ? [['Onboarding', obComplete ? t('Abgeschlossen') : t('{d} von {n} Schritten erledigt', { n: steps.length, d: steps.filter(x => obDone.has(x.id)).length }), GraduationCap, { k: 'onboarding' }] as [string, string, typeof Users, Sub]] : []),
   ]
   return (
     <div className="pb-10"><Title>{t('Menü')}</Title>
@@ -1462,9 +1514,9 @@ export const Status = ({ s }: { s: string }) => {
   return <span className="inline-flex items-center gap-1.5 text-ink/80"><span className={`w-[7px] h-[7px] rounded-full ${c}`} />{tr(s)}</span>
 }
 
-function Events() {
+function Events({ focus }: { focus?: string }) {
   const { t } = useApp()
-  return <div className="pb-10"><Title sub={t('Deine Termine und Schulungen')}>{t('Mein Kalender')}</Title><div className="px-5"><EventCalendar /></div></div>
+  return <div className="pb-10"><Title sub={t('Deine Termine und Schulungen')}>{t('Mein Kalender')}</Title><div className="px-5"><EventCalendar focus={focus} /></div></div>
 }
 
 

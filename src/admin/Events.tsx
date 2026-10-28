@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Bell, ChevronRight, Pencil, Trash2 } from 'lucide-react'
+import { Bell, ChevronRight, ImagePlus, Pencil, Trash2 } from 'lucide-react'
 import { useApp, isoDay, fmtDate, fmtTime, type Ev } from '../store'
 import { supabase } from '../lib/supabase'
 import { notifyNow } from '../lib/push'
@@ -166,9 +166,22 @@ function EventForm({ ev, onClose }: { ev: Ev | null; onClose: () => void }) {
   const [f, setF] = useState({
     title: ev?.raw.title ?? '', kind: ev?.kind ?? 'Schulung', description: ev?.raw.description ?? '', date: ev ? day(ev.startsAt) : '', from: ev ? tm(ev.startsAt) : '09:00', to: ev?.endsAt ? tm(ev.endsAt) : '',
     place: ev?.raw.place ?? '', link: ev?.link ?? '', capacity: ev?.capacity ? String(ev.capacity) : '', until: ev?.registerUntil ? day(ev.registerUntil) : '',
-    people: ev?.audiencePeople ?? [], phorestSync: ev?.phorestSync ?? false, phorestPaid: ev?.phorestPaid ?? true, branches: ev?.audienceBranches ?? (office ? [] : [me.branch_id]), skills: ev?.audienceSkills ?? [],
+    image: ev?.imagePath ?? '', people: ev?.audiencePeople ?? [], phorestSync: ev?.phorestSync ?? false, phorestPaid: ev?.phorestPaid ?? true, branches: ev?.audienceBranches ?? (office ? [] : [me.branch_id]), skills: ev?.audienceSkills ?? [],
   })
   const [err, setErr] = useState(''), [busy, setBusy] = useState(false), [personQuery, setPersonQuery] = useState('')
+  // Bild der Schulung (28.10., Renée): erscheint in den Neuigkeiten auf der Startseite und im Kalender
+  const [preview, setPreview] = useState<string | null>(ev?.image ?? null), [uploading, setUploading] = useState(false)
+  const photo = async (file?: File) => {
+    if (!file) return
+    if (!file.type.startsWith('image/')) { setErr('Bitte ein Foto wählen.'); return }
+    if (file.size > 25 * 1024 * 1024) { setErr('Das Foto ist grösser als 25 MB.'); return }
+    setUploading(true); setErr('')
+    const path = `events/${isoDay()}-${crypto.randomUUID().slice(0, 8)}.${(file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '')}`
+    const { error } = await supabase!.storage.from('media').upload(path, file, { contentType: file.type })
+    setUploading(false)
+    if (error) { setErr('Das Foto konnte nicht hochgeladen werden.'); return }
+    setF(v => ({ ...v, image: path })); setPreview(URL.createObjectURL(file))
+  }
   const save = async () => {
     if (!f.title.trim() || !f.date) { setErr('Titel und Datum sind nötig.'); return }
     if (f.phorestSync && !f.to) { setErr('Für Phorest ist eine Endzeit nötig.'); return }
@@ -177,7 +190,7 @@ function EventForm({ ev, onClose }: { ev: Ev | null; onClose: () => void }) {
     const at = (d: string, t: string) => new Date(`${d}T${t}:00`).toISOString()
     const row = { title: f.title.trim(), kind: f.kind, description: f.description.trim(), starts_at: at(f.date, f.from), ends_at: f.to ? at(f.date, f.to) : null,
       place: f.place.trim(), link: f.link.trim() || null, capacity: f.capacity ? Number(f.capacity) : null, register_until: f.until ? new Date(f.until + 'T23:59:00').toISOString() : null,
-      audience_branches: f.branches, audience_skills: f.skills, audience_people: f.people, phorest_sync: f.phorestSync, phorest_paid: f.phorestPaid }
+      audience_branches: f.branches, audience_skills: f.skills, audience_people: f.people, phorest_sync: f.phorestSync, phorest_paid: f.phorestPaid, image_path: f.image || null }
     setBusy(true)
     const { error } = ev ? await supabase!.from('events').update(row).eq('id', ev.id) : await supabase!.from('events').insert({ ...row, created_by: employee.id })
     setBusy(false)
@@ -199,6 +212,10 @@ function EventForm({ ev, onClose }: { ev: Ev | null; onClose: () => void }) {
         <Field label="Anmeldung bis"><input type="date" value={f.until} onChange={x => setF({ ...f, until: x.target.value })} className={inpStone} /></Field>
       </div>
       <div className="mt-3"><Field label="Online-Link (optional)"><input value={f.link} onChange={x => setF({ ...f, link: x.target.value })} placeholder="https://…" className={inpStone} /></Field></div>
+      <div className="mt-3"><span className="block text-xs text-mute mb-1.5">Bild (optional, erscheint auf der Startseite)</span>
+        {preview ? <div className="relative w-full max-w-[360px]"><img src={preview} alt="" className="w-full aspect-[16/9] object-cover rounded-[12px]" /><button onClick={() => { setF({ ...f, image: '' }); setPreview(null) }} className="absolute top-2 right-2 h-8 px-3 rounded-[8px] bg-white/90 text-[13px]">Bild entfernen</button></div>
+          : <label className={`${btn2} inline-flex items-center gap-1.5 cursor-pointer ${uploading ? 'opacity-50 pointer-events-none' : ''}`}><ImagePlus size={15} />{uploading ? 'Lädt hoch …' : 'Foto wählen'}<input type="file" accept="image/*" className="hidden" onChange={e => { const file = e.target.files?.[0]; e.target.value = ''; void photo(file) }} /></label>}
+      </div>
       <div className="mt-3"><Field label="Beschreibung"><textarea value={f.description} onChange={x => setF({ ...f, description: x.target.value })} rows={3} placeholder="Inhalt, was mitbringen, für wen" className="w-full rounded-[10px] bg-sage-50 px-3 py-2.5 text-[14px] outline-none resize-none" /></Field></div>
       <div className="mt-4 rounded-[12px] bg-sage-50 p-3 text-[13px]"><label className="flex gap-2 items-center"><input type="checkbox" checked={f.phorestSync} onChange={x => setF({ ...f, phorestSync: x.target.checked })} />Bestätigte Teilnahmen in Phorest eintragen</label><p className="mt-1 text-mute">Schulungen und Meetings erscheinen als interne Kalendersperre, ohne Kundenbuchung. Änderungen und Absagen werden abgeglichen. Eine Endzeit ist erforderlich.</p>{f.phorestSync && <label className="mt-3 flex gap-2 items-center"><input type="checkbox" checked={f.phorestPaid} onChange={x => setF({ ...f, phorestPaid: x.target.checked })} />In Phorest als bezahlte Zeit markieren</label>}</div>
       <div className="mt-4"><span className="block text-xs text-mute mb-1.5">Für {office ? '(kein Studio = alle)' : ''}</span><Chips tone="stone" items={own.map(b => ({ value: b.id, label: b.name }))} value={f.branches} onChange={v => setF({ ...f, branches: v })} /></div>

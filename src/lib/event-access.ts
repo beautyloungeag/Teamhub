@@ -5,3 +5,6 @@ export function assignedToEvent(person: { id: string; app_role: string; branch_i
     && (!event.audienceSkills.length || person.skills.some(s => event.audienceSkills.includes(s)))
     && (!event.audiencePeople.length || event.audiencePeople.includes(person.id))
 }
+
+/** Bild einer Schulung oder eines Events ohne eigenes Foto (28.10., Renée: „Schulungen sollten auch mit Bild abgebildet werden“) */
+export const eventPhoto = (kind: string) => kind === 'Schulung' ? '/login-studio.webp' : kind === 'Team' ? '/hero-empfang.jpg' : '/hero-studio.jpg'
