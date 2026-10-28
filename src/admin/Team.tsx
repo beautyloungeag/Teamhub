@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { captureAccountScope, isCurrentAccountScope } from '../lib/account-scope'
 import { postgresTextArray, profilePatch, type EditableProfile, type ProfileDraft } from '../lib/person-profile-draft'
-import { ArrowLeft, ChevronLeft, ChevronRight, Search, Smartphone, Bell, X } from 'lucide-react'
-import { useApp, addDays, fmtDate, inNewsAudience, type Staff } from '../store'
+import { ArrowLeft, ChevronLeft, ChevronRight, Search, Smartphone, Bell, Trash2, X } from 'lucide-react'
+import { useApp, addDays, isoDay, fmtDate, inNewsAudience, type Staff } from '../store'
 import { supabase } from '../lib/supabase'
 import { phorest, type StaffWeek } from '../lib/phorest'
 import { Avatar } from '../People'
@@ -19,6 +19,9 @@ export const call = async (body: Record<string, unknown>) => {
   try { return (await (error as { context?: Response }).context?.json()) ?? { ok: false, error: 'failed' } } catch { return { ok: false, error: 'failed' } }
 }
 export const ROLE: Record<string, string> = { mitarbeiterin: 'Mitarbeiterin', filialleitung: 'Filialleitung', buero: 'Büro' }
+// Lehrling und Praktikantin (28.10., Matteo): dürfen dasselbe wie Mitarbeiterinnen, sind aber eigens filterbar (employees.staff_kind)
+export const ROLE5: Record<string, string> = { mitarbeiterin: 'Mitarbeiterin', lehrling: 'Lehrling', praktikantin: 'Praktikantin', filialleitung: 'Filialleitung', buero: 'Büro' }
+export const roleKey = (p: Staff) => p.app_role === 'mitarbeiterin' ? p.kind ?? 'mitarbeiterin' : p.app_role
 
 export function TeamAdmin() {
   const { staff, branches, me } = useApp()
@@ -26,15 +29,15 @@ export function TeamAdmin() {
   const myB = [me.branch_id, ...(me.extra ?? [])].filter(x => x !== 'buero')
   const studios = branches.filter(x => office || myB.includes(x.id))
   const visible = staff.filter(s => office || myB.some(x => inBranch(s, x)))
-  const [q, setQ] = useState(''), [fn, setFn] = useState(''), [br, setBr] = useState(''), [sk, setSk] = useState(''), [st, setSt] = useState('aktiv')
+  const [q, setQ] = useState(''), [fn, setFn] = useState(''), [br, setBr] = useState(''), [sk, setSk] = useState(''), [st, setSt] = useState('aktiv'), [rl, setRl] = useState('')
   const [sel, setSel] = useState<string | null>(null), [create, setCreate] = useState(false), [catalog, setCatalog] = useState(false)
   const roles = [...new Set(visible.map(s => s.role).filter(Boolean))].sort()
   const skills = [...new Set(visible.flatMap(s => s.skills))].sort()
   const list = useMemo(() => visible.filter(s =>
-    (st === 'alle' || (st === 'aktiv' ? s.active : !s.active)) && (!fn || s.role === fn) && (!br || inBranch(s, br))
+    (st === 'alle' || (st === 'aktiv' ? s.active : !s.active)) && (!fn || s.role === fn) && (!br || inBranch(s, br)) && (!rl || roleKey(s) === rl)
     && (!sk || (sk === '-' ? s.skills.length === 0 : s.skills.includes(sk)))
     && `${s.first} ${s.last} ${s.role} ${s.email} ${s.skills.join(' ')}`.toLowerCase().includes(q.toLowerCase())
-  ).sort((a, b) => a.first.localeCompare(b.first)), [visible, q, fn, br, sk, st])
+  ).sort((a, b) => a.first.localeCompare(b.first)), [visible, q, fn, br, sk, st, rl])
   const idx = list.findIndex(s => s.id === sel)
   const person = visible.find(s => s.id === sel)
 
@@ -49,6 +52,7 @@ export function TeamAdmin() {
     <div className="flex flex-wrap gap-2 mb-2">
       <div className="h-10 flex-1 min-w-[240px] rounded-[10px] bg-sage-50 px-3 flex items-center gap-2"><Search size={16} className="text-mute" /><input value={q} onChange={e => setQ(e.target.value)} placeholder="Name, E-Mail oder Skill" className="flex-1 outline-none text-[14px] bg-transparent" />{q && <button onClick={() => setQ('')} className="text-mute"><X size={14} /></button>}</div>
       <Select tone="stone" className="w-48" value={fn} onChange={setFn} options={[{ value: '', label: 'Alle Funktionen' }, ...roles.map(r => ({ value: r, label: r }))]} />
+      <Select tone="stone" className="w-40" value={rl} onChange={setRl} options={[{ value: '', label: 'Alle Rollen' }, ...Object.entries(ROLE5).map(([value, label]) => ({ value, label }))]} />
       {studios.filter(x => !x.is_office).length > 1 && <Select tone="stone" className="w-40" value={br} onChange={setBr} options={[{ value: '', label: 'Alle Studios' }, ...studios.map(x => ({ value: x.id, label: x.name }))]} />}
       <Select tone="stone" className="w-44" value={sk} onChange={setSk} options={[{ value: '', label: 'Alle Skills' }, { value: '-', label: 'Ohne Skills' }, ...skills.map(k => ({ value: k, label: k }))]} />
       <Select tone="stone" className="w-36" value={st} onChange={setSt} options={[{ value: 'aktiv', label: 'Aktiv' }, { value: 'inaktiv', label: 'Deaktiviert' }, { value: 'alle', label: 'Alle' }]} />
@@ -59,7 +63,7 @@ export function TeamAdmin() {
         {list.length === 0 && <tr><td colSpan={6} className="px-4 py-6 text-mute">Niemand passt zu den Filtern.</td></tr>}
         {list.map(s => <tr key={s.id} onClick={() => setSel(s.id)} className={`cursor-pointer hover:bg-sage-50/70 ${s.active ? '' : 'opacity-50'}`}>
           <td className="px-4 py-2.5"><span className="flex items-center gap-3"><Avatar s={s} photo={s.photo} size="w-8 h-8 text-[12px]" /><span>{s.first} {s.last}</span>{isTest(s) && <span className="text-xs text-mute">Testkonto</span>}</span></td>
-          <td className="px-4 text-mute">{s.role}{s.app_role !== 'mitarbeiterin' && <span className="ml-2 text-xs text-olive-700">{ROLE[s.app_role]}</span>}</td>
+          <td className="px-4 text-mute">{s.role}{roleKey(s) !== 'mitarbeiterin' && <span className="ml-2 text-xs text-olive-700">{ROLE5[roleKey(s)]}</span>}</td>
           <td className="px-4 text-mute">{s.branch}</td>
           <td className="px-4">{s.skills.length ? <span className="flex flex-wrap gap-1">{s.skills.slice(0, 3).map(k => <span key={k} className="px-2 h-6 rounded-[6px] bg-sage-50 text-[12px] flex items-center">{k}</span>)}{s.skills.length > 3 && <span className="text-[12px] text-mute self-center">+{s.skills.length - 3}</span>}</span> : <span className="text-[13px] text-brass">noch keine</span>}</td>
           <td className="px-4"><span className="flex gap-2 text-mute" title={`${s.appInstalled ? 'App installiert' : 'App nicht installiert'} · ${s.pushEnabled ? 'Mitteilungen an' : 'Mitteilungen aus'}`}><Smartphone size={15} className={s.appInstalled ? 'text-olive-700' : 'text-sage-200'} /><Bell size={15} className={s.pushEnabled ? 'text-olive-700' : 'text-sage-200'} /></span></td>
@@ -201,7 +205,7 @@ function PersonPage({ p, pos, onBack, onStep }: { p: Staff; pos: { i: number; n:
         <h1 className="text-[30px] leading-tight">{p.first} {p.last}</h1>
         <p className="text-[14px] text-mute mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
           <span>{p.role} · {p.branch}</span>
-          {p.app_role !== 'mitarbeiterin' && <span className="text-olive-700">{ROLE[p.app_role]}</span>}
+          {roleKey(p) !== 'mitarbeiterin' && <span className="text-olive-700">{ROLE5[roleKey(p)]}</span>}
           {p.active ? <Dot tone="ok">Aktiv</Dot> : <Dot tone="mute">Deaktiviert</Dot>}
           {isTest(p) && <span>Testkonto</span>}
         </p>
@@ -214,8 +218,9 @@ function PersonPage({ p, pos, onBack, onStep }: { p: Staff; pos: { i: number; n:
           <DataRow label="Telefon" value={p.phone || 'keine Nummer hinterlegt'} muted={!p.phone} copy={p.phone} href={p.phone ? `tel:${p.phone.replace(/\s/g, '')}` : undefined} />
           <DataRow label="E-Mail" value={p.email} copy={p.email} href={`mailto:${p.email}`} />
           <DataRow label="Studio" value={[p.branch, ...(p.extra ?? []).map(b => branches.find(x => x.id === b)?.name).filter(Boolean)].join(', ')} />
-          <DataRow label="Rolle" value={me.app_role === 'buero' && p.id !== me.id ? <RoleSelect p={p} /> : ROLE[p.app_role] ?? p.app_role} />
+          <DataRow label="Rolle" value={(me.app_role === 'buero' || (canEditProfile && p.app_role === 'mitarbeiterin')) && p.id !== me.id ? <RoleSelect p={p} /> : ROLE5[roleKey(p)] ?? p.app_role} />
         </Section>
+        <Deputy p={p} canEdit={canEditProfile || (office && !self)} />
         <section><p className="text-[15px] font-medium mb-2">Skills</p>
           <div className="flex flex-wrap gap-1.5">{skillCatalog.map(k => <button key={k} onClick={() => tog(k)} disabled={!canEditProfile || skillBusy} className={`disabled:opacity-60 px-3 h-9 rounded-[10px] text-[13.5px] transition ${skills.includes(k) ? 'bg-olive-700 text-white' : 'bg-sage-50 text-ink/80 hover:bg-sage-100'}`}>{k}</button>)}</div>
           <p className="mt-2 text-[12.5px] text-mute">{canEditProfile ? 'Antippen zum Vergeben oder Entfernen. Wird sofort gespeichert.' : 'Funktion und Skills pflegt eine andere berechtigte Leitung oder das Büro.'}</p>
@@ -260,20 +265,64 @@ function PersonPage({ p, pos, onBack, onStep }: { p: Staff; pos: { i: number; n:
   </>)
 }
 
-/** Rolle einer Person ändern (nur Büro, nie die eigene). Was jede Rolle darf: Einstellungen → Rollen. */
+/** Rolle einer Person ändern (Büro für alle ausser sich selbst; Filialleitung nur zwischen Mitarbeiterin, Lehrling und Praktikantin) */
 export function RoleSelect({ p }: { p: Staff }) {
   const { reload, me } = useApp()
   const [busy, setBusy] = useState(false), flight = useRef(false)
+  const office = me.app_role === 'buero'
   const set = async (v: string) => {
     const scope = captureAccountScope(me.id)
-    if (!scope || flight.current || me.app_role !== 'buero' || p.id === me.id || v === p.app_role || !confirm(`${p.first} ${p.last} bekommt die Rolle ${ROLE[v]}. Fortfahren?`)) return
+    if (!scope || flight.current || p.id === me.id || v === roleKey(p) || !confirm(`${p.first} ${p.last} bekommt die Rolle ${ROLE5[v]}. Fortfahren?`)) return
     flight.current = true; setBusy(true)
     try {
-      const r = await call({ action: 'set_role', employee_id: p.id, app_role: v })
+      const sub = v === 'lehrling' || v === 'praktikantin' || v === 'mitarbeiterin'
+      const app = sub ? 'mitarbeiterin' : v
+      let ok = true
+      if (app !== p.app_role) { if (!office) return; const r = await call({ action: 'set_role', employee_id: p.id, app_role: app }); ok = !!r?.ok }
+      if (ok) { const { error } = await supabase!.from('employees').update({ staff_kind: sub && v !== 'mitarbeiterin' ? v : null, updated_at: new Date().toISOString() }).eq('id', p.id).abortSignal(scope.signal); ok = !error }
       if (!isCurrentAccountScope(scope)) return
-      toast(r?.ok ? `Rolle ist jetzt ${ROLE[v]}` : 'Das hat nicht geklappt', r?.ok ? 'ok' : 'error'); await reload()
+      toast(ok ? `Rolle ist jetzt ${ROLE5[v]}` : 'Das hat nicht geklappt', ok ? 'ok' : 'error'); await reload()
     } catch { if (isCurrentAccountScope(scope)) toast('Das hat nicht geklappt', 'error') }
     finally { flight.current = false; if (isCurrentAccountScope(scope)) setBusy(false) }
   }
-  return <Select compact className="w-44" disabled={busy || me.app_role !== 'buero' || p.id === me.id} value={p.app_role} onChange={set} options={Object.entries(ROLE).map(([value, label]) => ({ value, label }))} />
+  const opts = Object.entries(ROLE5).filter(([k]) => office || ['mitarbeiterin', 'lehrling', 'praktikantin'].includes(k))
+  return <Select compact className="w-44" disabled={busy || p.id === me.id} value={roleKey(p)} onChange={set} options={opts.map(([value, label]) => ({ value, label }))} />
+}
+
+/** Stellvertretung (28.10., Matteo): Ersatzperson und Abwesenheiten. Während einer Abwesenheit gehen Aufgaben und
+ *  Checklisten-Hinweise automatisch an die Ersatzperson. */
+function Deputy({ p, canEdit }: { p: Staff; canEdit: boolean }) {
+  const { staff, absences, reload, reloadAbsences, me } = useApp()
+  const deputy = p.deputyId ? staff.find(s => s.id === p.deputyId) : null
+  const mine = absences.filter(a => a.employeeId === p.id).sort((a, b) => a.from.localeCompare(b.from))
+  const today = isoDay()
+  const now = mine.find(a => a.from <= today && a.until >= today)
+  const [from, setFrom] = useState(''), [until, setUntil] = useState(''), [note, setNote] = useState(''), [busy, setBusy] = useState(false)
+  const setDeputy = async (id: string) => {
+    const { error } = await supabase!.from('employees').update({ deputy_id: id || null, updated_at: new Date().toISOString() }).eq('id', p.id)
+    if (error) { toast('Das hat nicht geklappt', 'error'); return }
+    toast(id ? 'Ersatzperson gespeichert' : 'Ersatzperson entfernt'); await reload()
+  }
+  const add = async () => {
+    if (!from) return
+    setBusy(true)
+    const { error } = await supabase!.from('employee_absences').insert({ employee_id: p.id, from_day: from, until_day: until && until >= from ? until : from, note: note.trim(), created_by: me.id })
+    setBusy(false)
+    if (error) { toast('Das hat nicht geklappt', 'error'); return }
+    setFrom(''); setUntil(''); setNote(''); toast('Abwesenheit eingetragen'); await reloadAbsences()
+  }
+  const del = async (id: string) => { const { error } = await supabase!.from('employee_absences').delete().eq('id', id); if (error) { toast('Das hat nicht geklappt', 'error'); return } toast('Gelöscht'); await reloadAbsences() }
+  const fmt = (d: string) => fmtDate(d + 'T12:00:00Z', { weekday: 'short', day: 'numeric', month: 'numeric' })
+  const candidates = staff.filter(s => s.active && s.id !== p.id && s.app_role !== 'buero' || (s.active && s.id !== p.id && p.app_role === 'buero')).sort((a, b) => Number(b.branch_id === p.branch_id) - Number(a.branch_id === p.branch_id) || a.first.localeCompare(b.first))
+  return <Section title="Stellvertretung" action={now ? <Status kind="late">Heute abwesend</Status> : undefined}>
+    <DataRow label="Ersatzperson" value={canEdit ? <Select compact className="w-56" value={p.deputyId ?? ''} onChange={setDeputy} placeholder="Niemand" options={[{ value: '', label: 'Niemand' }, ...candidates.map(s => ({ value: s.id, label: `${s.first} ${s.last}`, hint: s.branch }))]} /> : deputy ? `${deputy.first} ${deputy.last}` : 'niemand'} muted={!deputy && !canEdit} />
+    {mine.map(a => <DataRow key={a.id} label="Abwesend" value={<span className="flex items-center gap-3"><span>{a.from === a.until ? fmt(a.from) : `${fmt(a.from)} bis ${fmt(a.until)}`}{a.note ? ` · ${a.note}` : ''}</span>{canEdit && <button onClick={() => del(a.id)} aria-label="Abwesenheit löschen" className="text-mute hover:text-alert"><Trash2 size={14} /></button>}</span>} />)}
+    {canEdit && <div className="mt-3 flex flex-wrap items-end gap-2 text-[13px]">
+      <label className="flex flex-col gap-1"><span className="text-mute text-xs">Abwesend von</span><input type="date" value={from} min={today} onChange={e => setFrom(e.target.value)} className="h-9 px-2 rounded-[9px] bg-sage-50 outline-none" /></label>
+      <label className="flex flex-col gap-1"><span className="text-mute text-xs">bis</span><input type="date" value={until} min={from || today} onChange={e => setUntil(e.target.value)} className="h-9 px-2 rounded-[9px] bg-sage-50 outline-none" /></label>
+      <input value={note} onChange={e => setNote(e.target.value)} placeholder="Grund (optional)" className="h-9 px-3 rounded-[9px] bg-sage-50 outline-none flex-1 min-w-[120px]" />
+      <button disabled={!from || busy} onClick={add} className={`${btn2} !h-9 disabled:opacity-50`}>Eintragen</button>
+    </div>}
+    <p className="mt-2 text-[12.5px] text-mute">{deputy ? `Ist ${p.first} abwesend, sieht ${deputy.first} ihre Aufgaben und bekommt die Mitteilungen dazu.` : `Ohne Ersatzperson bleiben die Aufgaben bei ${p.first}, auch wenn sie abwesend ist.`}</p>
+  </Section>
 }

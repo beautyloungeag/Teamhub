@@ -23,6 +23,7 @@ import { buildSlides, expandList, planArticle, type Slide, type SlideBody, type 
 import { ViewportOverlay } from './ViewportOverlay'
 import { ChatHub, ChatRoom, useChatUnread } from './Chats'
 import { assignedToEvent, eventPhoto } from './lib/event-access'
+import { celebrate } from './lib/celebrate'
 import { TimeView } from './Time'
 import { Inbox, MailRead, useMailUnread, type MailItem } from './Mail'
 import { ContactLocked } from './ContactLock'
@@ -255,7 +256,8 @@ function Today({ open, go }: { open: (s: Sub) => void; go: (t: Tab) => void }) {
   const day = useMyDay()
   const due = useDue()
   const runs = useWikiRuns()
-  const myTodos = useTodos().filter(x => isForMe(x, me) && !x.done_at)
+  const { covering } = useApp()
+  const myTodos = useTodos().filter(x => isForMe(x, me, covering.map(c => c.id)) && !x.done_at)
   const doneN = tasks.filter(x => done.has(x.id)).length
   const next = tasks.find(x => !done.has(x.id))
   const must = news.filter(n => n.mustRead && !read.has(n.id))
@@ -511,15 +513,15 @@ function NewsDetail({ n }: { n: News }) {
 // Push „neue Aufgabe für dich“ oder Tipp auf „Für dich“: Aufgaben direkt bei „Für mich“ öffnen
 let tasksView: 'me' | 'studio' | null = null
 function Tasks({ open }: { open: (s: Sub) => void }) {
-  const { me, done, toggle, t, tasks, templates, wiki } = useApp()
+  const { me, done, toggle, t, tasks, templates, wiki, covering, coverTasks } = useApp()
   const todos = useTodos()
-  const openMine = todos.filter(x => isForMe(x, me) && !x.done_at)
+  const openMine = todos.filter(x => isForMe(x, me, covering.map(c => c.id)) && !x.done_at)
   const [view, setView] = useState<'me' | 'studio'>(() => tasksView ?? (openMine.length ? 'me' : 'studio'))
   useEffect(() => { tasksView = null }, [])
   const [photoFor, setPhotoFor] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const file = useRef<HTMLInputElement>(null)
-  const run = async (id: string, f?: File) => { setBusy(id); await toggle(id, f); setBusy(null) }
+  const run = async (id: string, f?: File, el?: Element | null, br?: string) => { if (el) celebrate(el); setBusy(id); await toggle(id, f, br); setBusy(null) }
   // Listen = Vorlagen vom Büro, die heute für dieses Studio gelten; je Liste: wann sie gilt und Zeitfenster
   const groups = [...new Set(tasks.map(x => x.group))].map(g => {
     const items = tasks.filter(x => x.group === g)
@@ -568,7 +570,7 @@ function Tasks({ open }: { open: (s: Sub) => void }) {
               </div>
               <List>{items.map(x => {
                 const d = done.get(x.id), late = !d && x.time && x.time < nowHM, locked = !!d && !!d.byId && d.byId !== me.id
-                const doIt = () => { if (locked) return; if (x.proof && !d) setPhotoFor(x.id); else run(x.id) }
+                const doIt = (e?: { currentTarget: Element }) => { if (locked) return; if (x.proof && !d) setPhotoFor(x.id); else run(x.id, undefined, d ? null : e?.currentTarget) }
                 return (
                   <div key={x.id} className="flex items-center gap-3 px-4 py-3.5">
                     <button aria-label={d ? t('Rückgängig') : t('Erledigt')} title={locked ? t('Nur {name} kann das rückgängig machen', { name: d!.by }) : undefined} disabled={busy === x.id || locked} onClick={doIt} className={`w-[26px] h-[26px] rounded-full flex items-center justify-center shrink-0 transition ${d ? 'bg-olive-700 text-white' : 'shadow-[inset_0_0_0_1.5px_#979E92] hover:shadow-[inset_0_0_0_1.5px_#495940]'} ${busy === x.id ? 'opacity-50' : ''}`}>{d && <Check size={15} strokeWidth={3} />}</button>
@@ -588,10 +590,19 @@ function Tasks({ open }: { open: (s: Sub) => void }) {
             </div>
           )
         })}
+        {/* Vertretung in einem anderen Studio: dessen Checklisten von heute (28.10.) */}
+        {coverTasks.map(c => <div key={c.branchId}>
+          <div className="mt-8 mb-2.5 px-1"><h2 className="rubric text-studio">{t('Vertretung · Studio {name}', { name: c.branch })}</h2><p className="text-[13px] text-mute mt-1">{t('Du vertrittst heute {names}.', { names: c.who })}</p></div>
+          <List>{c.items.map(x => { const d = c.done.get(x.id)
+            return <div key={x.id} className="flex items-center gap-3 px-4 py-3.5">
+              <button aria-label={d ? t('Rückgängig') : t('Erledigt')} disabled={busy === x.id || (!!d && !!d.byId && d.byId !== me.id)} onClick={e => run(x.id, undefined, d ? null : e.currentTarget, c.branchId)} className={`w-[26px] h-[26px] rounded-full flex items-center justify-center shrink-0 transition ${d ? 'bg-olive-700 text-white' : 'shadow-[inset_0_0_0_1.5px_#979E92]'}`}>{d && <Check size={15} strokeWidth={3} />}</button>
+              <div className="flex-1 min-w-0"><p className={`text-[17px] leading-snug ${d ? 'text-mute line-through decoration-sage-400' : ''}`}>{x.title}</p><p className="text-[13px] text-mute mt-0.5">{d ? t('Erledigt von {name} · {time}', { name: d.by, time: d.at }) : x.time ? t('bis {time}', { time: x.time }) : x.group}</p></div>
+            </div> })}</List>
+        </div>)}
         {total > 0 && <p className="mt-6 px-1 text-[13px] text-mute leading-relaxed">{t('Die Listen und wann sie gelten legt das Büro im Backoffice unter Aufgaben fest.')}</p>}
         </>}
       </div>
-      <input ref={file} type="file" accept="image/*" capture="environment" className="hidden" onChange={async e => { const f = e.target.files?.[0]; const id = photoFor; e.target.value = ''; if (f && id) { setPhotoFor(null); await run(id, f) } }} />
+      <input ref={file} type="file" accept="image/*" capture="environment" className="hidden" onChange={async e => { const f = e.target.files?.[0]; const id = photoFor; e.target.value = ''; if (f && id) { setPhotoFor(null); await run(id, f, document.body) } }} />
       {photoFor && <Sheet onClose={() => setPhotoFor(null)}>
         <p className="font-medium text-[17px]">{t('Foto als Nachweis')}</p>
         <p className="mt-1 text-[15.5px] text-mute">{t('Das Foto wird mit deinem Namen und der Uhrzeit gespeichert.')}</p>

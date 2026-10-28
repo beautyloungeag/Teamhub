@@ -71,7 +71,9 @@ type Ctx = {
   branches: Branch[]; staff: Staff[]; skillCatalog: string[]
   news: News[]; read: Set<string>; opened: Set<string>; openNews: (id: string) => void; confirm: (id: string) => Promise<void>
   newsReads: { news_id: string; employee_id: string; confirmed_at: string | null }[]
-  templates: Template[]; tasks: TaskItem[]; done: Map<string, Done>; toggle: (id: string, photo?: File) => Promise<void>
+  templates: Template[]; tasks: TaskItem[]; done: Map<string, Done>; toggle: (id: string, photo?: File, branchId?: string) => Promise<void>
+  /** Checklisten anderer Studios, die ich heute vertretungsweise mache (Stellvertretung, 28.10.) */
+  coverTasks: { branchId: string; branch: string; who: string; items: TaskItem[]; done: Map<string, Done> }[]
   completionsToday: { item_id: string; branch_id: string }[]
   tickets: Ticket[]; addTicket: (t: { kind: 'Meldung' | 'Idee' | 'Learning' | 'Anliegen'; title: string; body?: string; photo?: File; viaAI?: boolean; branchId?: string; allStudios?: boolean }) => Promise<boolean>
   addComment: (ticketId: string, body: string) => Promise<boolean>; toggleVote: (ticketId: string) => Promise<void>
@@ -458,6 +460,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const done = useMemo(() => new Map(completions.filter(c => c.branch_id === myBranch && c.day === today).map(c => [c.item_id, { by: c.done_by_name, byId: c.done_by ?? null, at: fmtTime(c.done_at), photo: c.photo_path }])), [completions, myBranch, today])
   // Wen vertrete ich heute? (Ersatzperson eingetragen und Abwesenheit läuft)
   const covering = useMemo(() => staff.filter(s => s.active && s.deputyId === employee?.id && absences.some(a => a.employeeId === s.id && a.from <= today && a.until >= today)), [staff, absences, employee, today])
+  const coverTasks = useMemo(() => [...new Set(covering.map(c => c.branch_id))].filter(b => b && b !== myBranch && b !== 'buero').map(b => ({
+    branchId: b, branch: branches.find(x => x.id === b)?.name ?? b, who: covering.filter(c => c.branch_id === b).map(c => c.first).join(', '),
+    items: templates.filter(x => x.active && !x.proposed && appliesOn(x, today, b)).flatMap(x => x.items).sort((a, c) => (a.time || '99').localeCompare(c.time || '99')),
+    done: new Map(completions.filter(c => c.branch_id === b && c.day === today).map(c => [c.item_id, { by: c.done_by_name, byId: c.done_by ?? null, at: fmtTime(c.done_at), photo: c.photo_path }])),
+  })).filter(x => x.items.length), [covering, myBranch, branches, templates, completions, today])
   const myReads = newsReads.filter(r => r.employee_id === employee?.id)
   const read = useMemo(() => new Set(myReads.filter(r => r.confirmed_at).map(r => r.news_id)), [myReads])
   const opened = useMemo(() => new Set(myReads.map(r => r.news_id)), [myReads])
@@ -486,15 +493,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const { error } = await sb.rpc('confirm_news', { p_news: id }).abortSignal(scope!.signal)
       if (current() && !error) setNewsReads(r => r.map(x => x.news_id === id && x.employee_id === employee.id ? { ...x, confirmed_at: new Date().toISOString() } : x))
     },
-    templates, tasks, done, completionsToday: completions,
-    toggle: async (id, photo) => {
+    templates, tasks, done, completionsToday: completions, coverTasks,
+    toggle: async (id, photo, branchId) => {
       if (!current()) return
-      if (done.has(id)) {
-        await sb.from('task_completions').delete().match({ item_id: id, branch_id: myBranch, day: today }).abortSignal(scope!.signal)
+      const br = branchId ?? myBranch
+      const isDone = br === myBranch ? done.has(id) : completions.some(c => c.item_id === id && c.branch_id === br && c.day === today)
+      if (isDone) {
+        await sb.from('task_completions').delete().match({ item_id: id, branch_id: br, day: today }).abortSignal(scope!.signal)
       } else {
         const path = photo ? await upload('task-proofs', photo, `${today}-${id}-${Date.now()}`) : null
         if (!current() || (photo && !path)) return
-        await sb.from('task_completions').insert({ item_id: id, branch_id: myBranch, day: today, done_by: employee.id, done_by_name: name, photo_path: path }).abortSignal(scope!.signal)
+        await sb.from('task_completions').insert({ item_id: id, branch_id: br, day: today, done_by: employee.id, done_by_name: name, photo_path: path }).abortSignal(scope!.signal)
       }
       await reload()
     },

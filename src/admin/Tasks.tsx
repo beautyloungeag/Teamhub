@@ -5,7 +5,7 @@ import { useApp, isoDay, addDays, appliesOn, fmtDate, type Template, type Staff 
 import { supabase } from '../lib/supabase'
 import { toast } from '../Toast'
 import { Avatar } from '../People'
-import { useTodos, reloadTodos, isLate, useDue, type Todo } from '../Todos'
+import { useTodos, reloadTodos, isLate, useDue, ReminderField, remindAt, remindKind, HandOver, type Todo, type Remind } from '../Todos'
 import { H, New, Th, inpStone, btn, btn2, Err, retranslate, Select, Seg, Modal, Chips, Back, Section, Status, Empty, ReadOnly } from './kit'
 import { Donut } from './charts'
 
@@ -131,6 +131,10 @@ function Single({ onOpen }: { onOpen: (x: Todo) => void }) {
   </>)
 }
 
+// Zuweisen (28.10., Matteo): mehrere Studios und Personen auf einmal (je Ziel eine Aufgabe, gleiche group_id),
+// Personen nach Rolle filtern (inkl. Lehrling und Praktikantin), Erinnerung, bestehende Aufgabe weitergeben
+const KIND_LABEL: Record<string, string> = { mitarbeiterin: 'Mitarbeiterinnen', lehrling: 'Lehrlinge', praktikantin: 'Praktikantinnen', filialleitung: 'Filialleitung' }
+const kindOf = (s: Staff) => s.app_role === 'filialleitung' ? 'filialleitung' : s.app_role === 'buero' ? 'buero' : s.kind ?? 'mitarbeiterin'
 function AssignModal({ todo, onClose }: { todo: Todo | null; onClose: () => void }) {
   const { me, employee, staff, branches } = useApp()
   const mineBr = me.app_role === 'buero' ? branches.filter(b => !b.is_office).map(b => b.id) : [me.branch_id, ...(me.extra ?? [])].filter(b => b !== 'buero')
@@ -138,44 +142,74 @@ function AssignModal({ todo, onClose }: { todo: Todo | null; onClose: () => void
   const myStudios = branches.filter(b => mineBr.includes(b.id) && !b.is_office)
   const d0 = todo?.due_at ? isoDay(new Date(todo.due_at)) : '', t0 = todo?.due_at ? hm(todo.due_at) : ''
   const [title, setTitle] = useState(todo?.title ?? ''), [note, setNote] = useState(todo?.note ?? ''), [target, setTarget] = useState(todo ? (todo.assignee_id ? `p:${todo.assignee_id}` : `b:${todo.branch_id}`) : '')
+  const [studios, setStudios] = useState<string[]>([]), [persons, setPersons] = useState<string[]>([]), [kind, setKind] = useState(''), [inStudio, setInStudio] = useState(''), [q, setQ] = useState('')
   const [date, setDate] = useState(d0), [time, setTime] = useState(t0 === '23:59' ? '' : t0), [err, setErr] = useState(''), [busy, setBusy] = useState(false)
+  const [rk, setRk] = useState<Remind>(todo ? remindKind(todo) : ''), [rc, setRc] = useState(todo?.remind_at ? new Date(new Date(todo.remind_at).getTime() - new Date().getTimezoneOffset() * 60e3).toISOString().slice(0, 16) : ''), [handing, setHanding] = useState(false)
+  if (handing && todo) return <HandOver x={todo} onClose={() => setHanding(false)} onDone={onClose} />
+  const shown = people.filter(p => (!kind || kindOf(p) === kind) && (!inStudio || p.branch_id === inStudio) && (!q || `${p.first} ${p.last}`.toLowerCase().includes(q.toLowerCase())))
+  const count = studios.length + persons.length
   const save = async () => {
-    if (!title.trim() || !target) { setErr('Was und für wen sind nötig.'); return }
-    const [kind, id] = target.split(':')
+    if (!title.trim() || (todo ? !target : !count)) { setErr('Was und für wen sind nötig.'); return }
     setBusy(true)
-    const row = { title: title.trim(), note: note.trim(), due_at: date ? new Date(`${date}T${time || '23:59'}:00`).toISOString() : null, assignee_id: kind === 'p' ? id : null, branch_id: kind === 'b' ? id : null }
+    const due = date ? new Date(`${date}T${time || '23:59'}:00`).toISOString() : null
+    const base = { title: title.trim(), note: note.trim(), due_at: due, remind_at: remindAt(rk, due, rc), reminded_at: null }
     const by = { created_by: employee.id, created_by_name: `${me.first} ${me.last.slice(0, 1)}.` }
-    // Alle Studios: je Studio eine eigene Aufgabe, jedes Studio hakt seine ab
-    const { error } = todo ? await supabase!.from('todos').update(row).eq('id', todo.id)
-      : id === '*' ? await supabase!.from('todos').insert(myStudios.map(b => ({ ...row, branch_id: b.id, ...by })))
-      : await supabase!.from('todos').insert({ ...row, ...by })
+    let error
+    if (todo) { const [k, id] = target.split(':'); ({ error } = await supabase!.from('todos').update({ ...base, assignee_id: k === 'p' ? id : null, branch_id: k === 'b' ? id : null }).eq('id', todo.id)) }
+    else {
+      // Je Studio und je Person eine eigene Aufgabe, zusammengehalten über group_id
+      const group = count > 1 ? crypto.randomUUID() : null
+      ;({ error } = await supabase!.from('todos').insert([...studios.map(b => ({ ...base, ...by, group_id: group, assignee_id: null, branch_id: b })), ...persons.map(p => ({ ...base, ...by, group_id: group, assignee_id: p, branch_id: null }))]))
+    }
     setBusy(false)
     if (error) { setErr('Speichern hat nicht geklappt.'); return }
-    toast(todo ? 'Aufgabe gespeichert' : 'Aufgabe zugewiesen'); await reloadTodos(); onClose()
+    toast(todo ? 'Aufgabe gespeichert' : count > 1 ? `${count} Aufgaben zugewiesen, alle bekommen eine Mitteilung` : 'Aufgabe zugewiesen'); await reloadTodos(); onClose()
   }
   const del = async () => { if (!todo || !confirm(`Aufgabe „${todo.title}“ löschen?`)) return; await supabase!.from('todos').delete().eq('id', todo.id); await reloadTodos(); toast('Gelöscht'); onClose() }
   const reopen = async () => { if (!todo) return; await supabase!.from('todos').update({ done_at: null, done_by: null, done_by_name: null }).eq('id', todo.id); await reloadTodos(); toast('Wieder offen'); onClose() }
   const quick = [['Heute', isoDay()], ['Morgen', addDays(1)], ['In einer Woche', addDays(7)]] as const
+  const chip = (on: boolean) => `h-8 px-3 rounded-full text-[13px] transition ${on ? 'bg-olive-700 text-white' : 'bg-sage-50 hover:bg-sage-100 text-ink/80'}`
   return (
-    <Modal title={todo ? 'Einzelaufgabe' : 'Aufgabe zuweisen'} onClose={onClose} footer={<>
+    <Modal width={todo ? 560 : 720} title={todo ? 'Einzelaufgabe' : 'Aufgabe zuweisen'} onClose={onClose} footer={<>
       {todo && <button onClick={del} className="mr-auto h-10 px-3 rounded-[10px] text-[13.5px] text-mute hover:text-alert flex items-center gap-1.5"><Trash2 size={14} />Löschen</button>}
+      {todo && !todo.done_at && <button onClick={() => setHanding(true)} className={btn2}>Weitergeben …</button>}
       {todo?.done_at && <button onClick={reopen} className={btn2}>Wieder öffnen</button>}
-      <button onClick={onClose} className={btn2}>Abbrechen</button><button disabled={busy} onClick={save} className={btn}>{todo ? 'Speichern' : 'Zuweisen'}</button></>}>
+      <button onClick={onClose} className={btn2}>Abbrechen</button><button disabled={busy} onClick={save} className={btn}>{todo ? 'Speichern' : count > 1 ? `${count} zuweisen` : 'Zuweisen'}</button></>}>
       <div className="space-y-3">
         {todo?.done_at && <Status kind="done">Erledigt von {todo.done_by_name} am {fmtDate(todo.done_at, { day: 'numeric', month: 'long' })}, {hm(todo.done_at)}</Status>}
+        {todo?.handed_from_name && !todo.done_at && <p className="text-[13px] text-mute">Weitergegeben von {todo.handed_from_name}</p>}
         <input autoFocus value={title} onChange={e => setTitle(e.target.value)} placeholder="Was ist zu tun? z. B. Schaufenster neu dekorieren" className={inpStone} />
         <textarea value={note} onChange={e => setNote(e.target.value)} rows={2} placeholder="Notiz (optional)" className="w-full rounded-[10px] bg-sage-50 px-3 py-2.5 text-[14px] outline-none resize-none" />
-        <Select label="Für wen" tone="stone" value={target} onChange={setTarget} placeholder="Eine Person oder ein Studio" options={[
-          ...(!todo && myStudios.length > 1 ? [{ value: 'b:*', label: me.app_role === 'buero' ? 'Alle Studios' : 'Alle deine Studios', hint: 'Je Studio eine Aufgabe, eine Person reicht', group: 'Studio' }] : []),
+        {todo ? <Select label="Für wen" tone="stone" value={target} onChange={setTarget} placeholder="Eine Person oder ein Studio" options={[
           ...myStudios.map(b => ({ value: `b:${b.id}`, label: `Studio ${b.name}`, hint: 'Eine Person reicht', group: 'Studio' })),
           ...people.map(p => ({ value: `p:${p.id}`, label: `${p.first} ${p.last}${/@aleksa\.ai$/i.test(p.email) ? ' (Testkonto)' : ''}`, hint: `${p.role} · ${p.branch}`, group: 'Person' }))]} />
-        {target.startsWith('b:') && <p className="text-[13px] text-mute -mt-1">{target === 'b:*' ? 'Jedes Studio bekommt die Aufgabe einmal. ' : ''}Alle im Studio sehen die Aufgabe. Eine Person erledigt sie, dann ist sie für alle abgehakt, mit Name und Uhrzeit.</p>}
+        : <>
+          <div><span className="block text-xs text-mute mb-1.5">Studios <span className="text-mute">(alle im Studio sehen sie, eine Person reicht)</span></span>
+            <div className="flex flex-wrap gap-1.5">{myStudios.length > 1 && <button onClick={() => setStudios(studios.length === myStudios.length ? [] : myStudios.map(b => b.id))} className={chip(studios.length === myStudios.length)}>Alle Studios</button>}
+              {myStudios.map(b => <button key={b.id} onClick={() => setStudios(v => v.includes(b.id) ? v.filter(x => x !== b.id) : [...v, b.id])} className={chip(studios.includes(b.id))}>{b.name}</button>)}</div></div>
+          <div><span className="block text-xs text-mute mb-1.5">Personen <span className="text-mute">(jede bekommt ihre eigene Aufgabe)</span></span>
+            <div className="flex flex-wrap items-center gap-1.5 mb-2">
+              {['', 'mitarbeiterin', 'lehrling', 'praktikantin', 'filialleitung'].map(k => <button key={k} onClick={() => setKind(k)} className={chip(kind === k)}>{k ? KIND_LABEL[k] : 'Alle Rollen'}</button>)}
+              <Select compact className="w-40" value={inStudio} onChange={setInStudio} placeholder="Alle Studios" options={[{ value: '', label: 'Alle Studios' }, ...myStudios.map(b => ({ value: b.id, label: b.name }))]} />
+              <input value={q} onChange={e => setQ(e.target.value)} placeholder="Name suchen" className="h-8 px-3 rounded-full bg-sage-50 text-[13px] outline-none w-36" />
+            </div>
+            <div className="max-h-[200px] overflow-y-auto rounded-[10px] border border-line divide-y divide-line">
+              {shown.length > 1 && <button onClick={() => { const ids = shown.map(p => p.id), all = ids.every(id => persons.includes(id)); setPersons(v => all ? v.filter(x => !ids.includes(x)) : [...new Set([...v, ...ids])]) }} className="w-full px-3 py-2 text-left text-[13px] text-olive-700 hover:bg-sage-50">{shown.every(p => persons.includes(p.id)) ? 'Auswahl aufheben' : `Alle ${shown.length} auswählen`}</button>}
+              {shown.map(p => <label key={p.id} className="flex items-center gap-2.5 px-3 py-2 text-[13.5px] cursor-pointer hover:bg-sage-50/70"><input type="checkbox" checked={persons.includes(p.id)} onChange={() => setPersons(v => v.includes(p.id) ? v.filter(x => x !== p.id) : [...v, p.id])} />
+                <span className="flex-1 min-w-0 truncate">{p.first} {p.last}{/@aleksa\.ai$/i.test(p.email) ? ' (Testkonto)' : ''}</span><span className="text-mute text-[12.5px] shrink-0">{p.kind === 'lehrling' ? 'Lehrling · ' : p.kind === 'praktikantin' ? 'Praktikantin · ' : ''}{p.branch}</span></label>)}
+              {shown.length === 0 && <p className="px-3 py-3 text-[13px] text-mute">Niemand passt zu diesem Filter.</p>}
+            </div>
+            {/* Zeile steht immer da, damit nichts verrutscht, wenn man etwas auswählt */}
+            <p className="mt-1.5 text-[12.5px] text-mute">{count === 0 ? 'Noch nichts ausgewählt' : `${count === 1 ? '1 Aufgabe' : `${count} Aufgaben`} · jede Person und jedes Studio bekommt eine Mitteilung`}</p>
+          </div>
+        </>}
         <div><span className="block text-xs text-mute mb-1">Frist</span>
           <div className="flex flex-wrap items-center gap-2">
             {quick.map(([l, d]) => <button key={l} onClick={() => setDate(date === d ? '' : d)} className={`h-9 px-3 rounded-[9px] text-[13.5px] ${date === d ? 'bg-olive-700 text-white' : 'bg-sage-50 hover:bg-sage-100'}`}>{l}</button>)}
             <input type="date" value={date} onChange={e => setDate(e.target.value)} className="h-9 px-3 rounded-[9px] bg-sage-50 text-[13.5px] outline-none" />
             {date && <input type="time" value={time} onChange={e => setTime(e.target.value)} className="h-9 px-3 rounded-[9px] bg-sage-50 text-[13.5px] outline-none" />}
           </div></div>
+        <ReminderField stone kind={rk} setKind={setRk} custom={rc} setCustom={setRc} hasDue={!!date} />
         <Err m={err} />
       </div>
     </Modal>

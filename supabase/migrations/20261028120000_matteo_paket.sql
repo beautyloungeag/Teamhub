@@ -178,7 +178,8 @@ begin
   update todos set assignee_id = target.id, branch_id = null, notified_at = null,
     handed_from_name = trim(me.first_name || ' ' || left(coalesce(me.last_name, ''), 1) || '.'),
     note = case when coalesce(trim(p_note), '') = '' then note
-                else trim(both from note || E'\n\n' || 'Weitergegeben von ' || me.first_name || ': ' || trim(p_note)) end
+                when coalesce(trim(note), '') = '' then 'Weitergegeben von ' || me.first_name || ': ' || trim(p_note)
+                else note || E'\n\n' || 'Weitergegeben von ' || me.first_name || ': ' || trim(p_note) end
   where id = p_id;
 end $function$;
 grant execute on function public.todo_handover(uuid, uuid, text) to authenticated;
@@ -239,3 +240,17 @@ alter table public.wiki_categories add column if not exists area_key text refere
 drop policy if exists files_write_news_photo on storage.objects;
 create policy files_write_news_photo on storage.objects for insert to authenticated
   with check (bucket_id = 'media' and (storage.foldername(name))[1] in ('news', 'events') and (public.is_buero() or public.is_lead()));
+
+-- Vertretung über Studios hinweg: Checklisten des vertretenen Studios sehen und abhaken
+create or replace function public.covered_branches() returns text[]
+language sql stable security definer set search_path = public as $$
+  select coalesce(array_agg(distinct b), '{}') from employees e, unnest(array_prepend(e.branch_id, e.extra_branch_ids)) b
+  where e.id = any(public.my_covered()) and b <> 'buero'
+$$;
+grant execute on function public.covered_branches() to authenticated;
+drop policy if exists tc_read on public.task_completions;
+create policy tc_read on public.task_completions for select to authenticated using (is_buero() or branch_id = any(my_branches()) or branch_id = any(public.covered_branches()));
+drop policy if exists tc_insert on public.task_completions;
+create policy tc_insert on public.task_completions for insert to authenticated with check ((branch_id = any(my_branches()) or branch_id = any(public.covered_branches())) and done_by = my_employee_id());
+-- Erste Mitteilung an die Ersatzperson, wenn eine Abwesenheit beginnt
+alter table public.employee_absences add column if not exists deputy_notified_at timestamptz;

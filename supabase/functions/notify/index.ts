@@ -25,9 +25,9 @@ type Msg = { title: string; body: string; url: string; tag: string }
 type Lang = 'DE' | 'EN' | 'FR'
 // Rahmentexte je Sprache der Empfängerin; Inhalte (Titel, Teaser) bleiben wie erfasst.
 const L: Record<Lang, Record<string, string>> = {
-  DE: { must: 'Bitte lesen: {t}', newsFallback: 'Neue News im TeamHub', ev: 'Neu: {k} „{t}“', join: 'jetzt anmelden', ticket: 'Deine Meldung', on: 'Mitteilungen sind eingeschaltet.', todo: 'Neue Aufgabe von {n}', until: 'bis', sb: 'Aushilfe gesucht · {b}', sbOk: 'Du hilfst aus · {b}', evRem: 'Bitte antworten: {t}', evRemBody: 'Kommst du? Kurz zu- oder absagen.', tkNew: 'Neue Meldung · {b}', ideaNew: 'Neue Idee · {b}', sbYes: '{n} kann aushelfen', evSum: 'Anmeldeschluss: {t}', evSumBody: '{a} kommen · {b} nicht · {c} ohne Antwort', promoted: 'Du bist nachgerückt: {t}', promotedBody: 'Ein Platz ist frei geworden, du bist dabei.', overdue: '{b} · {t} noch offen', overdueBody: '{n} von {m} offen, fällig bis {h}', poll: 'Bitte mitmachen: {t}', pollBody: 'Kurze Umfrage, dauert eine Minute.' },
-  EN: { must: 'Please read: {t}', newsFallback: 'New news in TeamHub', ev: 'New: {k} “{t}”', join: 'register now', ticket: 'Your report', on: 'Notifications are on.', todo: 'New task from {n}', until: 'by', sb: 'Cover needed · {b}', sbOk: 'You are covering · {b}', evRem: 'Please reply: {t}', evRemBody: 'Are you coming? Quick yes or no.', tkNew: 'New report · {b}', ideaNew: 'New idea · {b}', sbYes: '{n} can cover', evSum: 'Registration closed: {t}', evSumBody: '{a} coming · {b} not · {c} no reply', promoted: 'You moved up: {t}', promotedBody: 'A place became free, you are in.', overdue: '{b} · {t} still open', overdueBody: '{n} of {m} open, due by {h}', poll: 'Please take part: {t}', pollBody: 'Short survey, takes a minute.' },
-  FR: { must: 'À lire : {t}', newsFallback: 'Nouvelle actualité dans TeamHub', ev: 'Nouveau : {k} « {t} »', join: 'inscris-toi', ticket: 'Ton signalement', on: 'Les notifications sont activées.', todo: 'Nouvelle tâche de {n}', until: 'avant', sb: 'Remplacement recherché · {b}', sbOk: 'Tu remplaces · {b}', evRem: 'Merci de répondre : {t}', evRemBody: 'Tu viens ? Réponds oui ou non.', tkNew: 'Nouveau signalement · {b}', ideaNew: 'Nouvelle idée · {b}', sbYes: '{n} peut remplacer', evSum: 'Inscriptions closes : {t}', evSumBody: '{a} viennent · {b} non · {c} sans réponse', promoted: 'Tu as une place : {t}', promotedBody: 'Une place s’est libérée, tu en fais partie.', overdue: '{b} · {t} pas terminé', overdueBody: '{n} sur {m} ouverts, à faire avant {h}', poll: 'Merci de participer : {t}', pollBody: 'Petit sondage, une minute.' },
+  DE: { must: 'Bitte lesen: {t}', newsFallback: 'Neue News im TeamHub', ev: 'Neu: {k} „{t}“', join: 'jetzt anmelden', ticket: 'Deine Meldung', on: 'Mitteilungen sind eingeschaltet.', todo: 'Neue Aufgabe von {n}', until: 'bis', sb: 'Aushilfe gesucht · {b}', sbOk: 'Du hilfst aus · {b}', evRem: 'Bitte antworten: {t}', evRemBody: 'Kommst du? Kurz zu- oder absagen.', tkNew: 'Neue Meldung · {b}', ideaNew: 'Neue Idee · {b}', sbYes: '{n} kann aushelfen', evSum: 'Anmeldeschluss: {t}', evSumBody: '{a} kommen · {b} nicht · {c} ohne Antwort', promoted: 'Du bist nachgerückt: {t}', promotedBody: 'Ein Platz ist frei geworden, du bist dabei.', overdue: '{b} · {t} noch offen', overdueBody: '{n} von {m} offen, fällig bis {h}', poll: 'Bitte mitmachen: {t}', pollBody: 'Kurze Umfrage, dauert eine Minute.' , todoHand: 'Aufgabe weitergegeben von {n}', rem: 'Erinnerung: {t}', cover: 'Du vertrittst heute {n}', coverBody: '{k} offene Aufgaben gehen an dich' },
+  EN: { must: 'Please read: {t}', newsFallback: 'New news in TeamHub', ev: 'New: {k} “{t}”', join: 'register now', ticket: 'Your report', on: 'Notifications are on.', todo: 'New task from {n}', until: 'by', sb: 'Cover needed · {b}', sbOk: 'You are covering · {b}', evRem: 'Please reply: {t}', evRemBody: 'Are you coming? Quick yes or no.', tkNew: 'New report · {b}', ideaNew: 'New idea · {b}', sbYes: '{n} can cover', evSum: 'Registration closed: {t}', evSumBody: '{a} coming · {b} not · {c} no reply', promoted: 'You moved up: {t}', promotedBody: 'A place became free, you are in.', overdue: '{b} · {t} still open', overdueBody: '{n} of {m} open, due by {h}', poll: 'Please take part: {t}', pollBody: 'Short survey, takes a minute.' , todoHand: 'Task handed over by {n}', rem: 'Reminder: {t}', cover: 'You are covering for {n} today', coverBody: '{k} open tasks now go to you' },
+  FR: { must: 'À lire : {t}', newsFallback: 'Nouvelle actualité dans TeamHub', ev: 'Nouveau : {k} « {t} »', join: 'inscris-toi', ticket: 'Ton signalement', on: 'Les notifications sont activées.', todo: 'Nouvelle tâche de {n}', until: 'avant', sb: 'Remplacement recherché · {b}', sbOk: 'Tu remplaces · {b}', evRem: 'Merci de répondre : {t}', evRemBody: 'Tu viens ? Réponds oui ou non.', tkNew: 'Nouveau signalement · {b}', ideaNew: 'Nouvelle idée · {b}', sbYes: '{n} peut remplacer', evSum: 'Inscriptions closes : {t}', evSumBody: '{a} viennent · {b} non · {c} sans réponse', promoted: 'Tu as une place : {t}', promotedBody: 'Une place s’est libérée, tu en fais partie.', overdue: '{b} · {t} pas terminé', overdueBody: '{n} sur {m} ouverts, à faire avant {h}', poll: 'Merci de participer : {t}', pollBody: 'Petit sondage, une minute.' , todoHand: 'Tâche transmise par {n}', rem: 'Rappel : {t}', cover: 'Tu remplaces {n} aujourd’hui', coverBody: '{k} tâches ouvertes te reviennent' },
 }
 const fill = (s: string, v: Record<string, string>) => s.replace(/\{(\w+)\}/g, (_, k) => v[k] ?? '')
 const LOC: Record<Lang, string> = { DE: 'de-CH', EN: 'en-GB', FR: 'fr-CH' }
@@ -52,7 +52,7 @@ Deno.serve(async (req) => {
     catch { return json({ ok: false, error: 'chat_push_failed' }, 500) }
   }
 
-  const { data: emps } = await admin.from('employees').select('id, first_name, branch_id, extra_branch_ids, skills, app_role, lang, job_title, notify_prefs').eq('active', true)
+  const { data: emps } = await admin.from('employees').select('id, first_name, branch_id, extra_branch_ids, skills, app_role, lang, job_title, notify_prefs, deputy_id').eq('active', true)
   const staff = emps ?? []
   const inBranches = (e: any, br: string[]) => br.length === 0 || br.includes(e.branch_id) || (e.extra_branch_ids ?? []).some((b: string) => br.includes(b))
   // Gleiche Regel wie public.job_groups() / news_for_me() in der Datenbank
@@ -146,20 +146,40 @@ Deno.serve(async (req) => {
     if (tk?.created_by) add(await sendByLang(admin, staff, [tk.created_by], (l) => ({ title: L[l].ticket, body: `${tk.title}: ${t.what}`, url: `/?open=ticket:${t.ticket_id}`, tag: `ticket-${t.ticket_id}` })))
   }
   await admin.from('ticket_events').update({ notified_at: now }).is('notified_at', null).eq('what', 'Erfasst')
-  // 4) Neue Aufgaben, die jemand anderem gegeben wurden (eigene To-dos still markieren)
-  const { data: tds } = await admin.from('todos').select('id, title, due_at, assignee_id, branch_id, created_by, created_by_name').is('notified_at', null).is('done_at', null).limit(50)
+  // Abwesend heute (Stellvertretung, 28.10.): Aufgaben einer abwesenden Person gehen auch an ihre Ersatzperson
+  const zDay = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Zurich' }).format(new Date())
+  const { data: absent } = await admin.from('employee_absences').select('id, employee_id, deputy_notified_at').lte('from_day', zDay).gte('until_day', zDay)
+  const away = new Set((absent ?? []).map((a: any) => a.employee_id))
+  const withDeputies = (ids: string[]) => [...new Set([...ids, ...ids.filter((id) => away.has(id)).map((id) => staff.find((e) => e.id === id)?.deputy_id).filter((d): d is string => !!d && !away.has(d))])]
+  const untilText = (due: string | null, l: Lang) => {
+    if (!due) return ''
+    const d = new Date(due), hm = new Intl.DateTimeFormat('de-CH', { timeZone: 'Europe/Zurich', hour: '2-digit', minute: '2-digit' }).format(d)
+    return ` · ${L[l].until} ${new Intl.DateTimeFormat(LOC[l], { timeZone: 'Europe/Zurich', weekday: 'short', day: '2-digit', month: '2-digit', ...(hm === '23:59' ? {} : { hour: '2-digit', minute: '2-digit' }) }).format(d)}`
+  }
+  // 4) Neue oder weitergegebene Aufgaben, die jemand anderem gegeben wurden (eigene To-dos still markieren)
+  const { data: tds } = await admin.from('todos').select('id, title, due_at, assignee_id, branch_id, created_by, created_by_name, handed_from_name').is('notified_at', null).is('done_at', null).limit(50)
   for (const x of tds ?? []) {
     await admin.from('todos').update({ notified_at: now }).eq('id', x.id)
-    if (x.assignee_id && x.assignee_id === x.created_by) continue
-    const ids = x.assignee_id ? [x.assignee_id] : staff.filter((e) => e.id !== x.created_by && inBranches(e, [x.branch_id])).map((e) => e.id)
-    add(await sendByLang(admin, staff, ids, (l) => {
-      let until = ''
-      if (x.due_at) {
-        const d = new Date(x.due_at), hm = new Intl.DateTimeFormat('de-CH', { timeZone: 'Europe/Zurich', hour: '2-digit', minute: '2-digit' }).format(d)
-        until = ` · ${L[l].until} ${new Intl.DateTimeFormat(LOC[l], { timeZone: 'Europe/Zurich', weekday: 'short', day: '2-digit', month: '2-digit', ...(hm === '23:59' ? {} : { hour: '2-digit', minute: '2-digit' }) }).format(d)}`
-      }
-      return { title: fill(L[l].todo, { n: x.created_by_name || 'TeamHub' }), body: x.title + until, url: '/?open=todos', tag: `todo-${x.id}` }
-    }))
+    if (x.assignee_id && x.assignee_id === x.created_by && !x.handed_from_name) continue
+    const ids = withDeputies(x.assignee_id ? [x.assignee_id] : staff.filter((e) => e.id !== x.created_by && inBranches(e, [x.branch_id])).map((e) => e.id))
+    add(await sendByLang(admin, staff, ids, (l) => ({
+      title: x.handed_from_name ? fill(L[l].todoHand, { n: x.handed_from_name }) : fill(L[l].todo, { n: x.created_by_name || 'TeamHub' }),
+      body: x.title + untilText(x.due_at, l), url: '/?open=todos', tag: `todo-${x.id}` })))
+  }
+  // 4b) Erinnerungen zu Aufgaben (Matteo 28.10.)
+  const { data: rems } = await admin.from('todos').select('id, title, due_at, assignee_id, branch_id').lte('remind_at', now).is('reminded_at', null).is('done_at', null).limit(50)
+  for (const x of rems ?? []) {
+    await admin.from('todos').update({ reminded_at: now }).eq('id', x.id)
+    const ids = withDeputies(x.assignee_id ? [x.assignee_id] : staff.filter((e) => inBranches(e, [x.branch_id])).map((e) => e.id))
+    add(await sendByLang(admin, staff, ids, (l) => ({ title: fill(L[l].rem, { t: x.title }), body: untilText(x.due_at, l).replace(/^ · /, ''), url: '/?open=todos', tag: `todo-rem-${x.id}` })))
+  }
+  // 4c) Beginn einer Abwesenheit: die Ersatzperson erfährt einmal, wen sie vertritt
+  for (const a of (absent ?? []).filter((x: any) => !x.deputy_notified_at)) {
+    await admin.from('employee_absences').update({ deputy_notified_at: now }).eq('id', a.id)
+    const who = staff.find((e) => e.id === a.employee_id)
+    if (!who?.deputy_id) continue
+    const { count } = await admin.from('todos').select('id', { count: 'exact', head: true }).eq('assignee_id', a.employee_id).is('done_at', null)
+    add(await sendByLang(admin, staff, [who.deputy_id], (l) => ({ title: fill(L[l].cover, { n: who.first_name }), body: fill(L[l].coverBody, { k: String(count ?? 0) }), url: '/?open=todos', tag: `cover-${a.id}` })))
   }
   // 5) Aushilfe gesucht: an alle, die sich für den Tag eingetragen haben (oder an alle), passend zum Skill
   const { data: brs } = await admin.from('branches').select('id, name')
@@ -243,7 +263,7 @@ Deno.serve(async (req) => {
         const open = its.filter((i: any) => !(comp ?? []).some((c: any) => c.item_id === i.id && c.branch_id === b.id)).length
         await admin.from('lead_alerts').insert({ day, branch_id: b.id, template_id: t.id })
         if (!open) continue
-        const ids = staff.filter((e) => e.app_role === 'filialleitung' && inBranches(e, [b.id]) && pref(e, 'lead_overdue')).concat(staff.filter((e) => e.app_role === 'buero' && pref(e, 'lead_overdue'))).map((e) => e.id)
+        const ids = withDeputies(staff.filter((e) => e.app_role === 'filialleitung' && inBranches(e, [b.id]) && pref(e, 'lead_overdue')).concat(staff.filter((e) => e.app_role === 'buero' && pref(e, 'lead_overdue'))).map((e) => e.id))
         add(await sendByLang(admin, staff, ids, (l) => ({ title: fill(L[l].overdue, { b: b.name, t: t.name }), body: fill(L[l].overdueBody, { n: String(open), m: String(its.length), h: dues[dues.length - 1] }), url: '/?open=tasks', tag: `overdue-${b.id}-${t.id}` })))
       }
     }
