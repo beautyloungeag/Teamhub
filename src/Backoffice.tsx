@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { LayoutDashboard, LifeBuoy, GraduationCap, Smartphone, Newspaper, ListChecks, Lightbulb, CalendarDays, Users, BookOpen, CalendarClock, TrendingUp, Settings as SettingsIcon } from 'lucide-react'
+import { LayoutDashboard, LifeBuoy, GraduationCap, Smartphone, Newspaper, ListChecks, Lightbulb, CalendarDays, Users, BookOpen, CalendarClock, TrendingUp, MessageCircle, Settings as SettingsIcon } from 'lucide-react'
+import { ChatHub, ChatRoom, useChatUnread } from './Chats'
 import { Terminbuch } from './Calendar'
 import { useApp } from './store'
 import { startParams } from './lib/start'
@@ -25,16 +26,17 @@ import { WikiAdmin } from './admin/Wiki'
 import { H } from './admin/kit'
 import { confirmLeave } from './lib/unsaved'
 
-type View = 'overview' | 'book' | 'news' | 'tasks' | 'tickets' | 'events' | 'standby' | 'learn' | 'team' | 'performance' | 'wiki' | 'settings' | 'benni' | 'me'
-const NAV: [View, string, typeof Users][] = [['overview', 'Übersicht', LayoutDashboard], ['book', 'Kundentermine', CalendarClock], ['news', 'News', Newspaper], ['tasks', 'Aufgaben', ListChecks], ['tickets', 'Meldungen & Ideen', Lightbulb], ['events', 'Schulungen & Events', CalendarDays], ['standby', 'Aushilfe', LifeBuoy], ['learn', 'Lernen', GraduationCap], ['team', 'Team', Users], ['performance', 'Performance', TrendingUp], ['wiki', 'Wissen', BookOpen], ['settings', 'Einstellungen', SettingsIcon]]
+type View = 'overview' | 'book' | 'news' | 'chats' | 'tasks' | 'tickets' | 'events' | 'standby' | 'learn' | 'team' | 'performance' | 'wiki' | 'settings' | 'benni' | 'me'
+const NAV: [View, string, typeof Users][] = [['overview', 'Übersicht', LayoutDashboard], ['book', 'Kundentermine', CalendarClock], ['news', 'News', Newspaper], ['chats', 'Chats', MessageCircle], ['tasks', 'Aufgaben', ListChecks], ['tickets', 'Meldungen & Ideen', Lightbulb], ['events', 'Schulungen & Events', CalendarDays], ['standby', 'Aushilfe', LifeBuoy], ['learn', 'Lernen', GraduationCap], ['team', 'Team', Users], ['performance', 'Performance', TrendingUp], ['wiki', 'Wissen', BookOpen], ['settings', 'Einstellungen', SettingsIcon]]
 
 export default function Backoffice({ onSwitch }: { onSwitch?: () => void }) {
   const { me } = useApp()
   const { signOut } = useAuth()
   const [v, setV] = useState<View>(() => (startParams.get('bo') as View | null) ?? 'overview')
+  const chatUnread = useChatUnread()
   useEffect(() => { if (startParams.has('bo') && location.search.includes('bo=')) history.replaceState(null, '', '/') }, [])
   // Filialleitung gestaltet für ihr Studio (News, Termine, Checklisten, Quiz zu eigenen News); Wissen und Studios pflegt das Büro.
-  const nav = me.app_role === 'buero' ? NAV : NAV.filter(([k]) => ['overview', 'book', 'news', 'tasks', 'tickets', 'events', 'standby', 'learn', 'team', 'performance', 'settings'].includes(k))
+  const nav = me.app_role === 'buero' ? NAV : NAV.filter(([k]) => ['overview', 'book', 'news', 'chats', 'tasks', 'tickets', 'events', 'standby', 'learn', 'team', 'performance', 'settings'].includes(k))
   const allowed = new Set(nav.map(([k]) => k))
   const go = (k: View) => { if (allowed.has(k) && confirmLeave()) setV(k) }
   // Menüwechsel fragt nach, wenn im Wissen-Editor noch etwas ungespeichert ist (27.10.)
@@ -44,12 +46,13 @@ export default function Backoffice({ onSwitch }: { onSwitch?: () => void }) {
   return (
     <div className="flex h-full bg-white overflow-hidden">
       <SideNav
-        items={nav.map(([k, l, I]) => ({ key: k, label: l, active: v === k, onClick: () => to(k), icon: <I size={18} strokeWidth={1.6} /> }))}
+        items={nav.map(([k, l, I]) => ({ key: k, label: l, active: v === k, dot: k === 'chats' && chatUnread > 0, onClick: () => to(k), icon: <I size={18} strokeWidth={1.6} /> }))}
         extra={[...(onSwitch ? [{ key: 'switch', label: 'Mitarbeiterin-App', icon: <Smartphone size={18} strokeWidth={1.6} />, onClick: () => { if (confirmLeave()) onSwitch() } }] : []),
           { key: 'ai', label: `Frag ${ASSISTANT}`, active: v === 'benni', icon: <BMark className="w-[18px] h-[18px]" />, onClick: () => to('benni') }]}
         onProfile={() => to('me')} profileActive={v === 'me'} onLogout={signOut} />
-      <main className={`flex-1 no-scrollbar ${v === 'benni' ? 'overflow-hidden bg-sage-50' : v === 'book' ? 'p-8 flex flex-col overflow-hidden' : 'p-8 overflow-y-auto'}`}>
+      <main className={`flex-1 no-scrollbar ${v === 'benni' || v === 'chats' ? 'overflow-hidden bg-sage-50' : v === 'book' ? 'p-8 flex flex-col overflow-hidden' : 'p-8 overflow-y-auto'}`}>
         {v === 'benni' && <BenniChat variant="app" backoffice />}
+        {v === 'chats' && <OfficeChats onMarc={() => to('benni')} onTickets={() => to('tickets')} />}
         {v === 'me' && <ProfileAdmin onSettings={() => setV('settings')} />}
         {v === 'book' && <><H>Kundentermine</H><div className="flex-1 min-h-0"><Terminbuch /></div></>}
         {v === 'overview' && <Overview go={go} can={k => allowed.has(k as View)} />}{allowed.has('news') && v === 'news' && <NewsAdmin />}{v === 'tasks' && <TasksAdmin />}
@@ -59,3 +62,13 @@ export default function Backoffice({ onSwitch }: { onSwitch?: () => void }) {
   )
 }
 
+
+// Chats im Backoffice (Matteo 28.10.: „finde ich am Computer nicht“): Liste links, offener Chat rechts
+function OfficeChats({ onMarc, onTickets }: { onMarc: () => void; onTickets: () => void }) {
+  const [room, setRoom] = useState<string | null>(null)
+  return <div className="h-full grid grid-cols-[420px_minmax(0,1fr)]">
+    <div className="h-full overflow-y-auto no-scrollbar border-r border-line pt-6"><ChatHub compact active={room} onOpenMarc={onMarc} onOpenTickets={onTickets} onOpenRoom={setRoom} /></div>
+    <div className="h-full min-h-0 bg-white">{room ? <ChatRoom key={room} id={room} embedded onBack={() => setRoom(null)} />
+      : <div className="h-full flex items-center justify-center text-[15px] text-mute">Wähle links einen Chat.</div>}</div>
+  </div>
+}

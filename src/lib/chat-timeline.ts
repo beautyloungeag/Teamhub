@@ -1,4 +1,4 @@
-export type ChatMessage = { id: string; room_id: string; sender_id: string; body: string; created_at: string }
+export type ChatMessage = { id: string; room_id: string; sender_id: string; body: string; created_at: string; photo_path?: string | null }
 type Change = { seq: number; kind: 'upsert'; message: ChatMessage } | { seq: number; kind: 'delete'; id: string }
 
 const sorted = (rows: Iterable<ChatMessage>) => [...rows].sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id)).slice(-200)

@@ -7,5 +7,12 @@ const chat: Record<string, [string, string]> = {
   'Senden wurde nicht bestätigt. Dein Entwurf bleibt erhalten. Bitte erneut versuchen.': ['Sending was not confirmed. Your draft is kept. Please try again.', 'L’envoi n’a pas été confirmé. Votre brouillon est conservé. Veuillez réessayer.'],
   'Kommentar konnte nicht gesendet werden. Dein Entwurf bleibt erhalten. Bitte erneut versuchen.': ['The comment could not be sent. Your draft is kept. Please try again.', 'Le commentaire n’a pas pu être envoyé. Votre brouillon est conservé. Veuillez réessayer.'],
   'Kommentar senden': ['Send comment', 'Envoyer le commentaire'],
+  "Dein Assistent": ["Your assistant", "Ton assistant"],
+  "Nichts offen": ["Nothing open", "Rien en cours"],
+  "Team-Chats": ["Team chats", "Chats d’équipe"],
+  "Bitte ein Foto wählen": ["Please choose a photo", "Choisis une photo"],
+  "Das Foto ist grösser als 15 MB": ["The photo is larger than 15 MB", "La photo dépasse 15 Mo"],
+  "Foto senden": ["Send photo", "Envoyer une photo"],
+  "Foto": ["Photo", "Photo"],
 }
 export default chat

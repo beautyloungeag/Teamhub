@@ -161,7 +161,7 @@ function Shell({ onLogout, onSwitch }: { onLogout: () => void; onSwitch?: () => 
     case 'install': screen = <Install />; break
     case 'perf': screen = <MyPerformance />; break
     default:
-      screen = tab === 'home' ? <Today open={open} go={go} /> : tab === 'tasks' ? <Tasks open={open} /> : tab === 'ai' ? <ChatHub onOpenMarc={() => open({ k: 'marc' })} onOpenRoom={id => open({ k: 'chat', id })} />
+      screen = tab === 'home' ? <Today open={open} go={go} /> : tab === 'tasks' ? <Tasks open={open} /> : tab === 'ai' ? <ChatHub onOpenMarc={() => open({ k: 'marc' })} onOpenRoom={id => open({ k: 'chat', id })} onOpenTickets={() => open({ k: 'tickets' })} />
         : tab === 'wiki' ? <Wiki open={open} /> : <MenuView open={open} onLogout={onLogout} />
   }
   const key = (sub ? sub.k + ('item' in sub ? String((sub.item as { id?: string }).id) : '') : tab) + stack.length
