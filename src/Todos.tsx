@@ -103,7 +103,7 @@ function Check2({ on, busy, onClick, label }: { on: boolean; busy?: boolean; onC
 export function MyTodos() {
   const { me, t, branches, covering } = useApp()
   const all = useTodos(), due = useDue()
-  const coverIds = covering.map(c => c.id)
+  const cover = covering ?? [], coverIds = cover.map(c => c.id)
   const [busy, setBusy] = useState<string | null>(null), [add, setAdd] = useState(false), [sel, setSel] = useState<Todo | null>(null), [showDone, setShowDone] = useState(false)
   const mine = all.filter(x => isForMe(x, me, coverIds))
   const open = mine.filter(x => !x.done_at), done = mine.filter(x => x.done_at).sort((a, b) => b.done_at!.localeCompare(a.done_at!))
@@ -124,7 +124,7 @@ export function MyTodos() {
         <p className="text-[13px] text-mute mt-0.5">{[
           x.done_at ? <span key="d">{t('Erledigt von {name}', { name: x.done_by_name ?? '' })}</span> : x.due_at ? <span key="d" className={isLate(x) ? 'text-alert' : ''}>{t('bis {when}', { when: due(x.due_at) })}</span> : null,
           !x.assignee_id && x.branch_id ? <span key="b">{t('fürs Studio {name}, eine Person reicht', { name: branches.find(b => b.id === x.branch_id)?.name ?? '' })}</span> : null,
-          x.assignee_id && coverIds.includes(x.assignee_id) ? <span key="v" className="text-studio">{t('Vertretung für {name}', { name: covering.find(c => c.id === x.assignee_id)?.first ?? '' })}</span> : null,
+          x.assignee_id && coverIds.includes(x.assignee_id) ? <span key="v" className="text-studio">{t('Vertretung für {name}', { name: cover.find(c => c.id === x.assignee_id)?.first ?? '' })}</span> : null,
           x.handed_from_name && !x.done_at ? <span key="h">{t('weitergegeben von {name}', { name: x.handed_from_name })}</span> : null,
           from(x) ? <span key="f">{from(x)}</span> : null,
         ].filter(Boolean).flatMap((el, i) => i ? [<span key={'s' + i}> · </span>, el] : [el])}</p>
@@ -134,7 +134,7 @@ export function MyTodos() {
   return (
     <div>
       <button onClick={() => setAdd(true)} className="w-full rounded-[16px] bg-white px-4 py-3.5 flex items-center gap-3 text-left text-[17px] text-ink/80 hover:text-ink"><span className="w-[26px] h-[26px] rounded-full bg-sage-100 text-olive-800 flex items-center justify-center"><Plus size={16} /></span>{t('Eigenes To-do hinzufügen')}</button>
-      {covering.length > 0 && <p className="mt-3 px-1 text-[14.5px] text-studio">{t('Du vertrittst heute {names}. Ihre Aufgaben stehen hier mit.', { names: covering.map(c => c.first).join(', ') })}</p>}
+      {cover.length > 0 && <p className="mt-3 px-1 text-[14.5px] text-studio">{t('Du vertrittst heute {names}. Ihre Aufgaben stehen hier mit.', { names: cover.map(c => c.first).join(', ') })}</p>}
       {open.length === 0 && <p className="mt-6 px-1 text-[15.5px] text-mute">{t('Gerade nichts offen. Aufgaben von deiner Filialleitung oder dem Büro erscheinen hier mit Frist.')}</p>}
       {groups.filter(([, l]) => l.length).map(([g, l, cls]) => (
         <div key={g}>
@@ -229,7 +229,7 @@ function TodoDetail({ x, onClose, onToggle }: { x: Todo; onClose: () => void; on
       {x.note && <p className="mt-2 text-[15.5px] text-ink/80 whitespace-pre-wrap">{x.note}</p>}
       <div className="mt-4 rounded-[14px] bg-sage-50 divide-y divide-white text-[15.5px]">
         <div className="px-4 py-3 flex justify-between gap-3"><span className="text-mute">{t('Frist')}</span><span className={isLate(x) ? 'text-alert' : ''}>{x.due_at ? due(x.due_at) : t('Keine')}</span></div>
-        <div className="px-4 py-3 flex justify-between gap-3"><span className="text-mute">{t('Für')}</span><span>{x.assignee_id ? (x.assignee_id === me.id ? t('dich') : (() => { const p = staff.find(s => s.id === x.assignee_id); return p ? `${p.first} ${p.last}${covering.some(c => c.id === p.id) ? ` · ${t('du vertrittst')}` : ''}` : '' })()) : t('fürs Studio {name}, eine Person reicht', { name: branches.find(b => b.id === x.branch_id)?.name ?? '' })}</span></div>
+        <div className="px-4 py-3 flex justify-between gap-3"><span className="text-mute">{t('Für')}</span><span>{x.assignee_id ? (x.assignee_id === me.id ? t('dich') : (() => { const p = staff.find(s => s.id === x.assignee_id); return p ? `${p.first} ${p.last}${(covering ?? []).some(c => c.id === p.id) ? ` · ${t('du vertrittst')}` : ''}` : '' })()) : t('fürs Studio {name}, eine Person reicht', { name: branches.find(b => b.id === x.branch_id)?.name ?? '' })}</span></div>
         {x.created_by !== me.id && <div className="px-4 py-3 flex justify-between gap-3"><span className="text-mute">{t('Von')}</span><span>{x.created_by_name}</span></div>}
         {x.done_at && <div className="px-4 py-3 flex justify-between gap-3"><span className="text-mute">{t('Erledigt')}</span><span>{x.done_by_name}</span></div>}
         {x.remind_at && !x.done_at && <div className="px-4 py-3 flex justify-between gap-3"><span className="text-mute">{t('Erinnerung')}</span><span>{due(x.remind_at)}</span></div>}

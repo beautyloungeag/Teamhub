@@ -257,7 +257,7 @@ function Today({ open, go }: { open: (s: Sub) => void; go: (t: Tab) => void }) {
   const due = useDue()
   const runs = useWikiRuns()
   const { covering } = useApp()
-  const myTodos = useTodos().filter(x => isForMe(x, me, covering.map(c => c.id)) && !x.done_at)
+  const myTodos = useTodos().filter(x => isForMe(x, me, (covering ?? []).map(c => c.id)) && !x.done_at)
   const doneN = tasks.filter(x => done.has(x.id)).length
   const next = tasks.find(x => !done.has(x.id))
   const must = news.filter(n => n.mustRead && !read.has(n.id))
@@ -515,7 +515,7 @@ let tasksView: 'me' | 'studio' | null = null
 function Tasks({ open }: { open: (s: Sub) => void }) {
   const { me, done, toggle, t, tasks, templates, wiki, covering, coverTasks } = useApp()
   const todos = useTodos()
-  const openMine = todos.filter(x => isForMe(x, me, covering.map(c => c.id)) && !x.done_at)
+  const openMine = todos.filter(x => isForMe(x, me, (covering ?? []).map(c => c.id)) && !x.done_at)
   const [view, setView] = useState<'me' | 'studio'>(() => tasksView ?? (openMine.length ? 'me' : 'studio'))
   useEffect(() => { tasksView = null }, [])
   const [photoFor, setPhotoFor] = useState<string | null>(null)
@@ -591,7 +591,7 @@ function Tasks({ open }: { open: (s: Sub) => void }) {
           )
         })}
         {/* Vertretung in einem anderen Studio: dessen Checklisten von heute (28.10.) */}
-        {coverTasks.map(c => <div key={c.branchId}>
+        {(coverTasks ?? []).map(c => <div key={c.branchId}>
           <div className="mt-8 mb-2.5 px-1"><h2 className="rubric text-studio">{t('Vertretung · Studio {name}', { name: c.branch })}</h2><p className="text-[13px] text-mute mt-1">{t('Du vertrittst heute {names}.', { names: c.who })}</p></div>
           <List>{c.items.map(x => { const d = c.done.get(x.id)
             return <div key={x.id} className="flex items-center gap-3 px-4 py-3.5">

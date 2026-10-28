@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { captureAccountScope, isCurrentAccountScope } from '../lib/account-scope'
 import { postgresTextArray, profilePatch, type EditableProfile, type ProfileDraft } from '../lib/person-profile-draft'
 import { ArrowLeft, ChevronLeft, ChevronRight, Search, Smartphone, Bell, Trash2, X } from 'lucide-react'
-import { useApp, addDays, isoDay, fmtDate, inNewsAudience, type Staff } from '../store'
+import { useApp, addDays, fmtDate, inNewsAudience, type Staff } from '../store'
 import { supabase } from '../lib/supabase'
 import { phorest, type StaffWeek } from '../lib/phorest'
 import { Avatar } from '../People'
@@ -220,7 +220,6 @@ function PersonPage({ p, pos, onBack, onStep }: { p: Staff; pos: { i: number; n:
           <DataRow label="Studio" value={[p.branch, ...(p.extra ?? []).map(b => branches.find(x => x.id === b)?.name).filter(Boolean)].join(', ')} />
           <DataRow label="Rolle" value={(me.app_role === 'buero' || (canEditProfile && p.app_role === 'mitarbeiterin')) && p.id !== me.id ? <RoleSelect p={p} /> : ROLE5[roleKey(p)] ?? p.app_role} />
         </Section>
-        <Deputy p={p} canEdit={canEditProfile || (office && !self)} />
         <section><p className="text-[15px] font-medium mb-2">Skills</p>
           <div className="flex flex-wrap gap-1.5">{skillCatalog.map(k => <button key={k} onClick={() => tog(k)} disabled={!canEditProfile || skillBusy} className={`disabled:opacity-60 px-3 h-9 rounded-[10px] text-[13.5px] transition ${skills.includes(k) ? 'bg-olive-700 text-white' : 'bg-sage-50 text-ink/80 hover:bg-sage-100'}`}>{k}</button>)}</div>
           <p className="mt-2 text-[12.5px] text-mute">{canEditProfile ? 'Antippen zum Vergeben oder Entfernen. Wird sofort gespeichert.' : 'Funktion und Skills pflegt eine andere berechtigte Leitung oder das Büro.'}</p>
@@ -247,6 +246,7 @@ function PersonPage({ p, pos, onBack, onStep }: { p: Staff; pos: { i: number; n:
           <DataRow label="Pflicht-News bestätigt" value={`${mustOk} von ${must.length}`} />
           <DataRow label="Quiz bestanden" value={`${passed.size} von ${quizzes.length}${tried.size > passed.size ? ` · ${tried.size - passed.size} nicht bestanden` : ''}`} />
         </Section>
+        <Deputy p={p} canEdit={canEditProfile || (office && !self)} />
         <Section title="App und Aushilfe">
           <DataRow label="App auf dem Handy" value={p.appInstalled ? <Status kind="yes">Installiert</Status> : <Status kind="none">Noch nicht</Status>} />
           <DataRow label="Mitteilungen" value={p.pushEnabled ? <Status kind="yes">An</Status> : <Status kind="none">Aus</Status>} />
@@ -279,7 +279,8 @@ export function RoleSelect({ p }: { p: Staff }) {
       const app = sub ? 'mitarbeiterin' : v
       let ok = true
       if (app !== p.app_role) { if (!office) return; const r = await call({ action: 'set_role', employee_id: p.id, app_role: app }); ok = !!r?.ok }
-      if (ok) { const { error } = await supabase!.from('employees').update({ staff_kind: sub && v !== 'mitarbeiterin' ? v : null, updated_at: new Date().toISOString() }).eq('id', p.id).abortSignal(scope.signal); ok = !error }
+      const kind = sub && v !== 'mitarbeiterin' ? v : null
+      if (ok && (p.kind ?? null) !== kind) { const { error } = await supabase!.from('employees').update({ staff_kind: kind, updated_at: new Date().toISOString() }).eq('id', p.id).abortSignal(scope.signal); ok = !error }
       if (!isCurrentAccountScope(scope)) return
       toast(ok ? `Rolle ist jetzt ${ROLE5[v]}` : 'Das hat nicht geklappt', ok ? 'ok' : 'error'); await reload()
     } catch { if (isCurrentAccountScope(scope)) toast('Das hat nicht geklappt', 'error') }
@@ -294,8 +295,8 @@ export function RoleSelect({ p }: { p: Staff }) {
 function Deputy({ p, canEdit }: { p: Staff; canEdit: boolean }) {
   const { staff, absences, reload, reloadAbsences, me } = useApp()
   const deputy = p.deputyId ? staff.find(s => s.id === p.deputyId) : null
-  const mine = absences.filter(a => a.employeeId === p.id).sort((a, b) => a.from.localeCompare(b.from))
-  const today = isoDay()
+  const mine = (absences ?? []).filter(a => a.employeeId === p.id).sort((a, b) => a.from.localeCompare(b.from))
+  const today = addDays(0)
   const now = mine.find(a => a.from <= today && a.until >= today)
   const [from, setFrom] = useState(''), [until, setUntil] = useState(''), [note, setNote] = useState(''), [busy, setBusy] = useState(false)
   const setDeputy = async (id: string) => {
@@ -315,7 +316,7 @@ function Deputy({ p, canEdit }: { p: Staff; canEdit: boolean }) {
   const fmt = (d: string) => fmtDate(d + 'T12:00:00Z', { weekday: 'short', day: 'numeric', month: 'numeric' })
   const candidates = staff.filter(s => s.active && s.id !== p.id && s.app_role !== 'buero' || (s.active && s.id !== p.id && p.app_role === 'buero')).sort((a, b) => Number(b.branch_id === p.branch_id) - Number(a.branch_id === p.branch_id) || a.first.localeCompare(b.first))
   return <Section title="Stellvertretung" action={now ? <Status kind="late">Heute abwesend</Status> : undefined}>
-    <DataRow label="Ersatzperson" value={canEdit ? <Select compact className="w-56" value={p.deputyId ?? ''} onChange={setDeputy} placeholder="Niemand" options={[{ value: '', label: 'Niemand' }, ...candidates.map(s => ({ value: s.id, label: `${s.first} ${s.last}`, hint: s.branch }))]} /> : deputy ? `${deputy.first} ${deputy.last}` : 'niemand'} muted={!deputy && !canEdit} />
+    <DataRow label="Ersatzperson" value={canEdit ? <Select compact hideLabel label="Ersatzperson" className="w-56" value={p.deputyId ?? ''} onChange={setDeputy} placeholder="Niemand" options={[{ value: '', label: 'Niemand' }, ...candidates.map(s => ({ value: s.id, label: `${s.first} ${s.last}`, hint: s.branch }))]} /> : deputy ? `${deputy.first} ${deputy.last}` : 'niemand'} muted={!deputy && !canEdit} />
     {mine.map(a => <DataRow key={a.id} label="Abwesend" value={<span className="flex items-center gap-3"><span>{a.from === a.until ? fmt(a.from) : `${fmt(a.from)} bis ${fmt(a.until)}`}{a.note ? ` · ${a.note}` : ''}</span>{canEdit && <button onClick={() => del(a.id)} aria-label="Abwesenheit löschen" className="text-mute hover:text-alert"><Trash2 size={14} /></button>}</span>} />)}
     {canEdit && <div className="mt-3 flex flex-wrap items-end gap-2 text-[13px]">
       <label className="flex flex-col gap-1"><span className="text-mute text-xs">Abwesend von</span><input type="date" value={from} min={today} onChange={e => setFrom(e.target.value)} className="h-9 px-2 rounded-[9px] bg-sage-50 outline-none" /></label>

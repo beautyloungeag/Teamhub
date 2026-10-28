@@ -50,8 +50,8 @@ export function InfoTip({ text, side = 'bottom' }: { text: string; side?: 'botto
 
 export type Opt = { value: string; label: string; hint?: string; group?: string }
 /** Eigenes Dropdown statt des Browser-Menüs: Suche ab 8 Einträgen, Gruppen, Haken beim gewählten Eintrag. */
-export function Select({ value, onChange, options, placeholder = 'Auswählen …', tone = 'white', disabled, className = '', label, compact }: {
-  value: string; onChange: (v: string) => void; options: Opt[]; placeholder?: string; tone?: 'white' | 'stone'; disabled?: boolean; className?: string; label?: string; compact?: boolean
+export function Select({ value, onChange, options, placeholder = 'Auswählen …', tone = 'white', disabled, className = '', label, compact, hideLabel }: {
+  value: string; onChange: (v: string) => void; options: Opt[]; placeholder?: string; tone?: 'white' | 'stone'; disabled?: boolean; className?: string; label?: string; compact?: boolean; hideLabel?: boolean
 }) {
   const [open, setOpen] = useState(false), [q, setQ] = useState(''), [hi, setHi] = useState(0)
   const box = useRef<HTMLDivElement>(null), pop = useRef<HTMLDivElement>(null)
@@ -85,8 +85,8 @@ export function Select({ value, onChange, options, placeholder = 'Auswählen …
   let lastGroup: string | undefined
   return (
     <div ref={box} className={`relative ${className}`} onKeyDown={key}>
-      {label && <span className="block text-xs text-mute mb-1">{label}</span>}
-      <button type="button" disabled={disabled} onClick={() => setOpen(!open)} aria-haspopup="listbox" aria-expanded={open}
+      {label && !hideLabel && <span className="block text-xs text-mute mb-1">{label}</span>}
+      <button type="button" disabled={disabled} onClick={() => setOpen(!open)} aria-haspopup="listbox" aria-expanded={open} aria-label={hideLabel ? label : undefined}
         className={`w-full ${compact ? 'h-8 rounded-[8px] px-2.5 text-[13px]' : 'h-10 rounded-[10px] px-3 text-[14px]'} flex items-center gap-2 border transition outline-none disabled:opacity-60 disabled:cursor-default ${tone === 'white' ? 'bg-white' : 'bg-sage-50'} ${open ? 'border-sage-400' : 'border-transparent hover:border-line'}`}>
         <span className={`flex-1 truncate text-left ${cur ? '' : 'text-mute'}`}>{cur?.label ?? placeholder}</span>
         <ChevronDown size={15} className={`text-mute shrink-0 transition ${open ? 'rotate-180' : ''}`} />
