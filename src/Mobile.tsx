@@ -972,9 +972,13 @@ function WikiDetail({ a, preview }: { a: WikiArticle; preview?: WikiPreviewData 
   const cur = slides[Math.min(idx, slides.length - 1)]
   // Grosses Format, sobald ein Drittel der Folien Bild oder Video hat (26.10., Renée: „Fotos sollten grösser sein“)
   const tall = slides.filter(x => x.photo || x.video).length * 3 >= slides.length
+  // Ziel einer Pfeil-Bewegung: solange die Galerie dorthin gleitet, zählt die Zwischenposition nicht als Folie.
+  // Sonst setzte onScroll die Folie zurück, und wer schnell tippte, verlor Tipps (28.10.)
+  const aim = useRef<{ n: number; until: number } | null>(null)
   const go = (i: number, up = false) => {
     const el = rail.current, n = Math.max(0, Math.min(slides.length - 1, i))
     if (el) el.scrollTo({ left: n * el.clientWidth, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
+    aim.current = { n, until: Date.now() + 900 }
     setIdx(n)
     if (up) scrollInPane(topRef.current?.closest<HTMLElement>('.app-content-scroll') ?? null, topRef.current, 'start', true)
   }
@@ -997,7 +1001,10 @@ function WikiDetail({ a, preview }: { a: WikiArticle; preview?: WikiPreviewData 
     <article className="pb-4">
       <div ref={topRef} className="scroll-mt-2 md:px-5 md:pt-2">
         <div className="relative md:rounded-[22px] overflow-hidden">
-          <div ref={rail} onScroll={e => { const el = e.currentTarget, n = Math.round(el.scrollLeft / Math.max(1, el.clientWidth)); if (n !== idx) setIdx(n) }}
+          <div ref={rail} onScroll={e => { const el = e.currentTarget, n = Math.round(el.scrollLeft / Math.max(1, el.clientWidth))
+            const a = aim.current; if (a) { if (n !== a.n && Date.now() < a.until) return; aim.current = null }
+            if (n !== idx) setIdx(n) }}
+            onTouchStart={() => { aim.current = null }} onPointerDown={() => { aim.current = null }} onWheel={() => { aim.current = null }}
             className="flex overflow-x-auto snap-x snap-mandatory overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" aria-roledescription={t('Galerie')}>
             {slides.map((s, i) => { const src = photoOf(s), k = kicker(s), Head = s.kind === 'cover' ? 'h1' : 'p'
               return <div key={s.key} className={`relative w-full shrink-0 snap-center ${tall ? 'aspect-[4/5] max-h-[74vh] md:aspect-[4/3] md:max-h-[640px]' : 'aspect-[5/4] max-h-[50vh] md:aspect-[16/10] md:max-h-[460px]'} bg-olive-900 overflow-hidden`} aria-label={t('Folie {a} von {b}', { a: i + 1, b: slides.length })}>

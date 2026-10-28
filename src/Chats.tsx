@@ -148,7 +148,7 @@ export function ChatHub({ onOpenMarc, onOpenRoom, onOpenTickets, active, compact
         <div className="grid grid-cols-2 gap-3">
           <button onClick={onOpenMarc} className="rounded-[20px] bg-white p-3.5 flex items-center gap-3 text-left min-w-0">
             <BMark className="w-11 h-11 shrink-0" />
-            <span className="min-w-0"><span className="block text-[17px] font-semibold">Marc</span><span className="block text-[14.5px] text-mute truncate">{t('Dein Assistent')}</span></span>
+            <span className="min-w-0"><span className="block text-[17px] font-semibold">Marc</span><span className="block text-[14.5px] leading-snug text-mute">{t('Dein Assistent')}</span></span>
           </button>
           <button onClick={onOpenTickets} className="rounded-[20px] bg-white p-3.5 flex items-center gap-3 text-left min-w-0">
             <span className="w-11 h-11 rounded-full bg-note-50 text-note flex items-center justify-center shrink-0"><AlertTriangle size={19} /></span>

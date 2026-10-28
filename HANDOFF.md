@@ -1,5 +1,16 @@
 # HANDOFF — Beautylounge TeamHub
 
+### 2026-10-28 spät — Matteos Liste nochmal live geprüft, Handy und Computer
+
+- **Anlass:** Aleksa wollte vor der Antwort an Matteo sicher sein, dass jeder seiner Punkte live auf Handy und Computer greift. Sein PDF zeigt nur die Mitarbeiter-App am Handy.
+- **Geprüft auf teamhub.beautylounge.ch mit echten Klicks:**
+  - Mitarbeiterin bei 375 und 1280 px: Startseite (Frag Marc, kein Chat-Teil), Wissen (Aufbau nach Entwurf, Suche „Pediküre“ findet 8 Pedicure-Artikel, letzte Folie mit „Ende“ und abgesetztem „Alles gelesen?“), Chats (Kacheln, Kürzel, Foto-Knopf), Aufgaben (Erinnerung, Weitergeben, Reaktion beim Erledigen mit eigenem Test-To-do, danach per ID gelöscht), Melden & Ideen (Verlauf je Art).
+  - Büro bei 1280 px: Chats im Menü, Wissen (Tabelle, Mehrfachauswahl, Bereiche anlegen, Bereich Filialleitung), Meldungen (Suche, Filter, Sortierung, Offen seit, Vertraulich), Aufgabe zuweisen (Studios, Personen, Rollen), Performance (Alle Studios, Zeitraum), Team (Lehrling/Praktikantin, Stellvertretung).
+- **Behoben:**
+  - Folien: Wer schneller als etwa einmal pro Sekunde auf den Pfeil tippte, verlor Tipps. `onScroll` setzte die Folie während des Gleitens auf die Zwischenposition zurück (19 Tipps = 3 Folien). Jetzt merkt sich `go()` das Ziel (`aim`, 900 ms), Wischen per Finger, Maus oder Rad hebt es auf.
+  - Wissen-Kopf: „Wissen teilen“ rutschte bei 375 px unter den Titel (`.mobile-page-title` Basis 180 → 140 px, nur Wissen hat dort einen Knopf).
+  - Chats: „Dein Assistent“ in der Marc-Kachel war abgeschnitten, bricht jetzt um.
+
 ### 2026-10-28 abends — Backoffice auf jedem Gerät (Aleksa: „Büro und Filialleitung sollen überall dieselben Funktionen haben“)
 
 - **Vorher:** Das Backoffice gab es nur auf Geräten mit Maus und mindestens 768 px Breite. Am Handy und auf dem iPad bekamen Büro und Filialleitung nur die Mitarbeiter-App. Ihre Rechte hatten sie dort zwar (RLS, Marc-Werkzeuge hängen an der Rolle), verwalten konnten sie aber nur über Marc.

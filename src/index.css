@@ -123,7 +123,7 @@ input[type=checkbox]{accent-color:#495940}
   html[data-keyboard-open=true] .chat-composer-wrap{padding-bottom:8px}
   html[data-keyboard-open=true] .mobile-sheet:not(.mobile-todo-sheet){padding-bottom:16px}
   .app-bottom-nav button{min-height:48px}
-  .mobile-page-title{flex-basis:180px;overflow-wrap:break-word}
+  .mobile-page-title{flex-basis:140px;overflow-wrap:break-word}
   .mobile-page-head>button{flex-shrink:0;min-height:44px}
   .calendar-days>button{min-height:44px;min-width:44px;white-space:nowrap}
   .ticket-tools{flex-wrap:wrap}
