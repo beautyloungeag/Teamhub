@@ -1447,7 +1447,8 @@ function Tickets({ open, learning }: { open: (s: Sub) => void; learning?: boolea
     setTimeout(() => setOk(''), 3000)
   }
   // Die Datenbank liefert nur, was diese Person sehen darf: eigene Meldungen, Ideen des Teams, als Leitung das Studio
-  const list = tickets.filter(x => (kind === 'Anliegen' ? x.kind === 'Anliegen' : x.kind !== 'Learning' && x.kind !== 'Anliegen') && (view === 'offen' ? x.status !== 'Erledigt' : x.status === 'Erledigt'))
+  // Verlauf zeigt genau die gewählte Art: unter „Idee“ nur Ideen, unter „Meldung“ nur Meldungen (Matteo 28.10.)
+  const list = tickets.filter(x => x.kind === kind && (view === 'offen' ? x.status !== 'Erledigt' : x.status === 'Erledigt'))
     .sort((a, b) => b.votes - a.votes)
   const learnings = tickets.filter(x => x.kind === 'Learning')
   const isVideo = photo?.type.startsWith('video')
@@ -1485,7 +1486,7 @@ function Tickets({ open, learning }: { open: (s: Sub) => void; learning?: boolea
               </div>
             </div>))}</div>
         </> : <>
-        <div className="mt-8 mb-2.5 px-1 flex flex-wrap gap-3 items-center justify-between"><div><h2 className="rubric text-ink/70">{t('Verlauf')}</h2>{kind !== 'Anliegen' && <p className="text-[13px] text-mute mt-1">{t('Schon gemeldet? Dann einfach upvoten.')}</p>}</div>
+        <div className="mt-8 mb-2.5 px-1 flex flex-wrap gap-3 items-center justify-between"><div><h2 className="rubric text-ink/70">{t('Verlauf')}</h2>{kind !== 'Anliegen' && <p className="text-[13px] text-mute mt-1">{kind === 'Idee' ? t('Schon vorgeschlagen? Dann einfach upvoten.') : t('Schon gemeldet? Dann einfach upvoten.')}</p>}</div>
           <div className="flex shrink-0 gap-1 p-0.5 rounded-[8px] bg-white">{(['offen', 'erledigt'] as const).map(k => <button key={k} onClick={() => setView(k)} className={`h-11 whitespace-nowrap px-3 rounded-[6px] text-[13px] transition ${view === k ? 'bg-olive-700 text-white' : 'text-ink/60'}`}>{t(k === 'offen' ? 'Offen' : 'Erledigt')}</button>)}</div></div>
         <List>{list.length === 0 && <Empty>{view === 'offen' ? t('Nichts offen.') : t('Noch nichts erledigt.')}</Empty>}{list.map(x => (
           <div key={x.id} className="px-4 py-3 flex gap-3 items-start">

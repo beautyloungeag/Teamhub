@@ -879,4 +879,5 @@ export default {
   "Am Tag der Frist um 8 Uhr": ["On the due day at 8 am", "Le jour de l’échéance à 8 h"],
   "Morgen um 8 Uhr": ["Tomorrow at 8 am", "Demain à 8 h"],
   "du vertrittst": ["you are covering", "tu remplaces"],
+  "Schon vorgeschlagen? Dann einfach upvoten.": ["Already suggested? Just upvote it.", "Déjà proposé ? Il suffit de voter pour."],
 } as Record<string, [string, string]>

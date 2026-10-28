@@ -9,7 +9,7 @@
 //   client_search {q}            Kundin suchen (Name, E-Mail oder Telefon), protokolliert
 //   client_history {client_id, months?, summary?} Besuche + Notizen der letzten Monate, auf Wunsch mit KI-Zusammenfassung, protokolliert
 //   services    {branch?, q?}    Behandlungskatalog (Dauer, Preis CHF, Kategorie), alle Rollen
-//   performance {from, to, employee_id? | branch?, totals_only?} Kennzahlen + Bewertungen, Vergleich zum Vorzeitraum
+//   performance {from, to, employee_id? | branch? ('all' = alle erlaubten Studios), totals_only?} Kennzahlen + Bewertungen, Vergleich zum Vorzeitraum
 //   read        {path}           freie GET-Abfrage für Marc (Filialleitung: eigene Filiale ohne Umsätze, Büro alles)
 //   sync_staff  {}               Zuordnung per Firmen-Mail neu aufbauen (nur Büro)
 import { createClient } from 'jsr:@supabase/supabase-js@2'
@@ -276,11 +276,15 @@ Deno.serve(async (req) => {
       const okd = (d: unknown) => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d)
       if (!okd(body.from) || !okd(body.to) || body.to < body.from || (Date.parse(body.to) - Date.parse(body.from)) / 864e5 > 92) return json({ ok: false, error: 'bad_range' }, 400)
       const from = body.from as string, to = body.to as string
-      const studio = typeof body.branch === 'string' ? body.branch : null
+      // „Alle Studios“ (Matteo 28.10.): Büro alle, Filialleitung ihre Studios; Kennzahlen gemeinsam, dazu je Studio
+      const all = body.branch === 'all'
+      const studio = !all && typeof body.branch === 'string' ? body.branch : null
+      const allBranches = all ? (branches ?? []).filter((b) => b.phorest_branch_id && (me.app_role === 'buero' || myBranches.includes(b.id))).map((b) => b.id) : []
+      if (all && (me.app_role === 'mitarbeiterin' || !allBranches.length)) return json({ ok: false, error: 'forbidden' }, 403)
       const { data: maps0 } = await admin.from('employee_phorest').select('employee_id, branch_id, staff_id')
       const maps = maps0 ?? []
       let targets: { branch_id: string; staff_id: string }[] = []
-      if (studio) {
+      if (all) { /* geprüft oben */ } else if (studio) {
         const lead = me.app_role === 'buero' || (me.app_role === 'filialleitung' && myBranches.includes(studio))
         if (!lead && !(body.totals_only && myBranches.includes(studio))) return json({ ok: false, error: 'forbidden' }, 403)
         if (!pb(studio)) return json({ ok: false, error: 'no_phorest_branch' }, 400)
@@ -294,7 +298,7 @@ Deno.serve(async (req) => {
         targets = maps.filter((m) => m.employee_id === who).map((m) => ({ branch_id: m.branch_id, staff_id: m.staff_id }))
         if (!targets.length) return json({ ok: true, mapped: false })
       }
-      const branchesUsed = studio ? [studio] : [...new Set(targets.map((t) => t.branch_id))]
+      const branchesUsed = all ? allBranches : studio ? [studio] : [...new Set(targets.map((t) => t.branch_id))]
       // Vorzeitraum gleicher Länge direkt davor
       const days = Math.round((Date.parse(to) - Date.parse(from)) / 864e5) + 1
       const shift = (d: string, n: number) => new Date(Date.parse(d + 'T12:00:00Z') + n * 864e5).toISOString().slice(0, 10)
@@ -338,11 +342,11 @@ Deno.serve(async (req) => {
       const names = new Map<string, string>()
       await Promise.all(branchesUsed.map(async (b) => {
         const pbid = pb(b)!
-        const [c, p, rv, st] = await Promise.all([fetchAppts(pbid, from, to), fetchAppts(pbid, pFrom, pTo), fetchReviews(pbid), studio ? ph(`/branch/${pbid}/staff?size=200`) : Promise.resolve(null)])
+        const [c, p, rv, st] = await Promise.all([fetchAppts(pbid, from, to), fetchAppts(pbid, pFrom, pTo), fetchReviews(pbid), studio || all ? ph(`/branch/${pbid}/staff?size=200`) : Promise.resolve(null)])
         curA.push(...c.map((a) => ({ ...a, _b: b }))); prevA.push(...p.map((a) => ({ ...a, _b: b }))); revs.push(...rv.map((r: any) => ({ ...r, _b: b })))
-        for (const s of st?._embedded?.staffs ?? []) names.set(s.staffId, String(s.firstName ?? '').trim())  // Nachnamen tragen in Phorest oft Sprachkürzel wie (F/TR)
+        for (const s of st?._embedded?.staffs ?? []) names.set(`${b}|${s.staffId}`, String(s.firstName ?? '').trim())  // Nachnamen tragen in Phorest oft Sprachkürzel wie (F/TR)
       }))
-      const mine = (a: any) => studio ? true : targets.some((t) => t.branch_id === a._b && t.staff_id === a.staffId)
+      const mine = (a: any) => studio || all ? true : targets.some((t) => t.branch_id === a._b && t.staff_id === a.staffId)
       const inRange = (d: string, f: string, t: string) => d >= f && d <= t
       const rvSum = (list: any[]) => ({ count: list.length, avg: list.length ? Math.round(list.reduce((s, r) => s + Number(r.rating ?? 0), 0) / list.length * 10) / 10 : null })
       const rvCur = revs.filter((r) => mine(r) && inRange(String(r.reviewDate ?? '').slice(0, 10), from, to))
@@ -356,15 +360,21 @@ Deno.serve(async (req) => {
           out.push({ date: d, booked: x.length, treatments: paid.length, revenue: Math.round(paid.reduce((s, a) => s + Number(a.price ?? 0), 0)) }) }
         return out }
       const series = perDay(cur, from, to), prevSeries = perDay(prev, pFrom, pTo)
-      if (!studio) return json({ ok: true, mapped: true, from, to, prev_from: pFrom, prev_to: pTo, metrics: total, prev: prevTotal, series, prev_series: prevSeries, reviews: rvCur.slice(0, 30).map(item) })
-      const lead = me.app_role === 'buero' || (me.app_role === 'filialleitung' && myBranches.includes(studio))
+      if (!studio && !all) return json({ ok: true, mapped: true, from, to, prev_from: pFrom, prev_to: pTo, metrics: total, prev: prevTotal, series, prev_series: prevSeries, reviews: rvCur.slice(0, 30).map(item) })
+      const lead = all || me.app_role === 'buero' || (me.app_role === 'filialleitung' && myBranches.includes(studio!))
       if (!lead) return json({ ok: true, from, to, metrics: total, prev: prevTotal, series, prev_series: prevSeries })
-      const staffIds = [...new Set(cur.map((a) => a.staffId).concat(rvCur.map((r) => r.staffId)))].filter(Boolean)
-      const people = staffIds.map((sid) => {
-        const m = maps.find((x) => x.branch_id === studio && x.staff_id === sid)
-        return { staff_id: sid, employee_id: m?.employee_id ?? null, name: names.get(sid) ?? 'Unbekannt', ...metrics(cur.filter((a) => a.staffId === sid)), reviews: rvSum(rvCur.filter((r) => r.staffId === sid)) }
-      }).sort((a, b) => b.revenue - a.revenue)
-      return json({ ok: true, from, to, prev_from: pFrom, prev_to: pTo, metrics: total, prev: prevTotal, series, prev_series: prevSeries, people, reviews: rvCur.slice(0, 30).map(item) })
+      // Personen je Studio (Phorest-IDs gelten pro Filiale); wer in mehreren Studios arbeitet, wird zusammengezählt
+      const keys = [...new Set(cur.map((a) => `${a._b}|${a.staffId}`).concat(rvCur.map((r) => `${r._b}|${r.staffId}`)))].filter((k) => !k.endsWith('|undefined') && !k.endsWith('|null'))
+      const byPerson = new Map<string, { keys: string[]; employee_id: string | null; name: string }>()
+      for (const k of keys) {
+        const [b, sid] = k.split('|'), m = maps.find((x) => x.branch_id === b && x.staff_id === sid)
+        const id = m?.employee_id ?? k, e = byPerson.get(id)
+        if (e) e.keys.push(k); else byPerson.set(id, { keys: [k], employee_id: m?.employee_id ?? null, name: names.get(k) ?? 'Unbekannt' })
+      }
+      const has = (ks: string[]) => (x: any) => ks.includes(`${x._b}|${x.staffId}`)
+      const people = [...byPerson.values()].map((p) => ({ staff_id: p.keys.join(','), employee_id: p.employee_id, name: p.name, ...metrics(cur.filter(has(p.keys))), reviews: rvSum(rvCur.filter(has(p.keys))) })).sort((a, b) => b.revenue - a.revenue)
+      const studios = all ? branchesUsed.map((b) => ({ branch_id: b, ...metrics(cur.filter((a) => a._b === b)), reviews: rvSum(rvCur.filter((r) => r._b === b)), prev_revenue: metrics(prev.filter((a) => a._b === b)).revenue })).sort((a, b) => b.revenue - a.revenue) : undefined
+      return json({ ok: true, from, to, prev_from: pFrom, prev_to: pTo, metrics: total, prev: prevTotal, series, prev_series: prevSeries, people, studios, reviews: [...rvCur].sort((a, b) => String(b.reviewDate ?? '').localeCompare(String(a.reviewDate ?? ''))).slice(0, 30).map(item) })
     }
 
     // Freie Leseabfrage für Marc (nur Filialleitung und Büro). Nur GET, nur unterhalb des eigenen Business.

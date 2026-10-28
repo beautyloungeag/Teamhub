@@ -16,7 +16,7 @@ export type News = { id: string; title: string; teaser: string; body: string; au
 export type TaskItem = { id: string; title: string; time: string; group: string; prio: boolean; proof: boolean; articleId: string | null; linkUrl: string | null }
 export type Template = { id: string; name: string; repeat: 'daily' | 'weekly' | 'monthly'; weekday: number | null; monthday: number | null; branchIds: string[]; items: TaskItem[]; active: boolean; proposed: boolean; sample: boolean }
 export type Done = { by: string; byId: string | null; at: string; photo: string | null }
-export type Ticket = { id: string; kind: 'Meldung' | 'Idee' | 'Learning' | 'Anliegen'; title: string; body: string; branch: string; branchId: string; allStudios: boolean; status: 'Neu' | 'Zugewiesen' | 'In Arbeit' | 'Erledigt'; who: string; when: string; assignee: string | null; photo: string | null; mediaKind: 'photo' | 'video'; viaAI: boolean; mine: boolean; votes: number; voted: boolean; comments: Comment[] }
+export type Ticket = { id: string; kind: 'Meldung' | 'Idee' | 'Learning' | 'Anliegen'; title: string; body: string; branch: string; branchId: string; allStudios: boolean; status: 'Neu' | 'Zugewiesen' | 'In Arbeit' | 'Erledigt'; who: string; when: string; createdAt?: string; assignee: string | null; photo: string | null; mediaKind: 'photo' | 'video'; viaAI: boolean; mine: boolean; votes: number; voted: boolean; comments: Comment[] }
 export type Comment = { id: string; author: string; authorId: string | null; body: string; when: string }
 export type Ev = { id: string; title: string; kind: string; description: string; startsAt: string; endsAt: string | null; place: string; link: string | null; capacity: number | null; registerUntil: string | null; audienceBranches: string[]; audienceSkills: string[]; audiencePeople: string[]; phorestSync: boolean; phorestPaid: boolean; taken: number; waiting: number; createdBy: string | null; raw: { title: string; description: string; place: string }; image: string | null; imagePath: string | null; createdAt: string }
 // Bild oder Video zu einem Aufzählungspunkt (26.10., Renée): media[j] gehört zu items[j]
@@ -127,7 +127,7 @@ function ticketSnapshot(tks: any[], comments: any[], votes: { ticket_id: string;
   return tks.map(x => ({
     id: x.id, kind: x.kind, title: x.title, body: x.body, branch: x.all_studios ? tr('Alle Studios') : branches.find(b => b.id === x.branch_id)?.name ?? x.branch_id,
     branchId: x.branch_id, allStudios: !!x.all_studios, status: x.status, who: x.created_by_name,
-    when: relWhen(x.created_at), assignee: x.assignee, photo: x.photo_path ? photos.get(x.photo_path) ?? null : null, mediaKind: x.media_kind ?? 'photo', viaAI: x.via_ai,
+    when: relWhen(x.created_at), createdAt: x.created_at, assignee: x.assignee, photo: x.photo_path ? photos.get(x.photo_path) ?? null : null, mediaKind: x.media_kind ?? 'photo', viaAI: x.via_ai,
     mine: x.created_by === employeeId, votes: votes.filter(v => v.ticket_id === x.id).length, voted: votes.some(v => v.ticket_id === x.id && v.employee_id === employeeId),
     comments: comments.filter(c => c.ticket_id === x.id).map(c => ({ id: c.id, author: c.author_name, authorId: c.author_id, body: c.body, when: relWhen(c.created_at) })),
   }))

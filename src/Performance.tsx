@@ -1,13 +1,13 @@
 import { captureAccountScope, isCurrentAccountScope, onAccountScopeChange } from './lib/account-scope'
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { ArrowDownRight, ArrowUpRight, Star, Target, Trash2 } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { ArrowDownRight, ArrowUpRight, CalendarRange, Star, Target, Trash2 } from 'lucide-react'
 import { useApp, isoDay, addDays, type Staff } from './store'
 import { supabase } from './lib/supabase'
 import { phorest } from './lib/phorest'
 import { locale } from './lib/i18n'
 import { toast } from './Toast'
 import { downloadCsv } from './lib/csv'
-import { Modal } from './admin/kit'
+import { Modal, Select } from './admin/kit'
 
 // Meine Performance (Wunsch Renée 25.09., Vorbild PhorestGo): Kennzahlen aus Phorest mit Vergleich zum Vorzeitraum,
 // persönliche Ziele und Teamziele (nur Leitung), Bewertungen der Kundinnen. Rechte prüft die Function `phorest`.
@@ -16,7 +16,7 @@ export type Metrics = { treatments: number; revenue: number; clients: number; vi
 export type Review = { date: string; rating: number; text: string; client: string; staff: string }
 export type PerfPerson = Metrics & { staff_id: string; employee_id: string | null; name: string }
 export type Day = { date: string; booked: number; treatments: number; revenue: number }
-export type Perf = { ok: boolean; mapped?: boolean; from: string; to: string; prev_from?: string; prev_to?: string; metrics: Metrics; prev: Metrics; series?: Day[]; prev_series?: Day[]; reviews?: Review[]; people?: PerfPerson[]; error?: string }
+export type Perf = { ok: boolean; mapped?: boolean; from: string; to: string; prev_from?: string; prev_to?: string; metrics: Metrics; prev: Metrics; series?: Day[]; prev_series?: Day[]; reviews?: Review[]; people?: PerfPerson[]; studios?: (Metrics & { branch_id: string; prev_revenue: number })[]; error?: string }
 export type Goal = { id: string; scope: 'person' | 'team'; employee_id: string | null; branch_id: string | null; metric: Metric; target: number; starts_on: string; ends_on: string; title: string | null; created_by_name: string | null }
 export type Metric = 'revenue' | 'treatments' | 'avg_ticket' | 'clients' | 'requested' | 'rating' | 'reviews'
 
@@ -240,33 +240,47 @@ export function StudioPerformance({ header }: { header: (action: ReactNode) => R
   const { me, branches, staff } = useApp()
   const office = me.app_role === 'buero'
   const studios = branches.filter(b => !b.is_office && (office || [me.branch_id, ...(me.extra ?? [])].includes(b.id)))
+  // „Alle Studios“ und freier Zeitraum (Matteo 28.10.)
   const [b, setB] = useState(studios[0]?.id ?? '')
-  const [k, setK] = useState<PeriodKey>('month')
-  const r = period(k)
+  const all = b === 'all'
+  const [k, setK] = useState<PeriodKey | 'custom'>('month')
+  const [custom, setCustom] = useState<{ from: string; to: string } | null>(null)
+  const r = k === 'custom' && custom ? custom : period(k === 'custom' ? 'month' : k)
   const p = usePerf(b ? { from: r.from, to: r.to, branch: b } : null)
-  const [goals, reloadGoals] = useGoals({ branchId: b })
+  const [goals, reloadGoals] = useGoals({ branchId: all ? '' : b })
   const [teamGoals, setTeamGoals] = useState<Goal[]>([])
   useEffect(() => { setTeamGoals(goals ?? []) }, [goals])
   // persönliche Ziele der Personen im Studio dazuholen
-  const ids = useMemo(() => staff.filter(s => s.branch_id === b || (s.extra ?? []).includes(b)).map(s => s.id), [staff, b])
+  const ids = useMemo(() => all ? [] : staff.filter(s => s.branch_id === b || (s.extra ?? []).includes(b)).map(s => s.id), [staff, b, all])
   const [personGoals, setPersonGoals] = useState<Goal[]>([])
   const [tick, setTick] = useState(0)
-  useEffect(() => { if (!ids.length) return; supabase!.from('goals').select('*').eq('scope', 'person').in('employee_id', ids).then(({ data }) => setPersonGoals((data ?? []) as Goal[])) }, [ids, tick])
+  useEffect(() => { if (!ids.length) { setPersonGoals([]); return } supabase!.from('goals').select('*').eq('scope', 'person').in('employee_id', ids).then(({ data }) => setPersonGoals((data ?? []) as Goal[])) }, [ids, tick])
   const [adding, setAdding] = useState(false), [open, setOpen] = useState<PerfPerson | null>(null)
   const [sort, setSort] = useState<Metric>('revenue')
   const people = [...(p?.people ?? [])].sort((x, y) => (valueOf(y, sort) ?? -1) - (valueOf(x, sort) ?? -1))
   const exportCsv = () => {
-    downloadCsv(`Performance ${studios.find(x => x.id === b)?.name} ${r.from} bis ${r.to}`, people.map(x => ({ Person: (() => { const s = staff.find(y => y.id === x.employee_id); return s ? `${s.first} ${s.last}` : x.name })(), Behandlungen: x.treatments, 'DL-Umsatz CHF': x.revenue, 'Ø je Besuch CHF': x.avg_ticket, Kunden: x.clients, 'Wunschtermine %': x.requested_pct, 'Online %': x.online_pct, 'Bewertung Ø': x.reviews.avg ?? '', Bewertungen: x.reviews.count })))
+    downloadCsv(`Performance ${all ? 'Alle Studios' : studios.find(x => x.id === b)?.name} ${r.from} bis ${r.to}`, people.map(x => ({ Person: (() => { const s = staff.find(y => y.id === x.employee_id); return s ? `${s.first} ${s.last}` : x.name })(), Behandlungen: x.treatments, 'DL-Umsatz CHF': x.revenue, 'Ø je Besuch CHF': x.avg_ticket, Kunden: x.clients, 'Wunschtermine %': x.requested_pct, 'Online %': x.online_pct, 'Bewertung Ø': x.reviews.avg ?? '', Bewertungen: x.reviews.count })))
   }
   const th = (m: Metric | null, l: string) => <th className="text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">{m ? <button onClick={() => setSort(m)} className={sort === m ? 'text-ink' : ''}>{l}{sort === m ? ' ↓' : ''}</button> : l}</th>
   return <>
     {header(<div className="flex gap-3 items-center">
-      {studios.length > 1 && <div className="flex gap-1 p-1 rounded-[10px] bg-sage-50">{studios.map(s => <button key={s.id} onClick={() => setB(s.id)} className={`h-8 px-3 rounded-[8px] text-[13px] ${b === s.id ? 'bg-white shadow-[0_1px_2px_rgba(29,34,28,.08)]' : 'text-ink/60'}`}>{s.name}</button>)}</div>}
-      <div className="flex gap-1 p-1 rounded-[10px] bg-sage-50">{PERIODS.map(([key, l]) => <button key={key} onClick={() => setK(key)} className={`h-8 px-3 rounded-[8px] text-[13px] whitespace-nowrap ${k === key ? 'bg-white shadow-[0_1px_2px_rgba(29,34,28,.08)]' : 'text-ink/60'}`}>{l}</button>)}</div>
+      {studios.length > 1 && <Select tone="stone" className="w-44" value={b} onChange={setB} options={[{ value: 'all', label: 'Alle Studios' }, ...studios.map(s => ({ value: s.id, label: s.name }))]} />}
+      <div className="flex gap-1 p-1 rounded-[10px] bg-sage-50">{PERIODS.map(([key, l]) => <button key={key} onClick={() => setK(key)} className={`h-8 px-3 rounded-[8px] text-[13px] whitespace-nowrap ${k === key ? 'bg-white shadow-[0_1px_2px_rgba(29,34,28,.08)]' : 'text-ink/60'}`}>{l}</button>)}
+        <RangeButton active={k === 'custom'} value={custom} onApply={v => { setCustom(v); setK('custom') }} /></div>
     </div>)}
-    {!p ? <div className="h-28 rounded-[16px] bg-sage-50 animate-pulse" /> : !p.ok ? <p className="text-[14px] text-mute">Phorest antwortet gerade nicht.</p> : <>
+    {k === 'custom' && custom && <p className="-mt-2 mb-4 text-[13px] text-mute">Zeitraum {fmtDay(custom.from)} bis {fmtDay(custom.to)} · {days(custom)} Tage</p>}
+    {!p ? <><div className="h-28 rounded-[16px] bg-sage-50 animate-pulse" />{all && <p className="mt-2 text-[12.5px] text-mute">Alle Studios werden aus Phorest geladen, das dauert einen Moment.</p>}</> : !p.ok ? <p className="text-[14px] text-mute">Phorest antwortet gerade nicht.</p> : <>
       <KpiGrid p={p} admin />
       <p className="mt-2 text-[12px] text-mute">Vergleich mit dem gleich langen Zeitraum davor. Umsatz laut Terminpreisen abgeschlossener Termine, ohne Verkauf und Rabatte.</p>
+      {all && p.studios && <>
+        <p className="rubric text-ink/70 mt-8">Je Studio</p>
+        <table className="tbl w-full text-[14px] mt-2"><thead><tr>{['Studio', 'Behandlungen', 'DL-Umsatz', 'zum Vorzeitraum', 'Ø je Besuch', 'Wunschtermine', 'Bewertung'].map(l => <th key={l} className="text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">{l}</th>)}</tr></thead>
+          <tbody className="divide-y divide-line">{p.studios.map(x => <tr key={x.branch_id} onClick={() => setB(x.branch_id)} className="cursor-pointer hover:bg-sage-50/70">
+            <td className="px-4 py-2.5">{branches.find(y => y.id === x.branch_id)?.name ?? x.branch_id}</td><td className="px-4 tabular-nums">{x.treatments}</td><td className="px-4 tabular-nums">{money(x.revenue)}</td>
+            <td className="px-4"><Delta now={x.revenue} before={x.prev_revenue} /></td><td className="px-4 tabular-nums">{money(x.avg_ticket)}</td><td className="px-4 tabular-nums">{x.requested_pct} %</td>
+            <td className="px-4 tabular-nums">{x.reviews.avg !== null ? `${x.reviews.avg.toFixed(1)} ★ · ${x.reviews.count}` : '–'}</td></tr>)}</tbody></table>
+        <p className="mt-2 text-[12px] text-mute">Ein Klick auf ein Studio zeigt es einzeln, mit Zielen.</p>
+      </>}
       <div className="mt-8 flex items-baseline justify-between"><p className="rubric text-ink/70">Je Person</p><button onClick={exportCsv} className="text-[13px] text-olive-700">Als CSV</button></div>
       <table className="tbl w-full text-[14px] mt-2"><thead><tr>{th(null, 'Person')}{th('treatments', 'Behandlungen')}{th('revenue', 'DL-Umsatz')}{th('avg_ticket', 'Ø je Besuch')}{th('requested', 'Wunschtermine')}{th('rating', 'Bewertung')}</tr></thead>
         <tbody className="divide-y divide-line">{people.map(x => <tr key={x.staff_id} onClick={() => setOpen(x)} className="cursor-pointer hover:bg-sage-50/70">
@@ -274,13 +288,38 @@ export function StudioPerformance({ header }: { header: (action: ReactNode) => R
           <td className="px-4 tabular-nums">{money(x.avg_ticket)}</td><td className="px-4 tabular-nums">{x.requested_pct} %</td><td className="px-4 tabular-nums">{x.reviews.avg !== null ? `${x.reviews.avg.toFixed(1)} ★ · ${x.reviews.count}` : '–'}</td></tr>)}</tbody></table>
     </>}
     <div className="grid grid-cols-2 gap-10 mt-10">
+      {all ? <div><p className="rubric text-ink/70 mb-1">Ziele</p><p className="py-2 text-[14px] text-mute">Ziele gelten je Studio. Wähl oben ein Studio, um sie zu sehen oder ein Teamziel zu erstellen.</p></div> :
       <div><div className="flex items-baseline justify-between mb-1"><p className="rubric text-ink/70">Ziele</p>{!adding && <button onClick={() => setAdding(true)} className="text-[13px] text-olive-700 flex items-center gap-1"><Target size={14} />Teamziel erstellen</button>}</div>
         {adding && <div className="rounded-[12px] border border-line p-4 mb-2"><GoalForm admin scope="team" branchId={b} onCancel={() => setAdding(false)} onDone={() => { setAdding(false); reloadGoals() }} /></div>}
-        <GoalList goals={[...teamGoals, ...personGoals.filter(g => !teamGoals.some(x => x.id === g.id))]} staff={staff} onChanged={() => { reloadGoals(); setTick(x => x + 1) }} canDeleteOf={() => true} emptyText="Noch keine Ziele. Teamziele sehen alle im Studio in der App." /></div>
+        <GoalList goals={[...teamGoals, ...personGoals.filter(g => !teamGoals.some(x => x.id === g.id))]} staff={staff} onChanged={() => { reloadGoals(); setTick(x => x + 1) }} canDeleteOf={() => true} emptyText="Noch keine Ziele. Teamziele sehen alle im Studio in der App." /></div>}
       <div><p className="rubric text-ink/70 mb-1">Neueste Bewertungen</p>{p?.ok && <ReviewList items={(p.reviews ?? []).slice(0, 8)} staff />}</div>
     </div>
     {open && <PersonModal x={open} onClose={() => setOpen(null)} />}
   </>
+}
+
+const fmtDay = (d: string) => new Date(d + 'T12:00:00Z').toLocaleDateString('de-CH', { day: 'numeric', month: 'numeric', year: '2-digit' })
+const days = (r: { from: string; to: string }) => Math.round((Date.parse(r.to) - Date.parse(r.from)) / 864e5) + 1
+
+/** Freier Zeitraum von–bis, höchstens 92 Tage (Grenze der Phorest-Function). Klappt unter dem Knopf auf, schiebt nichts. */
+function RangeButton({ active, value, onApply }: { active: boolean; value: { from: string; to: string } | null; onApply: (v: { from: string; to: string }) => void }) {
+  const [open, setOpen] = useState(false)
+  const today = isoDay()
+  const [from, setFrom] = useState(value?.from ?? addDays(-13, today)), [to, setTo] = useState(value?.to ?? today)
+  const err = !from || !to ? 'Bitte beide Daten wählen.' : to < from ? '„Bis“ liegt vor „Von“.' : to > today ? 'Das Ende darf nicht in der Zukunft liegen.' : days({ from, to }) > 92 ? 'Höchstens 92 Tage.' : ''
+  const box = useRef<HTMLDivElement>(null)
+  useEffect(() => { if (!open) return; const out = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false) }; document.addEventListener('mousedown', out); return () => document.removeEventListener('mousedown', out) }, [open])
+  return <div ref={box} className="relative">
+    <button onClick={() => setOpen(!open)} aria-expanded={open} className={`h-8 px-3 rounded-[8px] text-[13px] whitespace-nowrap flex items-center gap-1.5 ${active ? 'bg-white shadow-[0_1px_2px_rgba(29,34,28,.08)]' : 'text-ink/60'}`}><CalendarRange size={14} />{active && value ? `${fmtDay(value.from)} – ${fmtDay(value.to)}` : 'Zeitraum …'}</button>
+    {open && <div className="absolute right-0 top-10 z-30 w-[300px] rounded-[14px] bg-white p-4 shadow-[0_16px_40px_-16px_rgba(29,34,28,.45)] border border-line">
+      <div className="grid grid-cols-2 gap-3 text-[13px]">
+        <label className="flex flex-col gap-1"><span className="text-mute text-xs">Von</span><input type="date" value={from} max={today} onChange={e => setFrom(e.target.value)} className="h-9 px-2 rounded-[9px] bg-sage-50 outline-none" /></label>
+        <label className="flex flex-col gap-1"><span className="text-mute text-xs">Bis</span><input type="date" value={to} max={today} onChange={e => setTo(e.target.value)} className="h-9 px-2 rounded-[9px] bg-sage-50 outline-none" /></label>
+      </div>
+      <p className={`mt-2 text-[12.5px] min-h-[18px] ${err ? 'text-alert' : 'text-mute'}`}>{err || `${days({ from, to })} Tage, verglichen mit den ${days({ from, to })} Tagen davor`}</p>
+      <div className="mt-3 flex justify-end gap-2"><button onClick={() => setOpen(false)} className="h-9 px-3 rounded-[9px] text-[13px] text-ink/70 hover:bg-sage-50">Abbrechen</button><button disabled={!!err} onClick={() => { onApply({ from, to }); setOpen(false) }} className="h-9 px-4 rounded-[9px] bg-olive-700 text-white text-[13px] disabled:opacity-50">Anzeigen</button></div>
+    </div>}
+  </div>
 }
 
 function PersonModal({ x, onClose }: { x: PerfPerson; onClose: () => void }) {
