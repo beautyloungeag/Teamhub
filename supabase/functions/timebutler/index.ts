@@ -7,7 +7,7 @@
 //   disconnect {}
 //   overview   {}                                   Profil, Ferienstand, Stempeluhr, heutige Arbeitszeit, Zeiteinträge, Anträge, Abwesenheitsarten
 //   clock      {command: start|pause|resume|stop}
-//   request    {absenceTypeId, startDate, endDate, halfDay?, comments?}   Ferien/Abwesenheit beantragen
+//   request    {absenceTypeId, startDate, endDate, halfDay?, comments?}   Ferien/Abwesenheit beantragen, auch Krankmeldung (Art mit „krank“ im Namen)
 //   withdraw   {id}                                 eigenen Antrag zurückziehen (offen) oder Stornierung anfragen
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 import { clockResult } from './clock-result.ts'
@@ -146,7 +146,7 @@ Deno.serve(async (req) => {
       ok: true, configured: true, connected: true, today: d,
       profile: p ? { name: p.name, email: p.email, timeTracking: p.isTimeTrackingEnabled !== false } : null,
       summary, clock, work, requests: Array.isArray(requests) ? requests : [],
-      types: Array.isArray(types) ? (types as { id: string; name: string; halfDaysAllowed?: boolean; needsApproval?: boolean }[]).map(x => ({ id: x.id, name: x.name, half: !!x.halfDaysAllowed, approval: !!x.needsApproval })) : [],
+      types: Array.isArray(types) ? (types as { id: string; name: string; halfDaysAllowed?: boolean; needsApproval?: boolean; requiresMedicalCertificate?: boolean }[]).map(x => ({ id: x.id, name: x.name, half: !!x.halfDaysAllowed, approval: !!x.needsApproval, cert: !!x.requiresMedicalCertificate })) : [],
       entries: entries.flatMap(x => Array.isArray(x) ? x : []),
     })
   } catch (err) {

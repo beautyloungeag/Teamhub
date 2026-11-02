@@ -12,7 +12,7 @@ import { toast } from './Toast'
 // eigenes Timebutler-Konto einmal; danach Stempeluhr, Ferienstand, Arbeitszeit, eigene Anträge und Ferien beantragen.
 type ClockSt = { status: 'idle' | 'running' | 'paused' | 'waiting'; workTimeElapsedSeconds?: number; breakElapsedSeconds?: number; pauseTimestamp?: number; startTimestamp?: number; startOnlyOnTerminal?: boolean; pauseOnlyOnTerminal?: boolean; stopOnlyOnTerminal?: boolean }
 type Req = { id: string; type: string; startDate: string; endDate: string; days: number; status: 'pending' | 'approved' | 'rejected'; halfDay?: 'morning' | 'afternoon' | null }
-type AType = { id: string; name: string; half: boolean; approval: boolean }
+type AType = { id: string; name: string; half: boolean; approval: boolean; cert?: boolean }
 type Overview = {
   ok: boolean; configured?: boolean; connected?: boolean; reconnect?: boolean; known?: boolean | null; email?: string; error?: string; today?: string
   profile?: { name?: string; timeTracking: boolean } | null
@@ -46,7 +46,7 @@ const num = (x: number) => String(Math.round(x * 10) / 10).replace('.', ',')
 export function TimeView() {
   const { t } = useApp()
   const [o, setO] = useState<Overview | null>(null)
-  const [busy, setBusy] = useState(false), [ask, setAsk] = useState(false)
+  const [busy, setBusy] = useState(false), [ask, setAsk] = useState<'ferien' | 'krank' | null>(null)
   const fetched = useRef(Date.now())
   const [, tick] = useState(0)
   const load = () => { if (demoOn()) { setO(demo()); fetched.current = Date.now(); return }
@@ -116,7 +116,7 @@ export function TimeView() {
             {[[v.vacationDaysApproved, 'genehmigt', 'done'], [v.vacationDaysPending, 'beantragt', 'note'], [v.illnessDaysTaken, 'krank', 'duty']].map(([n, l, tn]) =>
               <div key={l as string} className={`rounded-[14px] py-2 ${TONE[tn as Tone].bg}`}><p className={`font-display text-[20px] ${TONE[tn as Tone].fg}`}>{num(n as number)}</p><p className="text-[12.5px] text-ink/70">{t(l as string)}</p></div>)}
           </div>
-          <button onClick={() => setAsk(true)} className={`mt-3 w-full h-12 rounded-[16px] font-semibold flex items-center justify-center gap-2 ${TONE.learn.bg} ${TONE.learn.fg}`}><Plane size={18} />{t('Ferien beantragen')}</button>
+          <button onClick={() => setAsk('ferien')} className={`mt-3 w-full h-12 rounded-[16px] font-semibold flex items-center justify-center gap-2 ${TONE.learn.bg} ${TONE.learn.fg}`}><Plane size={18} />{t('Ferien beantragen')}</button>
         </div>}
 
         {tracking && <div className="rounded-[22px] bg-white p-5">
@@ -130,7 +130,10 @@ export function TimeView() {
         </div>}
 
         <div className="rounded-[22px] bg-white overflow-hidden">
-          <div className="px-5 pt-4 pb-2 flex items-center justify-between"><p className="rubric text-ink/70">{t('Meine Anträge')}</p><button onClick={() => setAsk(true)} className="h-8 px-3 rounded-full bg-sage-50 text-[14px] flex items-center gap-1"><Plus size={14} />{t('Neu')}</button></div>
+          {/* Krank melden direkt an Timebutler (29.10., Matteo: niemand soll zwei Systeme pflegen) */}
+          <div className="px-5 pt-4 pb-2 flex items-center justify-between gap-2"><p className="rubric text-ink/70">{t('Meine Anträge')}</p>
+            <span className="flex items-center gap-1.5"><button onClick={() => setAsk('krank')} className={`h-8 px-3 rounded-full text-[14px] flex items-center gap-1 ${TONE.duty.bg} ${TONE.duty.fg}`}>{t('Krank melden')}</button>
+              <button onClick={() => setAsk('ferien')} className="h-8 px-3 rounded-full bg-sage-50 text-[14px] flex items-center gap-1"><Plus size={14} />{t('Ferien')}</button></span></div>
           {!upcoming.length && !past.length && <p className="px-5 pb-4 text-[15.5px] text-mute">{t('Keine Einträge in diesem Jahr.')}</p>}
           <div className="divide-y divide-line">{[...upcoming, ...past].map(a => { const [label, tone] = STATE[a.status] ?? [a.status, 'studio' as Tone], isPast = a.endDate < today, sick = /krank/i.test(a.type)
             return <div key={a.id} className={`px-5 py-3.5 flex items-center gap-3 ${isPast ? 'opacity-60' : ''}`}>
@@ -145,7 +148,7 @@ export function TimeView() {
           {!demoOn() && <button onClick={async () => { await call({ action: 'disconnect' }); load() }} className="text-[14px] text-mute">{t('Timebutler trennen')}</button>}
         </div>
       </div>
-      {ask && <RequestSheet types={o.types ?? []} today={today} onClose={() => setAsk(false)} onDone={() => { setAsk(false); load() }} />}
+      {ask && <RequestSheet mode={ask} types={o.types ?? []} today={today} onClose={() => setAsk(null)} onDone={() => { setAsk(null); load() }} />}
     </div>
   )
 }
@@ -194,36 +197,41 @@ function DateField({ label, value, min, disabled, onChange }: { label: string; v
       <input type="date" min={min} value={value} disabled={disabled} onChange={e => e.target.value && onChange(e.target.value)} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" /></span></label>
 }
 
-function RequestSheet({ types, today, onClose, onDone }: { types: AType[]; today: string; onClose: () => void; onDone: () => void }) {
+function RequestSheet({ mode, types, today, onClose, onDone }: { mode: 'ferien' | 'krank'; types: AType[]; today: string; onClose: () => void; onDone: () => void }) {
   const { t } = useApp()
-  const usable = types.filter(x => !/krank|überstunde|ueb|aua/i.test(x.name))
-  const [type, setType] = useState((usable.find(x => /ferien|urlaub/i.test(x.name)) ?? usable[0])?.id ?? '')
-  const [from, setFrom] = useState(addDays(14, today)), [to, setTo] = useState(addDays(14, today)), [half, setHalf] = useState<'' | 'morning' | 'afternoon'>(''), [note, setNote] = useState(''), [busy, setBusy] = useState(false)
+  const sick = mode === 'krank'
+  const usable = sick ? types.filter(x => /krank|sick|ill|malad/i.test(x.name) || /^kr/i.test(x.id)) : types.filter(x => !/krank|überstunde|ueb|aua/i.test(x.name))
+  const [type, setType] = useState((sick ? usable[0] : usable.find(x => /ferien|urlaub/i.test(x.name)) ?? usable[0])?.id ?? '')
+  const start = sick ? today : addDays(14, today)
+  const [from, setFrom] = useState(start), [to, setTo] = useState(start), [half, setHalf] = useState<'' | 'morning' | 'afternoon'>(''), [note, setNote] = useState(''), [busy, setBusy] = useState(false)
   const tp = usable.find(x => x.id === type)
   const send = async () => {
     if (demoOn()) { toast(t('Beispiel: In der App geht der Antrag direkt an Timebutler.')); onClose(); return }
     setBusy(true)
     const r = await call({ action: 'request', absenceTypeId: type, startDate: from, endDate: half ? from : to, halfDay: half || undefined, comments: note.trim() || undefined }).catch(() => null)
     setBusy(false)
-    if (r?.ok) { toast(tp?.approval ? t('Antrag gesendet. Deine Leitung bekommt ihn in Timebutler.') : t('Eingetragen')); onDone() }
+    if (r?.ok) { toast(sick ? t('Krankmeldung eingetragen. Gute Besserung!') : tp?.approval ? t('Antrag gesendet. Deine Leitung bekommt ihn in Timebutler.') : t('Eingetragen')); onDone() }
     else toast((r as { error?: string } | null)?.error || t('Timebutler hat den Antrag nicht angenommen.'), 'error')
   }
   return (
-    <ViewportOverlay label={t('Ferien beantragen')} onClose={onClose} className="bg-ink/30 flex items-end md:items-center justify-center">
+    <ViewportOverlay label={sick ? t('Krank melden') : t('Ferien beantragen')} onClose={onClose} className="bg-ink/30 flex items-end md:items-center justify-center">
       <div onClick={e => e.stopPropagation()} className="mobile-sheet w-full md:max-w-[480px] bg-paper rounded-t-[24px] md:rounded-[24px] p-5 pb-8">
-        <div className="flex items-center justify-between"><p className="text-[20px]">{t('Ferien beantragen')}</p><button onClick={onClose} aria-label={t('Schliessen')} className="w-9 h-9 rounded-full bg-white flex items-center justify-center"><X size={18} /></button></div>
+        <div className="flex items-center justify-between"><p className="text-[20px]">{sick ? t('Krank melden') : t('Ferien beantragen')}</p><button onClick={onClose} aria-label={t('Schliessen')} className="w-9 h-9 rounded-full bg-white flex items-center justify-center"><X size={18} /></button></div>
         <div className="mt-4 rounded-[18px] bg-white p-4 space-y-3">
           {usable.length > 1 && <label className="block"><span className="block text-[14px] text-mute mb-1.5">{t('Art')}</span>
             <div className="flex flex-wrap gap-2">{usable.map(x => <button key={x.id} onClick={() => setType(x.id)} className={`h-10 px-3.5 rounded-full text-[15px] ${type === x.id ? 'bg-olive-800 text-white' : 'bg-sage-50'}`}>{x.name}</button>)}</div></label>}
           <div className="grid grid-cols-2 gap-2">
-            <DateField label={t('Von')} value={from} min={today} onChange={v => { setFrom(v); if (to < v) setTo(v) }} />
+            <DateField label={t('Von')} value={from} min={sick ? addDays(-14, today) : today} onChange={v => { setFrom(v); if (to < v) setTo(v) }} />
             <DateField label={t('Bis')} value={half ? from : to} min={from} disabled={!!half} onChange={setTo} />
           </div>
           {tp?.half && <div className="grid grid-cols-3 gap-1 p-1 rounded-[14px] bg-sage-50">{([['', 'Ganze Tage'], ['morning', 'Vormittag'], ['afternoon', 'Nachmittag']] as const).map(([k, l]) => <button key={k} onClick={() => setHalf(k)} className={`h-10 rounded-[11px] text-[14.5px] ${half === k ? 'bg-white font-semibold' : 'text-ink/70'}`}>{t(l)}</button>)}</div>}
           <textarea value={note} onChange={e => setNote(e.target.value)} rows={2} placeholder={t('Bemerkung (optional)')} className="w-full rounded-[14px] bg-sage-50 px-4 py-3 text-[16px] outline-none resize-none placeholder:text-mute" />
+          {sick && tp?.cert && <p className="text-[14px] text-ink/80 leading-snug">{t('Für diese Art verlangt Timebutler ein Arztzeugnis. Lade es danach in Timebutler hoch.')}</p>}
         </div>
-        <button disabled={busy || !type} onClick={send} className="mt-4 w-full h-12 rounded-[16px] bg-olive-800 text-white font-semibold disabled:opacity-50">{busy ? t('Sendet …') : t('Antrag senden')}</button>
-        <p className="mt-2 text-[13px] text-mute text-center">{t('Der Antrag geht direkt an Timebutler, deine Leitung genehmigt ihn dort.')}</p>
+        {sick && !usable.length
+          ? <p className="mt-4 rounded-[16px] bg-white p-4 text-[15px] leading-snug">{t('Timebutler lässt dich keine Krankmeldung selbst eintragen. Melde dich bitte bei deiner Filialleitung.')}</p>
+          : <button disabled={busy || !type} onClick={send} className="mt-4 w-full h-12 rounded-[16px] bg-olive-800 text-white font-semibold disabled:opacity-50">{busy ? t('Sendet …') : sick ? t('Krankmeldung senden') : t('Antrag senden')}</button>}
+        <p className="mt-2 text-[13px] text-mute text-center">{sick ? t('Die Krankmeldung geht direkt an Timebutler.') : t('Der Antrag geht direkt an Timebutler, deine Leitung genehmigt ihn dort.')}</p>
       </div>
     </ViewportOverlay>
   )

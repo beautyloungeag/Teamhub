@@ -10,17 +10,20 @@ export function QuizRunner({ quiz, onPassed }: { quiz: Quiz; onPassed?: () => vo
   const passed = mine.find(a => a.passed)
   const last = mine[mine.length - 1]
   const [qs, setQs] = useState<QuizQuestion[] | null>(null)
+  const [drawId, setDrawId] = useState<string | null>(null)
   const [ans, setAns] = useState<Record<string, number[] | string>>({})
   const [res, setRes] = useState<QuizResult | null>(null)
   const [busy, setBusy] = useState(false), [err, setErr] = useState('')
 
   const start = async () => {
     setBusy(true); setErr(''); setRes(null); setAns({})
-    const { data, error } = await supabase!.rpc('quiz_for_me', { p_quiz: quiz.id })
+    // Jeder Versuch zieht neu (29.10., Matteo): Auswahl, Reihenfolge und Antworten gemischt, die Ziehung kennt nur der Server
+    const { data, error } = await supabase!.functions.invoke('quiz', { body: { action: 'draw', quiz_id: quiz.id } })
     setBusy(false)
-    if (error) { setErr(t('Das Quiz lässt sich gerade nicht laden.')); return }
-    // Frage und Antworten in der Profilsprache; Reihenfolge der Antworten bleibt gleich (Lösung zählt nach Position)
-    setQs(((data ?? []) as (QuizQuestion & { i18n?: Record<string, { prompt?: string; options?: string[] }> })[]).map(q => {
+    if (error || !data?.ok) { setErr(t('Das Quiz lässt sich gerade nicht laden.')); return }
+    setDrawId(data.draw_id)
+    // Frage und Antworten in der Profilsprache; die Übersetzung ist gleich gemischt wie das Original
+    setQs(((data.questions ?? []) as (QuizQuestion & { i18n?: Record<string, { prompt?: string; options?: string[] }> })[]).map(q => {
       const x = lang !== 'DE' ? q.i18n?.[lang] : undefined
       return { ...q, prompt: x?.prompt || q.prompt, options: x?.options?.length === q.options.length ? x.options : q.options }
     }))
@@ -32,9 +35,9 @@ export function QuizRunner({ quiz, onPassed }: { quiz: Quiz; onPassed?: () => vo
   const done = qs ? qs.every(q => q.kind === 'text' ? String(ans[q.id] ?? '').trim().length > 2 : ((ans[q.id] ?? []) as number[]).length > 0) : false
   const submit = async () => {
     setBusy(true); setErr('')
-    const r = await submitQuiz(quiz.id, ans)
+    const r = await submitQuiz(quiz.id, ans, drawId)
     setBusy(false)
-    if (!r || r.error) { setErr(r?.error === 'ai_unavailable' ? t('Die Auswertung der Freitext-Antworten klappt gerade nicht. Bitte gleich noch einmal.') : t('Das hat nicht geklappt. Bitte versuche es noch einmal.')); return }
+    if (!r || r.error) { setErr(r?.error === 'ai_unavailable' ? t('Die Auswertung der Freitext-Antworten klappt gerade nicht. Bitte gleich noch einmal.') : r?.error === 'draw_invalid' || r?.error === 'quiz_changed' ? t('Das Quiz wurde inzwischen geändert. Bitte neu starten.') : t('Das hat nicht geklappt. Bitte versuche es noch einmal.')); return }
     setRes(r)
     if (r.passed) onPassed?.()
   }
@@ -59,7 +62,7 @@ export function QuizRunner({ quiz, onPassed }: { quiz: Quiz; onPassed?: () => vo
       <div className="mt-4 rounded-[16px] bg-white divide-y divide-line">{qs.map((q, i) => (
         <div key={q.id} className="px-4 py-3 flex gap-3 items-start text-[15.5px]"><span className={`mt-1.5 w-[7px] h-[7px] rounded-full shrink-0 ${res.results[q.id] ? 'bg-ok' : 'bg-alert'}`} /><span className="flex-1">{i + 1}. {q.prompt}{res.feedback?.[q.id] && <span className="block text-[14.5px] text-mute mt-1">{res.feedback[q.id]}</span>}</span><span className="text-mute text-[14.5px] shrink-0">{res.results[q.id] ? t('richtig') : t('falsch')}</span></div>
       ))}</div>
-      {!res.passed && <button onClick={() => { setRes(null); setAns({}) }} className="mt-4 w-full h-12 rounded-[10px] bg-olive-700 text-white font-medium">{t('Nochmal versuchen')}</button>}
+      {!res.passed && <button onClick={() => { void start() }} className="mt-4 w-full h-12 rounded-[10px] bg-olive-700 text-white font-medium">{t('Nochmal versuchen')}</button>}
       {res.passed && <button onClick={() => { setQs(null); setRes(null) }} className="mt-4 w-full h-12 rounded-[10px] bg-sage-50 font-medium">{t('Fertig')}</button>}
     </div>
   )

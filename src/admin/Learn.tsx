@@ -1,5 +1,5 @@
 import { captureAccountScope, isCurrentAccountScope } from '../lib/account-scope'
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { Check, ChevronRight, Lock, Plus, Trash2, X } from 'lucide-react'
 import { useApp, fmtDate, inNewsAudience, type Quiz, type Staff, type Step } from '../store'
 import { supabase } from '../lib/supabase'
@@ -14,11 +14,21 @@ import { adminLearnPeople } from '../lib/admin-audience'
 // Lektionen und Quiz des Büros gelten für alle Studios; die Filialleitung ergänzt eigene für ihr Studio.
 
 type Page = null | { k: 'quiz'; id: string } | { k: 'edit'; q: QuizEdit }
+// Aus einem Wissensartikel direkt ins Quiz (29.10., Matteo: „Quiz anlegen“ im Artikel): Absicht merken, dann Lernen öffnen
+let learnIntent: { articleId: string; title: string; quizId?: string } | null = null
+export function openQuizFor(articleId: string, title: string, quizId?: string) {
+  learnIntent = { articleId, title, quizId }
+  window.dispatchEvent(new CustomEvent('th-office-go', { detail: 'learn' }))
+}
 export function LearnAdmin() {
   const [includeTests, setIncludeTests] = useState(false)
   const testControl = <label className="flex items-center gap-2 text-[13px] text-mute"><input type="checkbox" checked={includeTests} onChange={e => setIncludeTests(e.target.checked)} />Testkonten einbeziehen</label>
   const [tab, setTab] = useState<'fortschritt' | 'lektionen' | 'quiz'>('fortschritt')
-  const [page, setPage] = useState<Page>(null), [lesson, setLesson] = useState<Step | 'neu' | null>(null)
+  const [page, setPage] = useState<Page>(() => {
+    const x = learnIntent; learnIntent = null
+    return !x ? null : x.quizId ? { k: 'quiz', id: x.quizId } : { k: 'edit', q: { ...blankQuiz(), target: 'article', articleId: x.articleId, title: x.title } }
+  })
+  const [lesson, setLesson] = useState<Step | 'neu' | null>(null)
   if (page?.k === 'quiz') return <><div className="mb-4">{testControl}</div><QuizPage includeTests={includeTests} id={page.id} onBack={() => setPage(null)} onEdit={q => setPage({ k: 'edit', q })} /></>
   if (page?.k === 'edit') return <QuizEditor q={page.q} onBack={() => setPage(null)} />
   return (<>
@@ -182,10 +192,12 @@ function LearnSettings() {
 
 /* ---------- Quiz ---------- */
 type QEdit = { kind: 'single' | 'multi' | 'text'; prompt: string; options: string[]; correct: number[]; rubric: string }
-type QuizEdit = { id?: string; target: 'neu' | 'news' | 'article'; newsId: string; articleId: string; title: string; text: string; branches: string[] | null; passPct: number; qs: QEdit[] }
-const MIN_Q = 3, MAX_Q = 10
+type QuizEdit = { id?: string; target: 'neu' | 'news' | 'article'; newsId: string; articleId: string; title: string; text: string; branches: string[] | null; passPct: number; drawCount: number | null; qs: QEdit[] }
+// Fragenpool bis 20, je Durchgang zieht der Server drawCount davon (29.10., Matteo)
+// Gestellt werden je Durchgang weiterhin höchstens 10 (Wunsch der Inhaberin 22.10.)
+const MIN_Q = 3, MAX_Q = 20, MAX_ASK = 10
 const emptyQ = (): QEdit => ({ kind: 'single', prompt: '', options: ['', ''], correct: [], rubric: '' })
-const blankQuiz = (): QuizEdit => ({ target: 'neu', newsId: '', articleId: '', title: '', text: '', branches: null, passPct: 80, qs: [emptyQ(), emptyQ(), emptyQ()] })
+const blankQuiz = (): QuizEdit => ({ target: 'neu', newsId: '', articleId: '', title: '', text: '', branches: null, passPct: 80, drawCount: null, qs: [emptyQ(), emptyQ(), emptyQ()] })
 
 function useQuizMeta() {
   const { news, wiki, me } = useApp()
@@ -220,13 +232,17 @@ function QuizPage({ id, onBack, onEdit, includeTests }: { id: string; onBack: ()
   const { canEdit, target } = useQuizMeta()
   const q = quizzes.find(x => x.id === id)
   const [who, setWho] = useState<'alle' | 'ok' | 'nein' | 'offen'>('alle')
+  // Mit welchen Fragen (29.10., Matteo): je Person der letzte Versuch mit den gezogenen Fragen
+  const { attempts } = useApp()
+  const [prompts, setPrompts] = useState<Map<string, string>>(new Map()), [openP, setOpenP] = useState<string | null>(null)
+  useEffect(() => { supabase!.from('quiz_questions').select('id, prompt').eq('quiz_id', id).then(({ data }) => setPrompts(new Map((data ?? []).map((x: { id: string; prompt: string }) => [x.id, x.prompt])))) }, [id])
   if (!q) return <><Back onClick={onBack}>Lernen</Back><Empty>Dieses Quiz gibt es nicht mehr.</Empty></>
   const rows = people.map(p => ({ p, x: stats(p).quizzes.find(y => y.q.id === q.id) })).filter((r): r is { p: Staff; x: NonNullable<typeof r.x> } => !!r.x)
   const ok = rows.filter(r => r.x.passed).length, fail = rows.filter(r => !r.x.passed && r.x.n).length, open = rows.filter(r => !r.x.n).length
   const list = rows.filter(r => who === 'alle' || (who === 'ok' ? r.x.passed : who === 'nein' ? !r.x.passed && r.x.n : !r.x.n))
   const edit = async () => {
     const { data } = await supabase!.from('quiz_questions').select('kind, prompt, options, correct, rubric').eq('quiz_id', q.id).order('sort')
-    onEdit({ id: q.id, target: q.newsId ? 'news' : 'article', newsId: q.newsId ?? '', articleId: q.articleId ?? '', title: q.title, text: '', branches: null, passPct: q.passPct,
+    onEdit({ id: q.id, target: q.newsId ? 'news' : 'article', newsId: q.newsId ?? '', articleId: q.articleId ?? '', title: q.title, text: '', branches: null, passPct: q.passPct, drawCount: q.drawCount,
       qs: (data ?? []).map((x: { kind: QEdit['kind']; prompt: string; options: string[]; correct: number[] | null; rubric: string | null }) => ({ kind: x.kind, prompt: x.prompt, options: x.kind === 'text' ? ['', ''] : x.options, correct: x.correct ?? [], rubric: x.rubric ?? '' })) })
   }
   const del = async () => { if (!confirm('Dieses Quiz löschen? Die Ergebnisse gehen verloren.')) return; await supabase!.from('quizzes').delete().eq('id', q.id); await reload(); toast('Quiz gelöscht'); onBack() }
@@ -243,9 +259,15 @@ function QuizPage({ id, onBack, onEdit, includeTests }: { id: string; onBack: ()
         <div className="mb-3"><Seg value={who} onChange={setWho} items={[['alle', 'Alle'], ['ok', `Bestanden ${ok}`], ['nein', `Nicht bestanden ${fail}`], ['offen', `Offen ${open}`]]} /></div>
         {list.length === 0 ? <Empty>Niemand in dieser Auswahl.</Empty> :
         <table className="tbl w-full text-[14px] table-fixed"><thead><tr><Th>Person</Th><th className="w-[180px] text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">Studio</th><th className="w-[320px] text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">Stand</th></tr></thead>
-          <tbody className="divide-y divide-line">{list.map(({ p, x }) => <tr key={p.id}>
+          <tbody className="divide-y divide-line">{list.map(({ p, x }) => { const last = attempts.filter(a => a.quizId === q.id && a.employeeId === p.id).at(-1)
+            const asked = last ? (last.questionIds?.length ? last.questionIds : Object.keys(last.results ?? {})) : []
+            return <Fragment key={p.id}><tr onClick={() => last && setOpenP(openP === p.id ? null : p.id)} className={last ? 'cursor-pointer hover:bg-sage-50/70' : ''}>
             <td className="px-4 py-2.5"><span className="flex items-center gap-3 min-w-0"><Avatar s={p} photo={p.photo} size="w-8 h-8 text-[12px]" /><span className="truncate">{p.first} {p.last}{isTest(p) ? ' · Testkonto' : ''}</span></span></td>
-            <td className="px-4 text-mute">{p.branch}</td><td className="px-4">{quizStatus(x)}</td></tr>)}</tbody></table>}
+            <td className="px-4 text-mute">{p.branch}</td><td className="px-4"><span className="flex items-center justify-between gap-2">{quizStatus(x)}{last && <ChevronRight size={15} className={`text-mute transition-transform ${openP === p.id ? 'rotate-90' : ''}`} />}</span></td></tr>
+            {openP === p.id && last && <tr><td colSpan={3} className="px-4 pb-4 pt-1 bg-sage-50/50">
+              <p className="text-[12.5px] text-mute">Letzter Versuch am {fmtDate(last.at, { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' })}: {asked.filter(k => last.results?.[k]).length} von {asked.length} richtig, {last.scorePct} %</p>
+              <ul className="mt-2 space-y-1">{asked.map((k, i) => <li key={k} className="flex items-start gap-2 text-[13.5px]"><span className={`mt-1.5 w-[7px] h-[7px] rounded-full shrink-0 ${last.results?.[k] ? 'bg-ok' : 'bg-alert'}`} /><span className="flex-1">{i + 1}. {prompts.get(k) ?? 'Frage gibt es nicht mehr'}</span><span className="text-mute shrink-0">{last.results?.[k] ? 'richtig' : 'falsch'}</span></li>)}</ul>
+            </td></tr>}</Fragment> })}</tbody></table>}
       </Section>
     </div>
   )
@@ -267,7 +289,7 @@ function QuizEditor({ q, onBack }: { q: QuizEdit; onBack: () => void }) {
     if (edit.target === 'news' && !edit.newsId) { setErr('Bitte eine News wählen.'); return }
     if (edit.target === 'article' && !edit.articleId) { setErr('Bitte einen Artikel wählen.'); return }
     // 3 bis höchstens 10 Fragen je Test (Wunsch der Inhaberin 22.10.)
-    if (qs.length < MIN_Q || qs.length > MAX_Q) { setErr(`Ein Test hat ${MIN_Q} bis ${MAX_Q} Fragen, jetzt sind es ${qs.length}.`); return }
+    if (qs.length < MIN_Q || qs.length > MAX_Q) { setErr(`Ein Quiz hat ${MIN_Q} bis ${MAX_Q} Fragen im Pool, jetzt sind es ${qs.length}.`); return }
     const bad = qs.findIndex(x => x.kind === 'text' ? !x.rubric.trim() : x.options.filter(Boolean).length < 2 || x.correct.length === 0 || x.correct.some(c => !x.options[c]))
     if (bad >= 0) { setErr(qs[bad].kind === 'text' ? `Frage ${bad + 1}: bitte das Lernziel für Marc ausfüllen.` : `Frage ${bad + 1}: mindestens zwei Antworten und eine richtige markieren.`); return }
     setBusy(true); setErr('')
@@ -278,7 +300,9 @@ function QuizEditor({ q, onBack }: { q: QuizEdit; onBack: () => void }) {
       if (error || !n) { setBusy(false); setErr('Der Lernstoff liess sich nicht veröffentlichen.'); return }
       newsId = n.id
     }
-    const row = { news_id: newsId, article_id: edit.target === 'article' ? edit.articleId : null, title: edit.title.trim(), pass_pct: Math.min(100, Math.max(1, edit.passPct)), updated_at: new Date().toISOString() }
+    const draw = edit.drawCount && edit.drawCount >= MIN_Q && edit.drawCount < qs.length ? edit.drawCount : null
+    if ((draw ?? qs.length) > MAX_ASK) { setErr(`Je Durchgang höchstens ${MAX_ASK} Fragen. Bitte unter „Pro Durchgang“ wählen, wie viele aus den ${qs.length} gezogen werden.`); return }
+    const row = { news_id: newsId, article_id: edit.target === 'article' ? edit.articleId : null, title: edit.title.trim(), pass_pct: Math.min(100, Math.max(1, edit.passPct)), draw_count: draw, updated_at: new Date().toISOString() }
     const { data, error } = edit.id ? await supabase!.from('quizzes').update(row).eq('id', edit.id).select('id').single() : await supabase!.from('quizzes').insert(row).select('id').single()
     if (error || !data) { setBusy(false); setErr(/duplicate|unique/.test(error?.message ?? '') ? 'Dazu gibt es schon ein Quiz.' : 'Speichern hat nicht geklappt.'); return }
     await supabase!.from('quiz_questions').delete().eq('quiz_id', data.id)
@@ -291,6 +315,7 @@ function QuizEditor({ q, onBack }: { q: QuizEdit; onBack: () => void }) {
     toast(edit.target === 'neu' ? 'Lernstoff und Quiz veröffentlicht' : 'Quiz gespeichert'); await reload(); if (edit.target === 'neu') notifyNow(); retranslate(); onBack()
   }
   const label = 'w-[150px] shrink-0 text-[13.5px] text-mute pt-2.5'
+  const poolSize = edit.qs.filter(x => x.prompt.trim()).length || edit.qs.length
   return (
     <div className="max-w-[900px]">
       <Back onClick={onBack}>Lernen</Back>
@@ -313,7 +338,12 @@ function QuizEditor({ q, onBack }: { q: QuizEdit; onBack: () => void }) {
           <div className="flex-1">{edit.articleId ? <div className="flex items-center gap-2 h-10 px-3 rounded-[10px] bg-sage-50"><span className="flex-1 truncate">{wiki.find(a => a.id === edit.articleId)?.title}</span>{!edit.id && <button onClick={() => setEdit({ ...edit, articleId: '' })} className="text-mute"><X size={14} /></button>}</div>
             : <div className="relative"><input value={aq} onChange={e => setAq(e.target.value)} placeholder="Artikel suchen …" className={inpStone} />
               {arts.length > 0 && <div className="absolute z-10 left-0 right-0 mt-1 rounded-[12px] bg-white border border-line shadow-[0_16px_40px_-16px_rgba(29,34,28,.35)] p-1 max-h-56 overflow-y-auto">{arts.map(a => <button key={a.id} onClick={() => { setEdit({ ...edit, articleId: a.id, title: edit.title || a.title }); setAq('') }} className="w-full text-left px-3 py-2 rounded-[8px] text-[13.5px] hover:bg-sage-50">{a.title} <span className="text-mute">· {a.cat}</span></button>)}</div>}</div>}</div></div>}
-        <div className="flex items-center gap-4 py-3"><span className={`${label} !pt-0`}>Bestanden ab</span><span className="flex items-center gap-2"><input type="number" min={1} max={100} value={edit.passPct} onChange={e => setEdit({ ...edit, passPct: Number(e.target.value) })} className="w-20 h-9 rounded-[8px] bg-sage-50 px-3 text-[14px] outline-none tabular-nums" /><span className="text-mute">% richtig</span></span></div>
+        <div className="flex items-center gap-4 py-3"><span className={`${label} !pt-0`}>Bestanden ab</span><span className="flex items-center gap-2"><input type="number" min={1} max={100} value={edit.passPct} onChange={e => setEdit({ ...edit, passPct: Number(e.target.value) })} className="w-20 h-9 rounded-[8px] bg-sage-50 px-3 text-[14px] outline-none tabular-nums" /><span className="text-mute">% der gestellten Fragen richtig</span></span></div>
+        {/* Fragenpool: jede Person bekommt eine eigene Auswahl in eigener Reihenfolge, die Antworten gemischt */}
+        <div className="flex items-start gap-4 py-3"><span className={label}>Pro Durchgang</span>
+          <div className="flex-1"><Select className="w-[220px]" tone="stone" value={edit.drawCount && edit.drawCount < poolSize ? String(edit.drawCount) : poolSize <= MAX_ASK ? '0' : ''} onChange={v => setEdit({ ...edit, drawCount: Number(v) || null })}
+            placeholder="Bitte wählen" options={[...(poolSize <= MAX_ASK ? [{ value: '0', label: `Alle Fragen (${poolSize})` }] : []), ...Array.from({ length: Math.max(0, Math.min(poolSize - 1, MAX_ASK) - MIN_Q + 1) }, (_, i) => MIN_Q + i).map(n => ({ value: String(n), label: `${n} von ${poolSize} zufällig` }))]} />
+            <p className="text-[12.5px] text-mute mt-1.5">Jede Person bekommt die Fragen in eigener Reihenfolge, die Antworten gemischt.{edit.drawCount && edit.drawCount < poolSize ? ` Aus dem Pool werden je Versuch ${edit.drawCount} Fragen neu gezogen.` : ''} Wer nicht besteht, bekommt beim nächsten Versuch eine neue Ziehung.</p></div></div>
       </div>
 
       <Section title="Fragen" count={edit.qs.length}>
@@ -332,7 +362,7 @@ function QuizEditor({ q, onBack }: { q: QuizEdit; onBack: () => void }) {
               <button onClick={() => setQ(i, { options: [...x.options, ''] })} className="text-[13px] text-olive-700 pt-1 pl-7">Antwort hinzufügen</button></div>}
         </div>)}</div>
         {edit.qs.length < MAX_Q && <button onClick={() => setEdit({ ...edit, qs: [...edit.qs, emptyQ()] })} className="mt-2 h-9 px-2 rounded-[8px] text-[13.5px] text-olive-700 hover:bg-sage-50 flex items-center gap-1.5"><Plus size={15} />Frage hinzufügen</button>}
-        <p className="mt-1 text-[12.5px] text-mute">{MIN_Q} bis {MAX_Q} Fragen je Test.</p>
+        <p className="mt-1 text-[12.5px] text-mute">{MIN_Q} bis {MAX_Q} Fragen im Pool. Unter „Pro Durchgang“ legst du fest, wie viele davon jede Person bekommt.</p>
         <div className="mt-3"><Err m={err} /></div>
       </Section>
     </div>

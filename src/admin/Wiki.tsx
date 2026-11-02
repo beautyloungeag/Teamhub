@@ -1,16 +1,19 @@
-import { useEffect, useId, useRef, useState, type MutableRefObject } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type MutableRefObject } from 'react'
 import type { Editor } from '@tiptap/react'
-import { Search, Trash2, ChevronRight, Sparkles, Smartphone, X } from 'lucide-react'
+import { Search, Trash2, ChevronRight, Sparkles, Smartphone, X, GraduationCap, Image as ImageIcon } from 'lucide-react'
 import { openBenniDraft } from '../BenniChat'
 import { useApp, type WikiBlock } from '../store'
 import { supabase } from '../lib/supabase'
-import { emojiOf, catKey, EMOJI_CHOICES, AREAS, areaOf, assignedArea, fuzzyIncludes, type Area } from '../lib/wiki'
+import { emojiOf, catKey, catLabel, EMOJI_CHOICES, AREAS, areaOf, assignedArea, fuzzyIncludes, type Area } from '../lib/wiki'
 import { PREVIEW_KEY } from '../Mobile'
 import { areaLook, AREA_ICONS, AREA_TONES, type AreaIcon } from '../lib/area-look'
 import { TONE } from '../tones'
 import { markUnsaved } from '../lib/unsaved'
 import { toast } from '../Toast'
 import { ArticleBody } from './ArticleBody'
+import { SlideOutline, slideAtCursor, revealSlide } from './SlideOutline'
+import { openQuizFor } from './Learn'
+import { slidesOf } from '../lib/wiki-slides'
 import { H, New, Th, Field, Back, Empty, Status, DataRow, Select, Seg, Modal, btn, btn2, inpStone, retranslate, IconBox, Tag } from './kit'
 
 // Wissen im Backoffice (nur Büro): gleiche Ansicht wie in der App, nur bearbeitbar.
@@ -20,7 +23,8 @@ import { H, New, Th, Field, Back, Empty, Status, DataRow, Select, Seg, Modal, bt
 // Bearbeitet wird seit 26.10. in einem Dokument-Editor mit Werkzeugleiste (ArticleBody, Tiptap), nicht mehr Baustein für Baustein.
 
 const LEVEL: Record<string, string> = { alle: 'Alle', filialleitung: 'Leitung und Büro', buero: 'Nur Büro' }
-const cap = (s: string) => s.slice(0, 1).toUpperCase() + s.slice(1)
+// Themen so, wie das Büro sie getippt hat (wiki_categories.name, 02.11.)
+const cap = (s: string) => catLabel(s)
 
 export function WikiAdmin() {
   const [cat, setCat] = useState<string | null>(null)
@@ -281,10 +285,16 @@ function CategoryPage({ name, onBack, onOpen, onRenamed }: { name: string; onBac
   const items = wiki.filter(a => !a.fromNews && a.catKey === name).sort((x, y) => (y.at ?? '').localeCompare(x.at ?? '') || x.title.localeCompare(y.title))
   const [title, setTitle] = useState(cap(name))
   useEffect(() => setTitle(cap(name)), [name])
-  const rename = async () => {
+  // Umbenennen: Bestätigung in der Seite statt Browser-Dialog (29.10., Matteo)
+  const [ask, setAsk] = useState<string | null>(null)
+  const rename = () => {
     const n = title.trim()
-    if (!n || n === cap(name) || n === name) { setTitle(cap(name)); return }
-    if (!confirm(`Thema „${cap(name)}“ in „${n}“ umbenennen? Alle ${items.length} Artikel ziehen mit.`)) { setTitle(cap(name)); return }
+    if (!n || n === cap(name)) { setTitle(cap(name)); setAsk(null); return }
+    setAsk(n)
+  }
+  const doRename = async () => {
+    const n = ask; if (!n) return
+    setAsk(null)
     const { error } = await supabase!.rpc('rename_wiki_category', { p_old: name, p_new: n })
     if (error) { toast('Umbenennen hat nicht geklappt', 'error'); setTitle(cap(name)); return }
     await reloadWiki(); retranslate(); toast('Thema umbenannt'); onRenamed(n)
@@ -308,7 +318,10 @@ function CategoryPage({ name, onBack, onOpen, onRenamed }: { name: string; onBac
         <EmojiButton name={name} emoji={emojiOf(name, catEmojis)} />
         <div className="min-w-0">
           <input value={title} onChange={e => setTitle(e.target.value)} onBlur={rename} onKeyDown={e => e.key === 'Enter' && (e.target as HTMLInputElement).blur()} title="Namen ändern" className="font-display text-[30px] leading-tight bg-transparent outline-none rounded-[8px] -ml-1 px-1 hover:bg-sage-50 focus:bg-sage-50 w-full" />
-          <p className="text-[13px] text-mute">{items.length === 1 ? '1 Artikel' : `${items.length} Artikel`} · Emoji und Name lassen sich anklicken und ändern</p>
+          {ask ? <div className="mt-1 flex flex-wrap items-center gap-2 text-[13px]"><span>„{cap(name)}“ in „{ask}“ umbenennen?{items.length ? ` ${items.length === 1 ? 'Der Artikel zieht' : `Alle ${items.length} Artikel ziehen`} mit.` : ''}</span>
+              <button onMouseDown={e => e.preventDefault()} onClick={doRename} className={`${btn} !h-8`}>Umbenennen</button>
+              <button onMouseDown={e => e.preventDefault()} onClick={() => { setAsk(null); setTitle(cap(name)) }} className={`${btn2} !h-8`}>Abbrechen</button></div>
+            : <p className="text-[13px] text-mute">{items.length === 1 ? '1 Artikel' : `${items.length} Artikel`} · Emoji und Name lassen sich anklicken und ändern</p>}
           <div className="mt-2 flex items-center gap-2 text-[13px]"><span className="text-mute">Bereich</span><Select compact className="w-60" value={area} onChange={setArea} placeholder="Automatisch" options={[{ value: '', label: `Automatisch (${AREAS.find(a => a.key === areaOf(name, ''))?.name ?? ''})` }, ...AREAS.map(a => ({ value: a.key, label: a.name }))]} /></div>
         </div>
       </div>
@@ -341,7 +354,7 @@ function NewTopic({ area: area0, onClose, onDone }: { area?: string; onClose: ()
   const [name, setName] = useState(''), [emoji, setEmoji] = useState('📄'), [area, setArea] = useState(area0 || '')
   const go = async () => {
     const n = name.trim(); if (!n) return
-    const { error } = await supabase!.from('wiki_categories').upsert({ key: catKey(n), emoji, area_key: area || null, updated_at: new Date().toISOString() })
+    const { error } = await supabase!.from('wiki_categories').upsert({ key: catKey(n), name: n, emoji, area_key: area || null, updated_at: new Date().toISOString() })
     if (error) { toast('Speichern hat nicht geklappt', 'error'); return }
     await reloadWiki()
     onDone(n)
@@ -380,39 +393,55 @@ function MarcWrite({ topic }: { topic?: string }) {
   return <button onClick={() => openBenniDraft(`Schreib einen Wissensartikel${topic ? ` im Thema ${topic}` : ''} aus diesem Text (oder aus der angehängten Datei): `)} className={`${btn2} flex items-center gap-1.5`}><Sparkles size={15} />Mit Marc schreiben</button>
 }
 
-type Row = { title: string; intro: string; category: string; access_level: string; published: boolean; owner_id: string | null; blocks: WikiBlock[] | null; body: string; media_kind: string; media_url: string | null; review_due: string | null }
+type Row = { title: string; intro: string; category: string; access_level: string; published: boolean; owner_id: string | null; blocks: WikiBlock[] | null; body: string; media_kind: string; media_url: string | null; review_due: string | null; cover_path: string | null }
 function ArticleEditor({ id, category, onBack, onSaved }: { id: string | null; category: string; onBack: () => void; onSaved: (id: string) => void }) {
   const { wiki, staff, reloadWiki, quizzes } = useApp()
   const cats = [...new Set(wiki.filter(a => !a.fromNews).map(a => a.catKey))].sort((a, b) => a.localeCompare(b))
   const [title, setTitle] = useState(''), [intro, setIntro] = useState(''), [cat, setCat] = useState(category)
   const [level, setLevel] = useState('alle'), [published, setPublished] = useState(!id ? false : true), [owner, setOwner] = useState(''), [review, setReview] = useState('')
+  // Titelbild als eigenes Feld (29.10., Matteo): gilt für Titelfolie, Startseite und Listen gleich
+  const [cover, setCover] = useState<string | null>(null)
   // Inhalt: Startstand für den Editor (mit Bildadressen) und laufender Stand als Bausteine
   const [doc, setDoc] = useState<{ blocks: WikiBlock[]; urls: Record<string, string>; ver: number } | null>(id ? null : { blocks: [], urls: {}, ver: 0 })
   const blocks = useRef<WikiBlock[]>([])
+  // Laufender Stand für Folienliste und Vorschau (kurz verzögert, damit Tippen flüssig bleibt)
+  const [live, setLive] = useState<WikiBlock[]>([])
+  const liveTimer = useRef(0)
   // Nach dem ersten Speichern bekommt der Artikel seine id: nicht neu laden, der Editor hat den Stand schon
   const justCreated = useRef<string | null>(null)
   const [dirty, setDirty] = useState(false), [busy, setBusy] = useState(false)
   const [preview, setPreview] = useState(false)
-  const editorRef = useRef<Editor | null>(null), introRef = useRef<HTMLDivElement | null>(null)
+  const editorRef = useRef<Editor | null>(null), introRef = useRef<HTMLDivElement | null>(null), coverInput = useRef<HTMLInputElement>(null)
+  const [editor, setEditor] = useState<Editor | null>(null)
   const guard = useId()
   useEffect(() => { markUnsaved(guard, dirty) }, [dirty, guard])
   useEffect(() => () => markUnsaved(guard, false), [guard])
 
+  // Signierte Bildadressen: einmal je Pfad, für Editor, Folienliste und Vorschau
+  const urlCache = useRef<Record<string, string>>({})
   const sign = async (paths: string[]) => {
-    const need = [...new Set(paths.filter(p => p && !/^https?:/.test(p)))]; if (!need.length) return {}
-    const { data } = await supabase!.storage.from('media').createSignedUrls(need, 6 * 3600)
-    return Object.fromEntries((data ?? []).filter(x => x.signedUrl && x.path).map(x => [x.path!, x.signedUrl as string])) as Record<string, string>
+    const need = [...new Set(paths.filter(p => p && !/^https?:/.test(p) && !urlCache.current[p]))]
+    if (need.length) {
+      const { data } = await supabase!.storage.from('media').createSignedUrls(need, 6 * 3600)
+      for (const x of data ?? []) if (x.signedUrl && x.path) urlCache.current[x.path] = x.signedUrl
+    }
+    return Object.fromEntries(paths.filter(p => urlCache.current[p]).map(p => [p, urlCache.current[p]])) as Record<string, string>
   }
+  const show = (p?: string | null) => !p ? null : /^https?:/.test(p) ? p : urlCache.current[p] ?? null
   useEffect(() => {
     if (!id || id === justCreated.current) return
-    supabase!.from('wiki_articles').select('title, intro, category, access_level, published, owner_id, blocks, body, media_kind, media_url, review_due').eq('id', id).single().then(async ({ data }) => {
+    supabase!.from('wiki_articles').select('title, intro, category, access_level, published, owner_id, blocks, body, media_kind, media_url, review_due, cover_path').eq('id', id).single().then(async ({ data }) => {
       const r = data as Row | null; if (!r) return
       // Altes Einzelmedium (Foto/Video oben) wird zum ersten Baustein, damit es nur noch ein Modell gibt
       const lead: WikiBlock[] = r.media_url && r.media_kind !== 'none' ? [r.media_kind === 'youtube' ? { t: 'video', url: r.media_url } : { t: r.media_kind === 'video' ? 'video' : 'img', src: r.media_url }] : []
-      const bs: WikiBlock[] = [...lead, ...(r.blocks ?? (r.body ? r.body.split(/\n\n+/).filter(Boolean).map(text => ({ t: 'p' as const, text })) : []))]
-      setTitle(r.title); setIntro(r.intro ?? ''); setCat(r.category); setLevel(r.access_level); setPublished(r.published); setOwner(r.owner_id ?? ''); setReview(r.review_due ?? '')
-      blocks.current = bs
-      setDoc({ blocks: bs, urls: await sign(pathsOf(bs)), ver: 0 })
+      let bs: WikiBlock[] = [...lead, ...(r.blocks ?? (r.body ? r.body.split(/\n\n+/).filter(Boolean).map(text => ({ t: 'p' as const, text })) : []))]
+      // Der alte Trick „Foto ganz oben = Titelbild“ wird zum Feld: das Foto wandert aus dem Text ins Titelbild
+      let cv = r.cover_path
+      const stop = bs.findIndex(b => b.t === 'h' || b.t === 'ol'), leadAt = bs.slice(0, stop < 0 ? bs.length : stop).findIndex(b => b.t === 'img' && !!b.src)
+      if (leadAt >= 0 && (!cv || bs[leadAt].src === cv)) { cv = cv ?? bs[leadAt].src ?? null; bs = bs.filter((_, i) => i !== leadAt) }
+      setTitle(r.title); setIntro(r.intro ?? ''); setCat(r.category); setLevel(r.access_level); setPublished(r.published); setOwner(r.owner_id ?? ''); setReview(r.review_due ?? ''); setCover(cv)
+      blocks.current = bs; setLive(bs)
+      setDoc({ blocks: bs, urls: await sign([...pathsOf(bs), cv ?? '']), ver: 0 })
     })
   }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -424,6 +453,12 @@ function ArticleEditor({ id, category, onBack, onSaved }: { id: string | null; c
     const u = await sign([path])
     return { path, url: u[path] ?? '' }
   }
+  const pickCover = async (f: File | undefined) => {
+    if (!f) return
+    if (!f.type.startsWith('image/')) { toast('Bitte ein Foto wählen.', 'error'); return }
+    const r = await upload(f); if (!r) return
+    setCover(r.path); setDirty(true)
+  }
 
   const save = async () => {
     if (!title.trim()) { toast('Bitte einen Titel eingeben.', 'error'); return }
@@ -433,18 +468,18 @@ function ArticleEditor({ id, category, onBack, onSaved }: { id: string | null; c
     if (lvl !== level) setLevel(lvl)
     setBusy(true)
     // Dateien liegen nach Sichtbarkeit getrennt (Speicherrechte). Hat sich die Sichtbarkeit geändert, ziehen sie mit.
-    const clean: WikiBlock[] = []
     let moved = false
+    const move = async (src: string) => {
+      if (!src.startsWith('wiki/') || src.startsWith(`wiki/${lvl}/`)) return src
+      const to = `wiki/${lvl}/${src.split('/').pop()}`
+      const { error } = await supabase!.storage.from('media').move(src, to)
+      if (error) return src
+      moved = true; return to
+    }
+    const clean: WikiBlock[] = []
     for (const src of blocks.current) {
       const b = { ...src }
       if (TEXTY.has(b.t) && !textOf(b).trim() && !b.media?.some(Boolean)) continue
-      const move = async (src: string) => {
-        if (!src.startsWith('wiki/') || src.startsWith(`wiki/${lvl}/`)) return src
-        const to = `wiki/${lvl}/${src.split('/').pop()}`
-        const { error } = await supabase!.storage.from('media').move(src, to)
-        if (error) return src
-        moved = true; return to
-      }
       if (b.src) b.src = await move(b.src)
       if (b.t === 'ul' || b.t === 'ol') {
         // Leere Punkte fallen weg, ausser sie tragen ein Bild oder Video
@@ -455,28 +490,45 @@ function ArticleEditor({ id, category, onBack, onSaved }: { id: string | null; c
       }
       clean.push(b)
     }
+    const cv = cover ? await move(cover) : null
     const text = [intro.trim(), ...clean.map(b => plain(textOf(b)))].filter(Boolean).join('\n\n')
     const words = text.split(/\s+/).filter(Boolean).length + (clean.filter(b => b.t === 'img').length + clean.flatMap(b => b.media ?? []).filter(m => m?.t === 'img').length) * 15
-    const row = { title: title.trim(), intro: intro.trim(), category: cat.trim(), access_level: lvl, published, owner_id: owner || null, review_due: review || null, blocks: clean, body: text,
+    const row = { title: title.trim(), intro: intro.trim(), category: cat.trim(), access_level: lvl, published, owner_id: owner || null, review_due: review || null, blocks: clean, body: text, cover_path: cv,
       minutes: Math.max(1, Math.round(words / 180)), media_kind: 'none', media_url: null, updated_at: new Date().toISOString() }
     const r = id ? await supabase!.from('wiki_articles').update(row).eq('id', id).select('id').single() : await supabase!.from('wiki_articles').insert({ ...row, sort: 0 }).select('id').single()
     setBusy(false)
     if (r.error || !r.data) { toast('Speichern hat nicht geklappt', 'error'); return }
-    blocks.current = clean
+    blocks.current = clean; setCover(cv)
     // Verschobene Dateien haben neue Pfade: Editor mit dem gespeicherten Stand neu aufbauen
-    if (moved) setDoc({ blocks: clean, urls: await sign(pathsOf(clean)), ver: (doc?.ver ?? 0) + 1 })
+    if (moved) setDoc({ blocks: clean, urls: await sign([...pathsOf(clean), cv ?? '']), ver: (doc?.ver ?? 0) + 1 })
     setDirty(false); await reloadWiki(); retranslate(); toast('Gespeichert')
     if (!id) { justCreated.current = r.data.id; onSaved(r.data.id) }
   }
   // Cmd/Ctrl+S speichert wie in Word
   const saveRef = useRef(save); saveRef.current = save
   useEffect(() => { const k = (e: KeyboardEvent) => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') { e.preventDefault(); void saveRef.current() } }; document.addEventListener('keydown', k); return () => document.removeEventListener('keydown', k) }, [])
-  // Vorschau wie in der App: aktueller Stand inklusive Ungespeichertem, in einem Handy-Rahmen (27.10.)
-  const openPreview = async () => {
+
+  // Folien wie in der App, aus dem laufenden Stand (29.10., Matteo: sehen, wo eine Folie beginnt und was im Balken landet)
+  const slides = useMemo(() => slidesOf(live, { title: title.trim() || 'Ohne Titel', intro, photo: cover ?? undefined }).slides, [live, title, intro, cover])
+  const slidesRef = useRef(slides); slidesRef.current = slides
+  const [active, setActive] = useState(0)
+  useEffect(() => {
+    if (!editor) return
+    const f = () => setActive(slideAtCursor(editor, slidesRef.current))
+    editor.on('selectionUpdate', f); editor.on('focus', f)
+    return () => { editor.off('selectionUpdate', f); editor.off('focus', f) }
+  }, [editor])
+  // Vorschau schreibt mit: der Rahmen (gleiche App-Ansicht) zeichnet sofort neu und springt zur Folie, an der geschrieben wird
+  const writePreview = async (slide?: number) => {
     const bs = blocks.current
-    try { localStorage.setItem(PREVIEW_KEY, JSON.stringify({ id, title, intro, blocks: bs, urls: await sign(pathsOf(bs)), category: cat || 'Wissen', accessLevel: level })) } catch { toast('Vorschau ging gerade nicht', 'error'); return }
-    setPreview(true)
+    const urls = await sign([...pathsOf(bs), cover ?? ''])
+    try { localStorage.setItem(PREVIEW_KEY, JSON.stringify({ id, title, intro, blocks: bs, urls, coverPath: cover, category: cat || 'Wissen', accessLevel: level, slide: slide ?? active, seq: Date.now() })) } catch { /* Speicher voll: Vorschau bleibt beim letzten Stand */ }
   }
+  const previewTimer = useRef(0)
+  useEffect(() => { clearTimeout(previewTimer.current); previewTimer.current = window.setTimeout(() => { void writePreview() }, 300) }, [live, title, intro, cover, active, cat, level]) // eslint-disable-line react-hooks/exhaustive-deps
+  const openPreview = async () => { await writePreview(); setPreview(true) }
+  const pick = (i: number) => { setActive(i); if (editor) revealSlide(editor, slides, i) }
+
   const del = async () => {
     if (!id || !confirm(`Artikel „${title}“ endgültig löschen?`)) return
     const { error } = await supabase!.from('wiki_articles').delete().eq('id', id)
@@ -485,48 +537,81 @@ function ArticleEditor({ id, category, onBack, onSaved }: { id: string | null; c
   }
   const back = () => { if (dirty && !confirm('Ungespeicherte Änderungen verwerfen?')) return; markUnsaved(guard, false); onBack() }
   const quiz = id ? quizzes.find(q => q.articleId === id) : null
+  const toQuiz = () => { if (!id) return; if (dirty && !confirm('Ungespeicherte Änderungen verwerfen?')) return; markUnsaved(guard, false); openQuizFor(id, title.trim(), quiz?.id) }
   const areaOfCat = AREAS.find(a => a.key === assignedArea(cat))
   const areaAccess = areaOfCat?.access ?? 'alle'
   const LEVEL_TEXT: Record<string, string> = { alle: 'alle Mitarbeiterinnen', filialleitung: 'Filialleitung und Büro', buero: 'nur das Büro' }
 
   if (!doc) return <div className="max-w-[1100px]"><Back onClick={onBack}>{cap(category) || 'Wissen'}</Back><p className="text-mute">Lädt …</p></div>
-  return (<div className="max-w-[1100px]">
+  return (<div className="max-w-[1500px]">
     {/* Feste Leiste oben (27.10.): Speichern und Vorschau sind immer erreichbar, auch tief im Artikel */}
     <div className="sticky -top-8 z-30 -mx-8 -mt-8 px-8 pt-8 pb-2.5 bg-white flex items-center gap-2">
       <Back onClick={back}>{cap(category) || 'Wissen'}</Back>
       <span className="ml-auto mb-4 text-[13px] text-brass">{dirty ? 'Ungespeicherte Änderungen' : ''}</span>
-      <button onClick={openPreview} className={`${btn2} mb-4 flex items-center gap-1.5`}><Smartphone size={15} />In der App ansehen</button>
+      <button onClick={openPreview} className={`${btn2} mb-4 flex xl:hidden items-center gap-1.5`}><Smartphone size={15} />In der App ansehen</button>
       {id && <button onClick={() => { if (dirty && !confirm('Ungespeicherte Änderungen verwerfen?')) return; markUnsaved(guard, false); openBenniDraft(`Fass den Wissensartikel „${title}“ (id ${id}) neu: `) }} className={`${btn2} mb-4 hidden lg:flex items-center gap-1.5`}><Sparkles size={15} />Mit Marc neu fassen</button>}
       <button disabled={busy || (!dirty && !!id)} onClick={save} title="Speichern (⌘S)" className={`${btn} mb-4 min-w-[120px] disabled:opacity-50`}>{busy ? 'Speichert …' : id ? (dirty ? 'Speichern' : 'Gespeichert') : 'Artikel anlegen'}</button>
     </div>
-    <div className="grid xl:grid-cols-[minmax(0,720px)_240px] gap-x-10 gap-y-6 items-start">
+    {/* Drei Spalten (29.10., Matteo): links die Folien, in der Mitte der Text, rechts die Handy-Ansicht, die beim Tippen mitläuft */}
+    <div className="grid lg:grid-cols-[210px_minmax(0,1fr)] xl:grid-cols-[210px_minmax(0,1fr)_280px] gap-x-8 gap-y-6 items-start">
+      <aside className="hidden lg:block lg:sticky lg:top-[76px] max-h-[calc(100dvh-100px)] overflow-y-auto no-scrollbar pb-4 -mx-1 px-1">
+        <SlideOutline slides={slides} active={active} show={show} editor={editor} onPick={pick} />
+      </aside>
+
       <article className="min-w-0 pb-10">
-        <Editable autoFocus={!id} value={title} onChange={v => { setTitle(v); setDirty(true) }} onNext={() => introRef.current?.focus()} placeholder="Titel" className="text-[30px] font-medium tracking-tight leading-tight" />
-        <Editable elRef={introRef} value={intro} onChange={v => { setIntro(v); setDirty(true) }} onNext={() => { const ed = editorRef.current; if (!ed) return; ed.view.dom.focus(); ed.commands.setTextSelection(1) }} placeholder="Kurzfassung in einem Satz (optional)" className="mt-2 text-[16px] text-mute leading-snug" />
-        <div className="mt-5"><ArticleBody key={doc.ver} editorOut={editorRef} initial={doc.blocks} urls={doc.urls} upload={upload} onChange={b => { blocks.current = b; setDirty(true) }} /></div>
+        {/* Einstellungen kompakt über dem Text */}
+        <div className="mb-6 rounded-[14px] bg-sage-50/70 px-4 py-3 space-y-3">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <Seg value={published ? 'on' : 'off'} onChange={v => { setPublished(v === 'on'); setDirty(true) }} items={[['off', 'Entwurf'], ['on', 'Sichtbar']]} />
+            <p className="text-[12.5px] leading-snug text-ink/75 flex-1 min-w-[200px]">{published ? `In der App sichtbar für ${LEVEL_TEXT[level]}.` : 'Entwurf: in der App noch nicht sichtbar. Zum Veröffentlichen „Sichtbar“ wählen und speichern.'}</p>
+          </div>
+          <div className="grid sm:grid-cols-2 2xl:grid-cols-3 gap-x-6 gap-y-1">
+            <DataRow label="Thema" value={<Select compact className="w-[150px]" value={cat} onChange={v => { setCat(v); setDirty(true) }} placeholder="Thema wählen" options={[...new Set([...cats, ...(cat ? [cat] : [])])].map(c => ({ value: c, label: cap(c) }))} />} />
+            <DataRow label="Sichtbar für" value={<Select compact className="w-[150px]" value={LEVEL_RANK[level] < LEVEL_RANK[areaAccess] ? areaAccess : level} onChange={v => { setLevel(v); setDirty(true) }} options={Object.entries(LEVEL).filter(([value]) => LEVEL_RANK[value] >= LEVEL_RANK[areaAccess]).map(([value, label]) => ({ value, label }))} />} />
+            {/* Prüfdatum (28.10., Matteo): wann der Artikel wieder angeschaut werden soll; in „Alle Artikel“ filterbar */}
+            <DataRow label="Prüfen bis" value={<input type="date" value={review} onChange={e => { setReview(e.target.value); setDirty(true) }} className="h-9 w-[150px] rounded-[10px] bg-white px-2 text-[13px] outline-none" />} />
+            <DataRow label="Verantwortlich" value={<Select compact className="w-[150px]" value={owner} onChange={v => { setOwner(v); setDirty(true) }} placeholder="Niemand" options={[{ value: '', label: 'Niemand' }, ...staff.filter(x => x.active && x.app_role !== 'mitarbeiterin' && !x.email.includes('+')).map(x => ({ value: x.id, label: `${x.first} ${x.last}` }))]} />} />
+            {/* Quiz direkt aus dem Artikel (29.10., Matteo): vorher nur eine Anzeige, gebaut wurde unter „Lernen“ */}
+            <DataRow label="Quiz" value={quiz ? <button onClick={toQuiz} className="text-[13px] text-olive-700 hover:underline truncate max-w-[150px]">{quiz.title || 'Quiz'} bearbeiten</button>
+              : id ? <button onClick={toQuiz} className="text-[13px] text-olive-700 hover:underline flex items-center gap-1"><GraduationCap size={14} />Quiz anlegen</button> : <span className="text-[12.5px] text-mute">nach dem Anlegen</span>} />
+          </div>
+          {areaAccess !== 'alle' && <p className="text-[12px] text-mute">Bereich „{areaOfCat?.name}“: nur für {LEVEL[areaAccess]}.</p>}
+          {/* Titelbild: ein Feld statt „Foto ganz oben“ (29.10., Matteo) */}
+          <div className="flex items-center gap-3 pt-1">
+            <span className="w-[74px] h-[50px] rounded-[9px] overflow-hidden bg-olive-900 shrink-0 flex items-center justify-center text-white/60">{show(cover) ? <img src={show(cover)!} alt="" className="w-full h-full object-cover" /> : <ImageIcon size={18} />}</span>
+            <div className="min-w-0 flex-1"><p className="text-[13.5px] font-medium">Titelbild</p><p className="text-[12px] text-mute leading-snug">{cover ? 'Steht auf der Titelfolie, auf der Startseite und in den Listen.' : 'Ohne eigenes Foto zeigt die App das Bild des Bereichs.'}</p></div>
+            <button onClick={() => coverInput.current?.click()} className={`${btn2} !h-9 shrink-0`}>{cover ? 'Ändern' : 'Foto wählen'}</button>
+            {cover && <button onClick={() => { setCover(null); setDirty(true) }} className="h-9 px-2 rounded-[10px] text-[13px] text-mute hover:text-alert shrink-0">Entfernen</button>}
+            <input ref={coverInput} type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; void pickCover(f) }} />
+          </div>
+        </div>
+        <div onFocusCapture={e => { if (!(e.target as HTMLElement).closest('.wiki-editor')) setActive(0) }}>
+          <Editable autoFocus={!id} value={title} onChange={v => { setTitle(v); setDirty(true) }} onNext={() => introRef.current?.focus()} placeholder="Titel" className="text-[30px] font-medium tracking-tight leading-tight" />
+          <Editable elRef={introRef} value={intro} onChange={v => { setIntro(v); setDirty(true) }} onNext={() => { const ed = editorRef.current; if (!ed) return; ed.view.dom.focus(); ed.commands.setTextSelection(1) }} placeholder="Kurzfassung in einem Satz (steht auf der Titelfolie im Balken)" className="mt-2 text-[16px] text-mute leading-snug" />
+        </div>
+        <div className="mt-5"><ArticleBody key={doc.ver} editorOut={editorRef} onEditor={setEditor} initial={doc.blocks} urls={doc.urls} upload={upload}
+          onChange={b => { blocks.current = b; setDirty(true); clearTimeout(liveTimer.current); liveTimer.current = window.setTimeout(() => setLive(b), 150) }} /></div>
+        {/* Folien auf schmalen Bildschirmen unter dem Text */}
+        <div className="lg:hidden mt-8"><SlideOutline slides={slides} active={active} show={show} editor={editor} onPick={pick} /></div>
+        {id && <button onClick={del} className="mt-10 text-[13px] text-mute hover:text-alert flex items-center gap-1.5"><Trash2 size={14} />Artikel löschen</button>}
       </article>
 
-      <aside className="order-first xl:order-none xl:sticky xl:top-[76px] space-y-5">
-        {/* Status zuerst und in Worten: ein Entwurf ist in der App nicht zu sehen */}
-        <div className={`rounded-[14px] px-4 py-3 ${published ? 'bg-done-50' : 'bg-sage-50'}`}>
-          <div className="flex items-center justify-between gap-3"><span className="text-[13px] text-mute">Status</span><Seg value={published ? 'on' : 'off'} onChange={v => { setPublished(v === 'on'); setDirty(true) }} items={[['off', 'Entwurf'], ['on', 'Sichtbar']]} /></div>
-          <p className="mt-2 text-[13px] leading-snug text-ink/80">{published ? `In der App sichtbar für ${LEVEL_TEXT[level]}.` : 'Entwurf: in der App noch nicht sichtbar. Zum Veröffentlichen „Sichtbar“ wählen und speichern.'}</p>
-        </div>
-        <div className="grid grid-cols-2 xl:grid-cols-1 gap-x-8">
-          <DataRow label="Thema" value={<Select compact className="w-[136px]" value={cat} onChange={v => { setCat(v); setDirty(true) }} placeholder="Thema wählen" options={[...new Set([...cats, ...(cat ? [cat] : [])])].map(c => ({ value: c, label: cap(c) }))} />} />
-          <DataRow label="Sichtbar für" value={<Select compact className="w-[136px]" value={LEVEL_RANK[level] < LEVEL_RANK[areaAccess] ? areaAccess : level} onChange={v => { setLevel(v); setDirty(true) }} options={Object.entries(LEVEL).filter(([value]) => LEVEL_RANK[value] >= LEVEL_RANK[areaAccess]).map(([value, label]) => ({ value, label }))} />} />
-          {areaAccess !== 'alle' && <p className="-mt-1 mb-1 text-[12px] text-mute">Bereich „{areaOfCat?.name}“: nur für {LEVEL[areaAccess]}.</p>}
-          {/* Prüfdatum (28.10., Matteo): wann der Artikel wieder angeschaut werden soll; in „Alle Artikel“ filterbar */}
-          <DataRow label="Prüfen bis" value={<input type="date" value={review} onChange={e => { setReview(e.target.value); setDirty(true) }} className="h-9 w-[136px] rounded-[10px] bg-sage-50 px-2 text-[13px] outline-none" />} />
-          <DataRow label="Verantwortlich" value={<Select compact className="w-[136px]" value={owner} onChange={v => { setOwner(v); setDirty(true) }} placeholder="Niemand" options={[{ value: '', label: 'Niemand' }, ...staff.filter(x => x.active && x.app_role !== 'mitarbeiterin' && !x.email.includes('+')).map(x => ({ value: x.id, label: `${x.first} ${x.last}` }))]} />} />
-          <DataRow label="Quiz" value={quiz ? <span>{quiz.title}</span> : <span className="text-mute">Keins</span>} />
-        </div>
-        <p className="hidden xl:block text-[12.5px] text-mute leading-relaxed">Jede Überschrift beginnt in der App eine neue Folie. Fährst du über einen Aufzählungspunkt, kannst du ihm mit „+ Foto“ ein eigenes Bild geben. Wie es aussieht, zeigt „In der App ansehen“.</p>
-        {id && <button onClick={del} className="text-[13px] text-mute hover:text-alert flex items-center gap-1.5"><Trash2 size={14} />Artikel löschen</button>}
+      <aside className="hidden xl:block xl:sticky xl:top-[76px]">
+        <LivePhone />
+        <p className="mt-2 text-[12px] text-mute leading-snug text-center">So sieht es in der App aus, mit allem Ungespeicherten. Die Vorschau folgt der Stelle, an der du schreibst.</p>
       </aside>
     </div>
     {preview && <PhonePreview onClose={() => setPreview(false)} />}
   </div>)
+}
+
+// Handy-Ansicht neben dem Editor: dieselbe App-Seite wie die grosse Vorschau, verkleinert
+function LivePhone() {
+  return <div className="rounded-[38px] bg-[#1d221c] p-[8px] shadow-[0_24px_60px_-30px_rgba(0,0,0,.55)] mx-auto w-[280px]">
+    <div className="rounded-[30px] overflow-hidden bg-paper w-[264px] h-[min(560px,calc(100dvh-170px))] relative">
+      <iframe title="Live-Vorschau in der App" src="/?vorschau=1" className="absolute left-0 top-0 border-0 origin-top-left w-[375px] h-[790px]" style={{ transform: 'scale(.704)' }} />
+    </div>
+  </div>
 }
 
 // Handy-Rahmen mit der echten App-Ansicht: die App läuft im Rahmen mit Handybreite, damit Folien und Bildformate stimmen

@@ -128,9 +128,11 @@ function itemAt(ed: Editor, at?: number): number | null {
 
 export type Upload = (f: File) => Promise<{ path: string; url: string } | null>
 
-export function ArticleBody({ initial, urls, onChange, upload, editorOut }: { initial: WikiBlock[]; urls: Record<string, string>; onChange: (b: WikiBlock[]) => void; upload: Upload; editorOut?: MutableRefObject<Editor | null> }) {
+export function ArticleBody({ initial, urls, onChange, upload, editorOut, onEditor }: { initial: WikiBlock[]; urls: Record<string, string>; onChange: (b: WikiBlock[]) => void; upload: Upload; editorOut?: MutableRefObject<Editor | null>; onEditor?: (e: Editor | null) => void }) {
   const file = useRef<HTMLInputElement>(null), kind = useRef<'img' | 'video' | 'file'>('img')
   const [busy, setBusy] = useState(false), [vidMenu, setVidMenu] = useState(false)
+  // Link und YouTube-Link: Eingabefeld in der Seite statt Browser-Dialog (29.10., Matteo)
+  const [ask, setAsk] = useState<{ kind: 'link' | 'yt'; value: string } | null>(null)
   const insertFiles = async (ed: Editor, files: File[], at?: number) => {
     if (!files.length) return
     setBusy(true)
@@ -194,7 +196,7 @@ export function ArticleBody({ initial, urls, onChange, upload, editorOut }: { in
     onUpdate: ({ editor: ed }) => onChange(docToBlocks(ed.getJSON() as J)),
   })
   const editorRef = useRef<Editor | null>(null)
-  useEffect(() => { editorRef.current = editor; if (editorOut) editorOut.current = editor }, [editor]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { editorRef.current = editor; if (editorOut) editorOut.current = editor; onEditor?.(editor) }, [editor]) // eslint-disable-line react-hooks/exhaustive-deps
   // „+ Foto“ am Aufzählungspunkt: Cursor in diesen Punkt, dann Dateiauswahl
   useEffect(() => {
     if (!editor) return
@@ -203,15 +205,14 @@ export function ArticleBody({ initial, urls, onChange, upload, editorOut }: { in
   }) // eslint-disable-line react-hooks/exhaustive-deps
   if (!editor) return null
   const pick = (k: 'img' | 'video' | 'file', both = false) => { kind.current = k; if (file.current) { file.current.accept = both ? 'image/*,video/*' : k === 'img' ? 'image/*' : k === 'video' ? 'video/*' : ''; file.current.multiple = k === 'img' && !both; file.current.click() } }
-  const link = () => {
-    const prev = editor.getAttributes('link').href as string | undefined
-    const u = prompt('Link (https://…), leer = Link entfernen', prev ?? '')
-    if (u === null) return
+  const link = () => setAsk({ kind: 'link', value: (editor.getAttributes('link').href as string | undefined) ?? '' })
+  const setLinkTo = (u: string) => {
     if (!u.trim()) { editor.chain().focus().extendMarkRange('link').unsetLink().run(); return }
     editor.chain().focus().extendMarkRange('link').setLink({ href: /^https?:\/\//.test(u) ? u : `https://${u}` }).run()
   }
-  const yt = () => {
-    const u = prompt('YouTube-Link einfügen (z. B. https://youtu.be/…)')?.trim(); if (!u) return
+  const yt = () => setAsk({ kind: 'yt', value: '' })
+  const insertYt = (raw: string) => {
+    const u = raw.trim(); if (!u) return
     const li = itemAt(editor), node = li != null ? editor.state.doc.nodeAt(li) : null
     if (li != null && node) editor.view.dispatch(editor.state.tr.setNodeMarkup(li, undefined, { ...node.attrs, m: 'yt', url: u, src: null, show: null, name: null }))
     else editor.chain().focus().insertContent([{ type: 'media', attrs: { kind: 'yt', url: u } }, { type: 'paragraph' }]).run()
@@ -252,6 +253,13 @@ export function ArticleBody({ initial, urls, onChange, upload, editorOut }: { in
         </span>
         <B label="Datei (PDF, Word …)" icon={<FileText size={15} />} run={() => pick('file')} />
         {busy && <span className="ml-auto text-[12.5px] text-mute pr-1">Lädt hoch …</span>}
+        {ask && <div className="basis-full flex flex-wrap items-center gap-2 pt-2 pb-0.5">
+          <input autoFocus value={ask.value} onChange={e => setAsk({ ...ask, value: e.target.value })} placeholder={ask.kind === 'yt' ? 'YouTube-Link einfügen, z. B. https://youtu.be/…' : 'Link (https://…), leer = Link entfernen'}
+            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); const a = ask; setAsk(null); if (a.kind === 'yt') insertYt(a.value); else setLinkTo(a.value) } if (e.key === 'Escape') { setAsk(null); editor.commands.focus() } }}
+            className="flex-1 min-w-[220px] h-9 rounded-[9px] bg-sage-50 px-3 text-[13.5px] outline-none" />
+          <button type="button" onClick={() => { const a = ask; setAsk(null); if (a.kind === 'yt') insertYt(a.value); else setLinkTo(a.value) }} className="h-9 px-3 rounded-[9px] bg-olive-700 text-white text-[13px]">{ask.kind === 'yt' ? 'Video einfügen' : 'Übernehmen'}</button>
+          <button type="button" onClick={() => { setAsk(null); editor.commands.focus() }} className="h-9 px-3 rounded-[9px] bg-white border border-line text-[13px]">Abbrechen</button>
+        </div>}
       </div>
       <EditorContent editor={editor} className="pt-4" />
       {/* Klick in die freie Fläche unter dem Text setzt den Cursor ans Ende */}

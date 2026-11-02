@@ -44,6 +44,8 @@ export default function Backoffice({ onSwitch }: { onSwitch?: () => void }) {
   // Menüwechsel fragt nach, wenn im Wissen-Editor noch etwas ungespeichert ist (27.10.)
   const to = (k: View) => { if (k !== v && !confirmLeave()) return; setV(k) }
   useEffect(() => { const f = () => setV('benni'); window.addEventListener('th-benni-office', f); return () => window.removeEventListener('th-benni-office', f) }, [])
+  // Sprung von einer Seite in eine andere, z. B. aus dem Wissensartikel ins Quiz (02.11.)
+  useEffect(() => { const f = (e: Event) => { const k = (e as CustomEvent<View>).detail; if (allowed.has(k)) setV(k) }; window.addEventListener('th-office-go', f); return () => window.removeEventListener('th-office-go', f) }, [allowed])
   useEffect(() => { if (!allowed.has(v) && v !== 'benni' && v !== 'me') setV('overview') }, [v]) // eslint-disable-line react-hooks/exhaustive-deps
   // Handy und schmales Tablet (28.10.): Kopfzeile mit Menü statt Seitenleiste, Tabellen als Listen
   const compact = useCompact()

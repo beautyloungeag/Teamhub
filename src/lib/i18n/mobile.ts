@@ -883,4 +883,12 @@ export default {
   "1 Kommentar": ["1 comment", "1 commentaire"],
   "Verwaltung": ["Admin", "Administration"],
   "Backoffice wie am Computer": ["Back office, as on the computer", "Back-office comme sur l’ordinateur"],
+  "Das Quiz wurde inzwischen geändert. Bitte neu starten.": ["The quiz has changed in the meantime. Please start again.", "Le quiz a été modifié entre-temps. Recommence, s’il te plaît."],
+  "Krank melden": ["Call in sick", "Se déclarer malade"],
+  "Ferien": ["Holiday", "Vacances"],
+  "Krankmeldung eingetragen. Gute Besserung!": ["Sick leave recorded. Get well soon!", "Arrêt maladie enregistré. Bon rétablissement !"],
+  "Für diese Art verlangt Timebutler ein Arztzeugnis. Lade es danach in Timebutler hoch.": ["Timebutler requires a doctor’s certificate for this type. Please upload it in Timebutler afterwards.", "Timebutler exige un certificat médical pour ce type. Ajoute-le ensuite dans Timebutler."],
+  "Timebutler lässt dich keine Krankmeldung selbst eintragen. Melde dich bitte bei deiner Filialleitung.": ["Timebutler doesn’t let you record sick leave yourself. Please contact your branch manager.", "Timebutler ne te permet pas d’enregistrer toi-même un arrêt maladie. Contacte ta responsable de salon."],
+  "Krankmeldung senden": ["Send sick note", "Envoyer l’arrêt maladie"],
+  "Die Krankmeldung geht direkt an Timebutler.": ["The sick note goes straight to Timebutler.", "L’arrêt maladie est envoyé directement à Timebutler."],
 } as Record<string, [string, string]>

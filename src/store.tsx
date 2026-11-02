@@ -25,8 +25,8 @@ export type WikiBlock = { t: 'h' | 'p' | 'ul' | 'ol' | 'quote' | 'img' | 'video'
 export type WikiArticle = { id: string; cat: string; catKey: string; title: string; cover?: string | null; coverPath?: string | null; minutes: number; updated: string; at: string; body: string[]; mediaKind: string; mediaUrl: string | null; published: boolean; fromNews?: boolean; intro: string; tags: string[]; accessLevel: 'alle' | 'filialleitung' | 'buero'; imported: boolean; createdAt?: string; reviewDue?: string | null; ownerId?: string | null }
 export type Step = { id: string; title: string; minutes: number; articleId: string | null; proposed: boolean; branchIds: string[] }
 export type Branch = { id: string; name: string; is_office: boolean }
-export type Quiz = { id: string; newsId: string | null; articleId: string | null; title: string; passPct: number; sample: boolean }
-export type Attempt = { quizId: string; employeeId: string; scorePct: number; passed: boolean; at: string }
+export type Quiz = { id: string; newsId: string | null; articleId: string | null; title: string; passPct: number; sample: boolean; drawCount: number | null }
+export type Attempt = { quizId: string; employeeId: string; scorePct: number; passed: boolean; at: string; results?: Record<string, boolean>; questionIds?: string[] | null }
 export type QuizQuestion = { id: string; sort: number; kind: 'single' | 'multi' | 'text'; prompt: string; options: string[] }
 export type PollQ = { id: string; kind: 'single' | 'multi' | 'scale' | 'text'; prompt: string; options: string[] }
 export type Poll = { id: string; newsId: string; anonymous: boolean; showResults: boolean; closesAt: string | null; questions: PollQ[] }
@@ -85,7 +85,7 @@ type Ctx = {
   demoData: boolean; setDemoData: (on: boolean) => Promise<void>
   /** Einzel- und eigene Gruppenchats (Büro schaltet sie ein, app_settings chat_private) */
   privateChats: boolean
-  quizzes: Quiz[]; attempts: Attempt[]; submitQuiz: (quizId: string, answers: Record<string, number[] | string>) => Promise<QuizResult | null>
+  quizzes: Quiz[]; attempts: Attempt[]; submitQuiz: (quizId: string, answers: Record<string, number[] | string>, drawId?: string | null) => Promise<QuizResult | null>
   wiki: WikiArticle[]; reloadWiki: () => Promise<void>; catEmojis: Record<string, string>; wikiStructure: number; catAreas: Record<string, string>;
   absences: Absence[]; covering: Staff[]; reloadAbsences: () => Promise<void>; steps: Step[]; allSteps: Step[]; obDone: Set<string>; toggleStep: (id: string) => Promise<void>
   skills: string[]
@@ -258,7 +258,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           changed.has('event_registrations') ? supabase!.rpc('event_counts').abortSignal(scope.signal) : Promise.resolve(null),
           changed.has('task_completions') ? supabase!.from('task_completions').select('item_id, branch_id, done_by, done_by_name, done_at, photo_path, day').eq('day', isoDay()).abortSignal(scope.signal) : Promise.resolve(null),
           all('news_reads', 'news_id, employee_id, confirmed_at', 'news_id'),
-          all('quiz_attempts', 'quiz_id, employee_id, score_pct, passed, created_at', 'created_at'),
+          all('quiz_attempts', 'quiz_id, employee_id, score_pct, passed, created_at, results, question_ids', 'created_at'),
           changed.has('onboarding_progress') ? supabase!.from('onboarding_progress').select('step_id').eq('employee_id', employee.id).abortSignal(scope.signal) : Promise.resolve(null),
         ])
         if (!current() || version !== progressRequestVersion.current) return
@@ -271,7 +271,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
         if (completions) setCompletions(completions.data ?? [])
         if (reads) setNewsReads(reads.data as Ctx['newsReads'])
-        if (attempts) setAttempts(attempts.data.map((a: any) => ({ quizId: a.quiz_id, employeeId: a.employee_id, scorePct: a.score_pct, passed: a.passed, at: a.created_at })))
+        if (attempts) setAttempts(attempts.data.map((a: any) => ({ quizId: a.quiz_id, employeeId: a.employee_id, scorePct: a.score_pct, passed: a.passed, at: a.created_at, results: a.results ?? undefined, questionIds: a.question_ids ?? null })))
         if (onboarding) setObDone(new Set((onboarding.data ?? []).map(x => x.step_id)))
         // Local historical/task/wiki queries use this revision for their own
         // account-fenced refetch. wiki_runs itself stays scoped in those views.
@@ -321,8 +321,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       all(() => sb.from('ticket_comments').select('id, ticket_id, author_id, author_name, body, created_at').order('created_at')),
       all(() => sb.from('ticket_votes').select('ticket_id, employee_id').order('ticket_id')),
       sb.from('standby_days').select('employee_id, day, note').gte('day', today).order('day').abortSignal(scope.signal),
-      sb.from('quizzes').select('id, news_id, article_id, title, pass_pct, is_sample, i18n').abortSignal(scope.signal),
-      all(() => sb.from('quiz_attempts').select('quiz_id, employee_id, score_pct, passed, created_at').order('created_at')),
+      sb.from('quizzes').select('id, news_id, article_id, title, pass_pct, is_sample, i18n, draw_count').abortSignal(scope.signal),
+      all(() => sb.from('quiz_attempts').select('quiz_id, employee_id, score_pct, passed, created_at, results, question_ids').order('created_at')),
       sb.from('polls').select('id, news_id, anonymous, show_results, closes_at').abortSignal(scope.signal),
       sb.from('poll_questions').select('id, poll_id, sort, kind, prompt, options, i18n').order('sort').abortSignal(scope.signal),
       sb.from('poll_answers').select('question_id, value').eq('employee_id', employee.id).abortSignal(scope.signal),
@@ -373,12 +373,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (progressCurrent) setRegistrations((rg.data ?? []) as Ctx['registrations'])
     if (ticketRevision === ticketVersion.current) setTickets(ticketSnapshot(tks, tcm.data ?? [], tvt.data ?? [], tkPhotos, brs, employee.id))
     setStandby((sbd.data ?? []) as Ctx['standby'])
-    setQuizzes(keep(qz.data).map((q: any) => ({ id: q.id, newsId: q.news_id, articleId: q.article_id, title: tx(q, 'title', lang), passPct: q.pass_pct, sample: q.is_sample })))
+    setQuizzes(keep(qz.data).map((q: any) => ({ id: q.id, newsId: q.news_id, articleId: q.article_id, title: tx(q, 'title', lang), passPct: q.pass_pct, sample: q.is_sample, drawCount: q.draw_count ?? null })))
     const pqs = (plq.data ?? []) as any[]
     setPolls(((pl.data ?? []) as any[]).map(p => ({ id: p.id, newsId: p.news_id, anonymous: p.anonymous, showResults: p.show_results, closesAt: p.closes_at,
       questions: pqs.filter(q => q.poll_id === p.id).map(q => ({ id: q.id, kind: q.kind, prompt: tx(q, 'prompt', lang), options: (lang !== 'DE' && q.i18n?.[lang]?.options) || q.options || [] })) })))
     setPollAnswers(new Map(((pla.data ?? []) as any[]).map(a => [a.question_id, a.value])))
-    if (progressCurrent) setAttempts((qa.data ?? []).map((a: any) => ({ quizId: a.quiz_id, employeeId: a.employee_id, scorePct: a.score_pct, passed: a.passed, at: a.created_at })))
+    if (progressCurrent) setAttempts((qa.data ?? []).map((a: any) => ({ quizId: a.quiz_id, employeeId: a.employee_id, scorePct: a.score_pct, passed: a.passed, at: a.created_at, results: a.results ?? undefined, questionIds: a.question_ids ?? null })))
     newsForWiki.current = keep(nw.data).map((n: any) => ({ ...n, title: tx(n, 'title', lang), teaser: tx(n, 'teaser', lang), body: tx(n, 'body', lang) }))
     void wk
     setAllSteps(keep(ob.data).map((s: any) => ({ id: s.id, title: tx(s, 'title', lang), minutes: s.minutes, articleId: s.article_id, proposed: !!s.proposed, branchIds: s.branch_ids ?? [] })))
@@ -575,10 +575,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (!error) await reload()
       return !error
     },
-    submitQuiz: async (quizId, answers) => {
+    submitQuiz: async (quizId, answers, drawId) => {
       if (!current()) return { error: 'session_changed' } as QuizResult
       // Auswertung in der Function `quiz` (Freitext bewertet die KI); Lösungen bleiben auf dem Server
-      const { data, error } = await sb.functions.invoke('quiz', { body: { quiz_id: quizId, answers }, signal: scope!.signal })
+      const { data, error } = await sb.functions.invoke('quiz', { body: { quiz_id: quizId, answers, ...(drawId ? { draw_id: drawId } : {}) }, signal: scope!.signal })
       if (!current()) return { error: 'session_changed' } as QuizResult
       if (error) { let e = 'failed'; try { e = (await (error as { context?: Response }).context?.json())?.error ?? e } catch { /* egal */ } return { error: e } as QuizResult }
       await reload()
