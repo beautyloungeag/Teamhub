@@ -3,7 +3,7 @@ import { useAuth, type Employee } from './lib/auth'
 import { supabase } from './lib/supabase'
 import { captureAccountScope, isCurrentAccountScope, type AccountScope } from './lib/account-scope'
 
-import { setWikiStructure, type AreaRow } from './lib/wiki'
+import { setWikiStructure, catLabel, type AreaRow } from './lib/wiki'
 import { tr, setCurrentLang, savedLang, locale, type Lang } from './lib/i18n'
 import { toast } from './Toast'
 export type { Lang }
@@ -21,8 +21,8 @@ export type Comment = { id: string; author: string; authorId: string | null; bod
 export type Ev = { id: string; title: string; kind: string; description: string; startsAt: string; endsAt: string | null; place: string; link: string | null; capacity: number | null; registerUntil: string | null; audienceBranches: string[]; audienceSkills: string[]; audiencePeople: string[]; phorestSync: boolean; phorestPaid: boolean; taken: number; waiting: number; createdBy: string | null; raw: { title: string; description: string; place: string }; image: string | null; imagePath: string | null; createdAt: string }
 // Bild oder Video zu einem Aufzählungspunkt (26.10., Renée): media[j] gehört zu items[j]
 export type ItemMedia = { t: 'img' | 'video'; src?: string; url?: string; name?: string }
-export type WikiBlock = { t: 'h' | 'p' | 'ul' | 'ol' | 'quote' | 'img' | 'video' | 'file'; text?: string; items?: string[]; media?: (ItemMedia | null)[]; src?: string; url?: string; name?: string; level?: number }
-export type WikiArticle = { id: string; cat: string; catKey: string; title: string; minutes: number; updated: string; at: string; body: string[]; mediaKind: string; mediaUrl: string | null; published: boolean; fromNews?: boolean; intro: string; tags: string[]; accessLevel: 'alle' | 'filialleitung' | 'buero'; imported: boolean; createdAt?: string; reviewDue?: string | null; ownerId?: string | null }
+export type WikiBlock = { t: 'h' | 'p' | 'ul' | 'ol' | 'quote' | 'img' | 'video' | 'file'; text?: string; items?: string[]; media?: (ItemMedia | null)[]; src?: string; url?: string; name?: string; level?: number; check?: boolean }
+export type WikiArticle = { id: string; cat: string; catKey: string; title: string; cover?: string | null; coverPath?: string | null; minutes: number; updated: string; at: string; body: string[]; mediaKind: string; mediaUrl: string | null; published: boolean; fromNews?: boolean; intro: string; tags: string[]; accessLevel: 'alle' | 'filialleitung' | 'buero'; imported: boolean; createdAt?: string; reviewDue?: string | null; ownerId?: string | null }
 export type Step = { id: string; title: string; minutes: number; articleId: string | null; proposed: boolean; branchIds: string[] }
 export type Branch = { id: string; name: string; is_office: boolean }
 export type Quiz = { id: string; newsId: string | null; articleId: string | null; title: string; passPct: number; sample: boolean }
@@ -171,6 +171,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const newsForWiki = useRef<any[]>([])
   const [wikiRows, setWikiRows] = useState<any[]>([])
   const [catEmojis, setCatEmojis] = useState<Record<string, string>>({})
+  const [coverUrls, setCoverUrls] = useState<Map<string, string>>(new Map())
   const [wikiStructure, setWikiStructureVer] = useState(0), [catAreas, setCatAreas] = useState<Record<string, string>>({})
   const [absences, setAbsences] = useState<Absence[]>([])
   // Wissen: nur Liste laden (ohne Inhalte), einmal beim Start und nach Änderungen im Backoffice
@@ -178,17 +179,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!supabase || !employee || !scope || !current()) return
     const version = ++wikiVersion.current
     const [articles, categories, areas] = await Promise.all([
-      supabase.from('wiki_articles').select('id, category, title, minutes, updated_at, created_at, review_due, media_kind, media_url, published, access_level, tags, intro, source_id, is_sample, owner_id, i18n_en:i18n->EN, i18n_fr:i18n->FR').order('category').order('sort').order('title').abortSignal(scope.signal),
-      supabase.from('wiki_categories').select('key, emoji, area_key').abortSignal(scope.signal),
+      supabase.from('wiki_articles').select('id, category, title, minutes, updated_at, created_at, review_due, media_kind, media_url, cover_path, published, access_level, tags, intro, source_id, is_sample, owner_id, i18n_en:i18n->EN, i18n_fr:i18n->FR').order('category').order('sort').order('title').abortSignal(scope.signal),
+      supabase.from('wiki_categories').select('key, emoji, area_key, name').abortSignal(scope.signal),
       supabase.from('wiki_areas').select('key, name, description, icon, tone, access_level, sort').order('sort').abortSignal(scope.signal),
     ]).catch(() => [{ data: null, error: true }, { data: null, error: true }, { data: null, error: true }])
     if (!current() || version !== wikiVersion.current) return
     if (articles.error || categories.error) { setWikiError(true); return }
     setWikiError(false)
+    // Titelbilder einmal signieren, damit Startseite und Listen das eigene Foto zeigen (30.10., Matteo)
+    const covers = await signedMap('media', (articles.data ?? []).map((a: { cover_path: string | null }) => a.cover_path ?? '').filter((p: string) => p && !/^https?:/.test(p)), scope)
+    if (!current() || version !== wikiVersion.current) return
+    setCoverUrls(covers)
     setWikiRows(articles.data ?? [])
     setCatEmojis(Object.fromEntries((categories.data ?? []).filter((c: { emoji: string | null }) => c.emoji).map((c: { key: string; emoji: string }) => [c.key, c.emoji])))
     // Bereiche und Zuordnung der Themen (Büro, seit 28.10.); ohne Tabelle bleiben die eingebauten fünf
-    if (!areas.error) setWikiStructure((areas.data ?? []) as AreaRow[], (categories.data ?? []) as { key: string; area_key: string | null }[])
+    if (!areas.error) setWikiStructure((areas.data ?? []) as AreaRow[], (categories.data ?? []) as { key: string; area_key: string | null; name: string | null }[])
     setCatAreas(Object.fromEntries((categories.data ?? []).filter((c: { area_key: string | null }) => c.area_key).map((c: { key: string; area_key: string }) => [c.key, c.area_key])))
     setWikiStructureVer(v => v + 1)
   }, [employee, scope, current])
@@ -440,7 +445,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const wiki = useMemo<WikiArticle[]>(() => {
     const arts: WikiArticle[] = wikiRows.filter((a: any) => demoData || !a.is_sample).map((a: any) => ({
-      id: a.id, catKey: a.category, cat: lang === 'EN' ? a.i18n_en?.category ?? a.category : lang === 'FR' ? a.i18n_fr?.category ?? a.category : a.category,
+      id: a.id, catKey: a.category, cat: lang === 'EN' ? a.i18n_en?.category ?? a.category : lang === 'FR' ? a.i18n_fr?.category ?? a.category : catLabel(a.category),
+      coverPath: a.cover_path ?? null, cover: a.cover_path ? (/^https?:/.test(a.cover_path) ? a.cover_path : coverUrls.get(a.cover_path) ?? null) : null,
       title: lang === 'EN' ? a.i18n_en?.title ?? a.title : lang === 'FR' ? a.i18n_fr?.title ?? a.title : a.title, minutes: a.minutes, updated: fmtDate(a.updated_at, { day: '2-digit', month: '2-digit', year: 'numeric' }), at: a.updated_at,
       body: [], mediaKind: a.media_kind, mediaUrl: a.media_url, published: a.published, intro: (lang === 'EN' ? a.i18n_en?.intro : lang === 'FR' ? a.i18n_fr?.intro : null) || a.intro || '', tags: a.tags ?? [], accessLevel: a.access_level, imported: !!a.source_id, createdAt: a.created_at, reviewDue: a.review_due ?? null, ownerId: a.owner_id ?? null,
     }))
@@ -451,7 +457,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       intro: n.teaser ?? '', tags: [], accessLevel: 'alle', imported: false,
     })
     return arts
-  }, [wikiRows, news, demoData, lang]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [wikiRows, news, demoData, lang, coverUrls]) // eslint-disable-line react-hooks/exhaustive-deps
   const today = isoDay()
   const myBranch = employee?.branch_id ?? ''
   // „Alle Studios“ meint die Studios, nicht das Büro: das Büro bekommt nur ausdrücklich zugewiesene Vorlagen

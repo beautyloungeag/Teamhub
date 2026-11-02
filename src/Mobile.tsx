@@ -6,7 +6,7 @@ import {
   Home, ListChecks, BookOpen, LayoutGrid, Sparkles, ChevronLeft, ChevronRight, Check, Camera, MapPin, Users,
   Search, Lightbulb, AlertTriangle, CalendarDays, Send, Newspaper, Plane, Play, Video,
   ArrowUp, ArrowUpRight, LogOut, Phone, ArrowBigUp, GraduationCap, Link2, Lock, FileText, Smartphone, ExternalLink, Monitor,
-  TrendingUp, MessageCircle, Clock, Share2, Circle, Mail, X, ChevronDown, Layers, Flame,
+  TrendingUp, MessageCircle, Clock, Share2, Circle, Mail, X, ChevronDown, Layers, Flame, ChevronsLeft,
 } from 'lucide-react'
 import { useAuth } from './lib/auth'
 import { supabase } from './lib/supabase'
@@ -19,7 +19,7 @@ import { tr, locale } from './lib/i18n'
 import { emojiOf, AREAS, areaOf, fuzzyIncludes } from './lib/wiki'
 import { wikiProgress } from './lib/wiki-progress'
 import { areaLook } from './lib/area-look'
-import { buildSlides, expandList, planArticle, type Slide, type SlideBody, type SlideItem } from './lib/wiki-slides'
+import { slidesOf, type Slide, type SlideBody } from './lib/wiki-slides'
 import { ViewportOverlay } from './ViewportOverlay'
 import { ChatHub, ChatRoom, useChatUnread } from './Chats'
 import { assignedToEvent, eventPhoto } from './lib/event-access'
@@ -279,7 +279,7 @@ function Today({ open, go }: { open: (s: Sub) => void; go: (t: Tab) => void }) {
     ...news.filter(n => !n.mustRead && !opened.has(n.id) && new Date(n.publishAt).getTime() > since).map(n => ({
       key: 'n' + n.id, at: n.publishAt, kind: t(newsCat(n)), tone: toneOf(newsCat(n)), title: n.title, teaser: n.teaser, photo: newsPhoto(n), go: () => open({ k: 'news', item: n }) })),
     ...articles.filter(a => a.createdAt && new Date(a.createdAt).getTime() > since && !runs.read.has(a.id)).map(a => ({
-      key: 'w' + a.id, at: a.createdAt!, kind: t('Wissen'), tone: 'learn' as Tone, title: a.title, teaser: a.intro || `${catName(a.cat)} · ${t('{n} Min.', { n: a.minutes })}`, photo: COVER_PHOTO[areaOf(a.catKey, a.title)] ?? '/hero-studio.jpg', go: () => open({ k: 'wiki', item: a }) })),
+      key: 'w' + a.id, at: a.createdAt!, kind: t('Wissen'), tone: 'learn' as Tone, title: a.title, teaser: a.intro || `${catName(a.cat)} · ${t('{n} Min.', { n: a.minutes })}`, photo: a.cover ?? COVER_PHOTO[areaOf(a.catKey, a.title)] ?? '/hero-studio.jpg', go: () => open({ k: 'wiki', item: a }) })),
     ...events.filter(e => new Date(e.startsAt).getTime() > Date.now() && new Date(e.createdAt).getTime() > since && !joined.has(e.id) && !declined.has(e.id) && assignedToEvent(me, e)).map(e => ({
       key: 'e' + e.id, at: e.createdAt, kind: t(e.kind === 'Schulung' ? 'Schulung' : e.kind === 'Team' ? 'Team-Event' : 'Meeting'), tone: (e.kind === 'Schulung' ? 'learn' : 'plum') as Tone, title: e.title,
       teaser: `${new Intl.DateTimeFormat(locale(), { timeZone: 'Europe/Zurich', weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(e.startsAt))}${e.link ? ' · ' + t('Online') : e.place ? ' · ' + e.place : ''}`,
@@ -845,17 +845,21 @@ function Rich({ text }: { text: string }) {
 // Vorschau aus dem Backoffice läuft als eigene Seite /?vorschau=1 in einem Rahmen mit Handybreite; die Daten legt der Editor hier ab
 export const PREVIEW_KEY = 'th-wiki-preview'
 export function WikiPreviewFrame() {
-  const [d] = useState<(WikiPreviewData & { id: string | null; category: string; accessLevel: WikiArticle['accessLevel'] }) | null>(() => { try { return JSON.parse(localStorage.getItem(PREVIEW_KEY) ?? 'null') } catch { return null } })
+  const read = () => { try { return JSON.parse(localStorage.getItem(PREVIEW_KEY) ?? 'null') } catch { return null } }
+  const [d, setD] = useState<(WikiPreviewData & { id: string | null; category: string; accessLevel: WikiArticle['accessLevel'] }) | null>(read)
+  // Live-Vorschau im Editor (29.10., Matteo): der Editor schreibt beim Tippen neu, der Rahmen zeichnet sofort mit
+  useEffect(() => { const f = (e: StorageEvent) => { if (e.key === PREVIEW_KEY) setD(read()) }; window.addEventListener('storage', f); return () => window.removeEventListener('storage', f) }, [])
   return <div className="teamhub-app-shell relative w-full h-[100dvh] bg-paper flex flex-col overflow-hidden">
     <div className="app-content-scroll min-h-0 flex-1 overflow-y-auto no-scrollbar bg-sage-50 pt-3">{d ? <WikiPreview {...d} /> : <p className="p-6 text-mute">Keine Vorschau.</p>}</div>
   </div>
 }
 // Vorschau aus dem Backoffice (27.10.): derselbe Artikel wie in der App, aber mit dem ungespeicherten Stand aus dem Editor
-type WikiPreviewData = { title: string; intro: string; blocks: WikiBlock[]; urls: Record<string, string> }
-export function WikiPreview({ id, title, intro, blocks, urls, category, accessLevel }: WikiPreviewData & { id: string | null; category: string; accessLevel: WikiArticle['accessLevel'] }) {
+type WikiPreviewData = { title: string; intro: string; blocks: WikiBlock[]; urls: Record<string, string>; coverPath?: string | null; slide?: number; seq?: number }
+export function WikiPreview({ id, title, intro, blocks, urls, category, accessLevel, coverPath, slide, seq }: WikiPreviewData & { id: string | null; category: string; accessLevel: WikiArticle['accessLevel'] }) {
   const words = [intro, ...blocks.map(b => b.t === 'ul' || b.t === 'ol' ? (b.items ?? []).join(' ') : b.text ?? '')].join(' ').split(/\s+/).filter(Boolean).length
-  const a: WikiArticle = { id: id ?? 'vorschau', cat: category, catKey: category, title: title.trim() || 'Ohne Titel', minutes: Math.max(1, Math.round(words / 180)), updated: 'gerade eben', at: '', body: [], mediaKind: 'none', mediaUrl: null, published: true, intro, tags: [], accessLevel, imported: false }
-  return <WikiDetail a={a} preview={{ title: a.title, intro, blocks, urls }} />
+  const a: WikiArticle = { id: id ?? 'vorschau', cat: category, catKey: category, title: title.trim() || 'Ohne Titel', minutes: Math.max(1, Math.round(words / 180)), updated: 'gerade eben', at: '', body: [], mediaKind: 'none', mediaUrl: null, published: true, intro, tags: [], accessLevel, imported: false, coverPath: coverPath ?? null, cover: coverPath ? urls[coverPath] ?? null : null }
+  const data = useMemo(() => ({ title: a.title, intro, blocks, urls, coverPath, slide, seq }), [seq, title, intro, blocks, urls, coverPath, slide]) // eslint-disable-line react-hooks/exhaustive-deps
+  return <WikiDetail a={a} preview={data} />
 }
 function WikiDetail({ a, preview }: { a: WikiArticle; preview?: WikiPreviewData }) {
   const { quizzes, attempts, lang, t, me } = useApp()
@@ -872,12 +876,14 @@ function WikiDetail({ a, preview }: { a: WikiArticle; preview?: WikiPreviewData 
   const quizPassed = !!quiz && attempts.some(x => x.quizId === quiz.id && x.employeeId === me.id && x.passed)
   const [full, setFull] = useState<{ body: string; blocks: WikiBlock[] | null; title?: string; intro?: string } | null>(preview ? { body: '', blocks: preview.blocks, title: preview.title, intro: preview.intro } : a.fromNews ? { body: a.body.join('\n\n'), blocks: null } : null)
   const [urls, setUrls] = useState<Record<string, string>>(preview?.urls ?? {})
+  useEffect(() => { if (preview) { setFull({ body: '', blocks: preview.blocks, title: preview.title, intro: preview.intro }); setUrls(preview.urls) } }, [preview])
   useEffect(() => {
     if (preview || a.fromNews || !supabase) return
     supabase.from('wiki_articles').select('title, intro, body, blocks').eq('id', a.id).maybeSingle().then(async ({ data }) => {
       setFull({ body: data?.body ?? '', blocks: (data?.blocks as WikiBlock[] | null) ?? null, title: data?.title, intro: data?.intro ?? '' })
       const paths = [...new Set(((data?.blocks ?? []) as WikiBlock[]).flatMap(b => [(b.t === 'img' || b.t === 'file' || b.t === 'video') ? b.src : null, ...(b.media ?? []).map(m => m?.src)]).filter((x): x is string => !!x))]
       if (a.mediaUrl && !/^https?:/.test(a.mediaUrl)) paths.push(a.mediaUrl)
+      if (a.coverPath && !/^https?:/.test(a.coverPath)) paths.push(a.coverPath)
       if (paths.length) {
         const { data: signed } = await supabase!.storage.from('media').createSignedUrls(paths, 3600)
         setUrls(Object.fromEntries((signed ?? []).filter(x => x.signedUrl && x.path).map(x => [x.path!, x.signedUrl as string])))
@@ -902,13 +908,9 @@ function WikiDetail({ a, preview }: { a: WikiArticle; preview?: WikiPreviewData 
   const blocks = allBlocks && banner ? allBlocks.filter(x => !banner.used.has(x) || x.t === 'h') : allBlocks
   // Schritt-Modus (Wunsch der Inhaberin 21.10.): nummerierte Listen werden zu Schritten, sonst ab zwei Zwischentiteln
   // jeder Abschnitt ein Schritt. Aufzählungen werden dann zur Checkliste, Hinweise zur roten Regel.
-  const plan = planArticle(blocks)
-  const mode = plan.mode
-  // Kurze nummerierte Listen ohne Zusatztext werden eine Folie mit Liste und zählen nicht als abhakbare Schritte
-  const shortList = (f: { from: number; to: number }) => plan.steps.slice(f.from, f.to).every(x => x.key.startsWith('o') && !x.title && !x.parts && !x.media && (x.text ?? '').length <= 90)
-  const tickSteps = mode !== 'steps' ? plan.steps : plan.flow.flatMap(f => 'from' in f && !shortList(f) ? plan.steps.slice(f.from, f.to) : [])
+  // Folien: dieselbe Rechnung wie die Folienliste im Editor (lib/wiki-slides slidesOf)
+  const built = slidesOf(blocks ?? (shown ? shown.body.split(/\n\n+/).filter(Boolean).map(text => ({ t: 'p' as const, text })) : []), { title, intro, photo: a.coverPath ?? undefined })
   // Kein Abhaken je Folie mehr (28.10., Matteo: einmal am Schluss reicht); die Schritte zählen nur noch für die Folien
-  const total = tickSteps.length
   const timesDone = runs.get(a.id) ?? 0
   const confirmRead = async () => {
     if (preview) { toast(t('Vorschau: hier wird nichts bestätigt')); return }
@@ -936,7 +938,8 @@ function WikiDetail({ a, preview }: { a: WikiArticle; preview?: WikiPreviewData 
       case 'quote': return inStep ? <div key={i} className="rounded-[14px] bg-note-50 px-3.5 py-2.5 text-[15.5px] text-[#6B4A16] flex gap-2"><AlertTriangle size={16} className="text-note shrink-0 mt-0.5" /><span><Rich text={b.text ?? ''} /></span></div>
         : <div key={i} className="rounded-[18px] bg-duty-50 px-4 py-3.5 flex gap-3 text-[#6E2A1F] shadow-[inset_0_0_0_1px_rgba(147,57,43,.18)]"><AlertTriangle size={20} className="text-duty shrink-0 mt-0.5" /><div><p className="rubric text-duty">{t('Wichtige Regel')}</p><p className="mt-1 text-[16.5px] leading-snug"><Rich text={b.text ?? ''} /></p></div></div>
       case 'ol': return <ol key={i} className="list-decimal pl-5 space-y-1.5">{b.items?.map((x, j) => <li key={j}><Rich text={x} /></li>)}</ol>
-      case 'ul': return mode !== 'plain' && !inStep ? checklist(b.items ?? [], i, (() => { const prev = blocks?.[i - 1]; return prev?.t === 'h' ? prev.text : undefined })()) : <ul key={i} className="list-disc pl-5 space-y-1.5">{b.items?.map((x, j) => <li key={j}><Rich text={x} /></li>)}</ul>
+      // Häkchen nur bei bewusst markierten Checklisten (29.10., Matteo); normale Aufzählungen bleiben Listen
+      case 'ul': return b.check && !inStep ? checklist(b.items ?? [], i, (() => { const prev = blocks?.[i - 1]; return prev?.t === 'h' ? prev.text : undefined })()) : <ul key={i} className="list-disc pl-5 space-y-1.5">{b.items?.map((x, j) => <li key={j}><Rich text={x} /></li>)}</ul>
       case 'img': return urls[b.src!] ? <img key={i} src={urls[b.src!]} alt="" loading="lazy" className="w-full rounded-[16px] bg-sage-100" /> : <div key={i} className="w-full aspect-[4/3] rounded-[16px] bg-sage-100" />
       case 'video': { if (b.src) return urls[b.src] ? <video key={i} src={urls[b.src]} controls playsInline className="w-full rounded-[16px] bg-olive-700" /> : <div key={i} className="w-full aspect-video rounded-[16px] bg-sage-100" />
         const id = b.url ? ytId(b.url) : null
@@ -950,16 +953,7 @@ function WikiDetail({ a, preview }: { a: WikiArticle; preview?: WikiPreviewData 
   const area = areaOf(a.catKey, a.title)
   const look = areaLook(area), LookIcon = look.icon
   // Folien (Vorlage der Inhaberin 26.10.): Galerie oben, wichtigste Info im Balken, Text und Video darunter
-  const items: SlideItem[] = !blocks ? (shown ? shown.body.split(/\n\n+/).filter(Boolean).map(text => ({ k: 'block' as const, b: { t: 'p' as const, text } })) : [])
-    : mode === 'sections' ? blocks.flatMap((b, i): SlideItem[] => b.t === 'h' ? [{ k: 'section', key: 'h' + i, no: plan.steps.findIndex(x => x.key === 'h' + i) + 1, title: b.text ?? '' }] : expandList(b, 'b' + i))
-    : mode === 'steps' ? plan.flow.flatMap((f): SlideItem[] => 'from' in f
-      // Kurze nummerierte Liste ohne Zusatztext: eine Folie mit Liste statt einer Folie je Zeile (26.10.)
-      ? shortList(f)
-        ? [{ k: 'block', b: { t: 'ol', items: plan.steps.slice(f.from, f.to).map(x => x.text ?? '') } }]
-        : plan.steps.slice(f.from, f.to).map((step, j) => ({ k: 'step', step, no: f.from + j + 1 }))
-      : f.t === 'check' ? [{ k: 'check', key: f.key, title: f.title, items: f.items }] : expandList(f, 'f' + blocks.indexOf(f)))
-    : blocks.flatMap((b, i) => expandList(b, 'b' + i))
-  const slides = buildSlides(items, { title, intro }, total)
+  const slides = built.slides
   // Altes Artikelvideo oben: in den Banner der Titelfolie
   if (!slides[0].photo && !slides[0].video && a.mediaUrl && (a.mediaKind === 'youtube' || a.mediaKind === 'video'))
     slides[0].video = a.mediaKind === 'youtube' ? { t: 'video', url: a.mediaUrl } : { t: 'video', src: a.mediaUrl }
@@ -975,14 +969,30 @@ function WikiDetail({ a, preview }: { a: WikiArticle; preview?: WikiPreviewData 
   // Ziel einer Pfeil-Bewegung: solange die Galerie dorthin gleitet, zählt die Zwischenposition nicht als Folie.
   // Sonst setzte onScroll die Folie zurück, und wer schnell tippte, verlor Tipps (28.10.)
   const aim = useRef<{ n: number; until: number } | null>(null)
+  // Bleibt die Galerie zwischen zwei Folien stehen (iPhone bricht Schwung oder Gleiten manchmal ab, 29.10. Matteo),
+  // zieht sie nach einer kurzen Ruhe auf die nächste ganze Folie. Solange ein Finger liegt, nie.
+  const settle = useRef(0), touching = useRef(false)
+  const snap = () => {
+    const el = rail.current; if (!el || touching.current) return
+    const w = el.clientWidth || 1, a = aim.current
+    const n = Math.max(0, Math.min(slides.length - 1, a && Date.now() < a.until + 600 ? a.n : Math.round(el.scrollLeft / w)))
+    if (Math.abs(el.scrollLeft - n * w) > 2) el.scrollTo({ left: n * w, behavior: 'smooth' })
+    else setIdx(n)
+  }
+  const arm = (ms: number) => { clearTimeout(settle.current); settle.current = window.setTimeout(snap, ms) }
+  useEffect(() => () => clearTimeout(settle.current), [])
+  // Editor-Vorschau: zur Folie springen, an der gerade geschrieben wird
+  useEffect(() => { if (preview?.slide != null && preview.slide !== idx) go(preview.slide) }, [preview?.slide, preview?.seq]) // eslint-disable-line react-hooks/exhaustive-deps
   const go = (i: number, up = false) => {
     const el = rail.current, n = Math.max(0, Math.min(slides.length - 1, i))
+    // Erst senkrecht ohne Gleiten, dann waagrecht: zwei gleichzeitige Gleitbewegungen bricht Safari gern mittendrin ab
+    if (up) scrollInPane(topRef.current?.closest<HTMLElement>('.app-content-scroll') ?? null, topRef.current, 'start')
     if (el) el.scrollTo({ left: n * el.clientWidth, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
     aim.current = { n, until: Date.now() + 900 }
     setIdx(n)
-    if (up) scrollInPane(topRef.current?.closest<HTMLElement>('.app-content-scroll') ?? null, topRef.current, 'start', true)
+    arm(1100)
   }
-  const photoOf = (s: Slide) => s.photo ? urls[s.photo] ?? (/^https?:/.test(s.photo) ? s.photo : null) : s.kind === 'cover' ? (own && a.mediaKind === 'photo' ? own : COVER_PHOTO[area] ?? '/hero-studio.jpg') : null
+  const photoOf = (s: Slide) => s.photo ? urls[s.photo] ?? (s.kind === 'cover' && s.photo === a.coverPath && a.cover ? a.cover : /^https?:/.test(s.photo) ? s.photo : null) : s.kind === 'cover' ? (own && a.mediaKind === 'photo' ? own : COVER_PHOTO[area] ?? '/hero-studio.jpg') : null
   const kicker = (s: Slide) => !s.kicker ? (s.kind === 'cover' ? catName(a.cat) : null)
     : s.kicker.k === 'step' ? t('Schritt {a} von {b}', { a: s.kicker.no, b: s.kicker.total })
     : s.kicker.k === 'photo' ? t('Bild {a} von {b}', { a: s.kicker.no, b: s.kicker.total })
@@ -991,7 +1001,7 @@ function WikiDetail({ a, preview }: { a: WikiArticle; preview?: WikiPreviewData 
   const bodyItem = (x: SlideBody, i: number) => x.k === 'text' ? <p key={i}><Rich text={x.text} /></p>
     : x.k === 'parts' ? <ul key={i} className="space-y-1.5">{x.parts.map((y, j) => <li key={j} className="flex gap-2"><span className="mt-[11px] w-1.5 h-1.5 rounded-full bg-sage-400 shrink-0" /><span><Rich text={y} /></span></li>)}</ul>
     : x.k === 'check' ? checklist(x.items, 5000 + x.key, x.title)
-    : x.b.t === 'ul' && mode !== 'plain' ? checklist(x.b.items ?? [], blocks ? blocks.indexOf(x.b) : i)
+    : x.b.t === 'ul' && x.b.check ? checklist(x.b.items ?? [], blocks ? blocks.indexOf(x.b) : i)
     : block(x.b, blocks ? blocks.indexOf(x.b) : i, x.b.t !== 'quote')
   const next = slides[idx + 1]
   // Bestätigen wird erst 1,2 s nach dem Ankommen auf der letzten Folie aktiv
@@ -1001,10 +1011,12 @@ function WikiDetail({ a, preview }: { a: WikiArticle; preview?: WikiPreviewData 
     <article className="pb-4">
       <div ref={topRef} className="scroll-mt-2 md:px-5 md:pt-2">
         <div className="relative md:rounded-[22px] overflow-hidden">
-          <div ref={rail} onScroll={e => { const el = e.currentTarget, n = Math.round(el.scrollLeft / Math.max(1, el.clientWidth))
+          <div ref={rail} onScroll={e => { arm(180); const el = e.currentTarget, n = Math.round(el.scrollLeft / Math.max(1, el.clientWidth))
             const a = aim.current; if (a) { if (n !== a.n && Date.now() < a.until) return; aim.current = null }
             if (n !== idx) setIdx(n) }}
-            onTouchStart={() => { aim.current = null }} onPointerDown={() => { aim.current = null }} onWheel={() => { aim.current = null }}
+            onTouchStart={() => { touching.current = true; aim.current = null; clearTimeout(settle.current) }}
+            onTouchEnd={() => { touching.current = false; arm(350) }} onTouchCancel={() => { touching.current = false; arm(350) }}
+            onPointerDown={() => { aim.current = null }} onWheel={() => { aim.current = null }}
             className="flex overflow-x-auto snap-x snap-mandatory overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" aria-roledescription={t('Galerie')}>
             {slides.map((s, i) => { const src = photoOf(s), k = kicker(s), Head = s.kind === 'cover' ? 'h1' : 'p'
               return <div key={s.key} className={`relative w-full shrink-0 snap-center ${tall ? 'aspect-[4/5] max-h-[74vh] md:aspect-[4/3] md:max-h-[640px]' : 'aspect-[5/4] max-h-[50vh] md:aspect-[16/10] md:max-h-[460px]'} bg-olive-900 overflow-hidden`} aria-label={t('Folie {a} von {b}', { a: i + 1, b: slides.length })}>
@@ -1032,7 +1044,11 @@ function WikiDetail({ a, preview }: { a: WikiArticle; preview?: WikiPreviewData 
       {slides.length > 1 && <div className="px-5 mt-3 flex items-center justify-between gap-3">
         {slides.length <= 12 ? <div className="flex items-center gap-1.5">{slides.map((s, i) => <button key={s.key} onClick={() => go(i)} aria-label={t('Folie {a} von {b}', { a: i + 1, b: slides.length })} className="h-6 flex items-center"><span className={`block h-1.5 rounded-full transition-all ${i === idx ? 'w-6 bg-olive-800' : 'w-1.5 bg-sage-200'}`} /></button>)}</div>
           : <div className="flex-1 h-1.5 rounded-full bg-sage-100 overflow-hidden"><div className="h-full bg-olive-800 transition-all" style={{ width: `${((idx + 1) / slides.length) * 100}%` }} /></div>}
-        <span className="text-[13.5px] text-mute tabular-nums shrink-0">{idx + 1} / {slides.length}</span>
+        {/* „Zum Anfang“ steht immer da und wird nur unsichtbar, damit nichts verrutscht (29.10. Matteo: 22 Folien zurückwischen) */}
+        <span className="flex items-center gap-3 shrink-0">
+          <button onClick={() => go(0, true)} aria-hidden={idx === 0} tabIndex={idx === 0 ? -1 : 0} className={`h-8 px-2.5 -my-1 rounded-full bg-white text-[13.5px] font-medium text-ink/80 inline-flex items-center gap-1 ${idx === 0 ? 'invisible' : ''}`}><ChevronsLeft size={15} />{t('Zum Anfang')}</button>
+          <span className="text-[13.5px] text-mute tabular-nums">{idx + 1} / {slides.length}</span>
+        </span>
       </div>}
       <div className="px-5">
         {cur.kind === 'cover' && <>

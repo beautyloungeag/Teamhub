@@ -48,6 +48,30 @@ test('resize AND pan events update the shell; zoom, keyboard dismissal and liste
   } finally { for(const k of names){const d=originals[k];if(d)Object.defineProperty(globalThis,k,d);else Reflect.deleteProperty(globalThis,k)} }
 })
 
+test('without a focused field the shell keeps the full window height even if iOS still reports the keyboard height', () => {
+  const names = ['window','document','innerHeight','innerWidth','HTMLElement','requestAnimationFrame','cancelAnimationFrame']
+  const originals = Object.fromEntries(names.map(k => [k, Object.getOwnPropertyDescriptor(globalThis,k)]))
+  const styles = new Map<string,string>(), queue = new Map<number,FrameRequestCallback>()
+  const win = new EventTarget(), doc = new EventTarget(), vv = Object.assign(new EventTarget(), { height: 800, offsetTop: 0, scale: 1 })
+  class Element { matches() { return true } parentElement = null }
+  const root = { clientHeight:800, style:{setProperty:(k:string,v:string)=>styles.set(k,v)},dataset:{} as Record<string,string>,classList:{contains:()=>false} }
+  Object.assign(win,{visualViewport:vv})
+  Object.assign(doc,{documentElement:root,activeElement:null,body:{}})
+  let seq=0
+  try {
+    Object.assign(globalThis,{window:win,document:doc,innerHeight:800,innerWidth:393,HTMLElement:Element,requestAnimationFrame:(f:FrameRequestCallback)=>{queue.set(++seq,f);return seq},cancelAnimationFrame:(id:number)=>queue.delete(id)})
+    const flush=()=>{for(const [id,f] of [...queue]){queue.delete(id);f(0)}}
+    const stop=installMobileViewport()
+    // Tastatur ist zu, iOS meldet aber noch die kleine Höhe mit Versatz
+    vv.height=480;vv.offsetTop=60;vv.dispatchEvent(new Event('resize'));flush()
+    assert.equal(styles.get('--app-height'),'800px');assert.equal(styles.get('--app-top'),'0px');assert.equal(root.dataset.keyboardOpen,'false')
+    // Mit Eingabefeld gilt die sichtbare Höhe
+    Object.assign(doc,{activeElement:new Element()});doc.dispatchEvent(new Event('focusin'));flush()
+    assert.equal(styles.get('--app-height'),'480px');assert.equal(styles.get('--app-top'),'60px')
+    stop()
+  } finally { for(const k of names){const d=originals[k];if(d)Object.defineProperty(globalThis,k,d);else Reflect.deleteProperty(globalThis,k)} }
+})
+
 // Source contract: changing only JS routing or only the frame CSS would leave
 // md:hidden navigation / md:flex sidebars inconsistent on a landscape phone.
 test('landscape touch keeps one mobile canvas predicate across routing, md utilities and keyboard/login rules', () => {

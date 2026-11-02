@@ -4,12 +4,14 @@
 //   [[bild K]]  = K-tes Bild, das schon im Artikel ist (Nummer aus wiki_outline)
 //   [[video URL]] = YouTube-Link
 // Ein Platzhalter am Ende eines Aufzählungspunkts gehört zu diesem Punkt (in der App eine eigene Folie).
-export type Block = { t: string; text?: string; items?: string[]; media?: (Media | null)[]; src?: string; url?: string; name?: string; level?: number }
+export type Block = { t: string; text?: string; items?: string[]; media?: (Media | null)[]; src?: string; url?: string; name?: string; level?: number; check?: boolean }
 export type Media = { t: 'img' | 'video'; src?: string; url?: string; name?: string }
 
 const TOKEN = /\[\[\s*(foto|bild|video)\s+([^\]]+?)\s*\]\]/i
 const BULLET = /^\s*(?:[-•*·]\s+)/
 const NUMBER = /^\s*\d{1,3}[.)]\s+/
+// „- [ ] Punkt“ = Checkliste (in der App mit Häkchen), sonst ist eine Aufzählung eine normale Liste
+const CHECK = /^\s*\[[ xX]?\]\s+/
 
 /** Platzhalter → Medium. Fotos aus dem Chat bekommen vorläufig `staged:N`, die Ausführung ersetzt sie. */
 function media(kind: string, arg: string, old: string[]): Media | null {
@@ -24,10 +26,10 @@ const asBlock = (m: Media): Block => m.t === 'img' ? { t: 'img', src: m.src } : 
 
 export function mdToBlocks(md: string, oldImages: string[] = []): { blocks: Block[]; bad: string[] } {
   const out: Block[] = [], bad: string[] = []
-  let para: string[] = [], list: { t: 'ul' | 'ol'; items: string[]; media: (Media | null)[] } | null = null
+  let para: string[] = [], list: { t: 'ul' | 'ol'; items: string[]; media: (Media | null)[]; check?: boolean } | null = null
   const flushPara = () => { if (para.length) out.push({ t: 'p', text: para.join('\n') }); para = [] }
   const flushList = () => {
-    if (list) out.push(list.media.some(Boolean) ? { t: list.t, items: list.items, media: list.media } : { t: list.t, items: list.items })
+    if (list) out.push({ t: list.t, items: list.items, ...(list.media.some(Boolean) ? { media: list.media } : {}), ...(list.check ? { check: true } : {}) })
     list = null
   }
   for (const raw of md.replace(/\r\n?/g, '\n').split('\n')) {
@@ -36,9 +38,11 @@ export function mdToBlocks(md: string, oldImages: string[] = []): { blocks: Bloc
     const tag = BULLET.test(line) ? 'ul' : NUMBER.test(line) ? 'ol' : null
     if (tag) {
       flushPara()
-      if (list && list.t !== tag) flushList()
-      if (!list) list = { t: tag, items: [], media: [] }
       let text = line.replace(tag === 'ul' ? BULLET : NUMBER, '')
+      const check = tag === 'ul' && CHECK.test(text)
+      if (check) text = text.replace(CHECK, '')
+      if (list && (list.t !== tag || !!list.check !== check)) flushList()
+      if (!list) list = { t: tag, items: [], media: [], ...(check ? { check: true } : {}) }
       const m = text.match(TOKEN)
       let med: Media | null = null
       if (m) { med = media(m[1], m[2], oldImages); if (!med) bad.push(m[0]); text = text.replace(TOKEN, '').trim() }

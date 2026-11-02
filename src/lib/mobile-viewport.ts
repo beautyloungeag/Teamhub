@@ -30,15 +30,21 @@ export function installMobileViewport() {
   const root = document.documentElement
   let frame = 0, stableWidth = innerWidth, stableHeight = innerHeight
   const editable = () => document.activeElement instanceof HTMLElement && document.activeElement.matches('input:not([type=checkbox]):not([type=radio]):not([type=file]), textarea, [contenteditable=true]')
+  let stopped = false
+  const timers = new Set<ReturnType<typeof setTimeout>>()
   const update = () => {
     frame = 0
-    const reading = visibleFrame(Math.max(innerHeight, root.clientHeight), window.visualViewport)
+    const typing = editable()
+    // Ohne Eingabefeld zählt die volle Fensterhöhe. iOS meldet nach dem Schliessen der Tastatur die kleinere
+    // Höhe manchmal weiter, dann stand die Leiste mitten im Bild (29.10. Matteo, Aufgaben → Studio-Checklisten).
+    const reading = typing ? visibleFrame(Math.max(innerHeight, root.clientHeight), window.visualViewport)
+      : window.visualViewport && Math.abs(window.visualViewport.scale - 1) > .01 ? null : visibleFrame(innerHeight, null)
     if (!reading) return
     if (Math.abs(stableWidth - innerWidth) > 2) { stableWidth = innerWidth; stableHeight = innerHeight }
-    if (!editable()) stableHeight = Math.max(innerHeight, reading.height)
+    if (!typing) stableHeight = Math.max(innerHeight, reading.height)
     root.style.setProperty('--app-height', `${reading.height}px`)
     root.style.setProperty('--app-top', `${reading.top}px`)
-    root.dataset.keyboardOpen = String(!!editable() && (stableHeight - reading.height > 120 || reading.height < 400))
+    root.dataset.keyboardOpen = String(typing && (stableHeight - reading.height > 120 || reading.height < 400))
     // Native focus scrolling is retained at login. In the signed-in canvas and
     // dialogs, reveal only the nearest scroll pane rather than moving the page.
     if (!editable() || root.classList.contains('teamhub-login-mode')) return
@@ -47,10 +53,21 @@ export function installMobileViewport() {
       if (/(auto|scroll)/.test(getComputedStyle(pane).overflowY) && pane.scrollHeight > pane.clientHeight) { scrollInPane(pane, target); break }
     }
   }
-  const schedule = () => { if (!frame) frame = requestAnimationFrame(update) }
-  const events: [EventTarget, string][] = [[window, 'resize'], [window, 'orientationchange'], [document, 'focusin'], [document, 'focusout'], [document, 'visibilitychange']]
-  if (window.visualViewport) events.push([window.visualViewport, 'resize'], [window.visualViewport, 'scroll'])
-  events.forEach(([target, event]) => target.addEventListener(event, schedule))
+  const schedule = () => { if (!stopped && !frame) frame = requestAnimationFrame(update) }
+  // Die Tastatur schliesst mit Animation: nach dem Verlassen eines Feldes und beim Zurückkehren in die App noch zweimal nachmessen
+  const settle = () => {
+    schedule()
+    for (const ms of [250, 700]) { const id = setTimeout(() => { timers.delete(id); schedule() }, ms); timers.add(id) }
+  }
+  const events: [EventTarget, string, () => void][] = [[window, 'resize', schedule], [window, 'orientationchange', settle], [window, 'pageshow', settle],
+    [document, 'focusin', schedule], [document, 'focusout', settle], [document, 'visibilitychange', settle]]
+  if (window.visualViewport) events.push([window.visualViewport, 'resize', schedule], [window.visualViewport, 'scroll', schedule])
+  events.forEach(([target, event, fn]) => target.addEventListener(event, fn))
   update()
-  return () => { if (frame) cancelAnimationFrame(frame); events.forEach(([target, event]) => target.removeEventListener(event, schedule)) }
+  return () => {
+    stopped = true
+    if (frame) cancelAnimationFrame(frame)
+    timers.forEach(clearTimeout); timers.clear()
+    events.forEach(([target, event, fn]) => target.removeEventListener(event, fn))
+  }
 }

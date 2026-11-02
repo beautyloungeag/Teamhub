@@ -6,9 +6,9 @@ import { useEditor, EditorContent, type Editor } from '@tiptap/react'
 import { Node, mergeAttributes } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
 import Image from '@tiptap/extension-image'
-import { ListItem } from '@tiptap/extension-list'
+import { BulletList, ListItem } from '@tiptap/extension-list'
 import { Placeholder } from '@tiptap/extensions'
-import { AlertTriangle, Bold, FileText, Heading2, Heading3, Image as ImageIcon, Italic, Link2, List, ListOrdered, Pilcrow, Video, MonitorPlay } from 'lucide-react'
+import { AlertTriangle, Bold, FileText, Heading2, Heading3, Image as ImageIcon, Italic, Link2, List, ListChecks, ListOrdered, Pilcrow, Video, MonitorPlay } from 'lucide-react'
 import type { WikiBlock } from '../store'
 import { blocksToHtml, docToBlocks, hasListLines, textToHtml, type J } from '../lib/wiki-doc'
 
@@ -112,6 +112,13 @@ const MediaItem = ListItem.extend({
   },
 })
 
+// Aufzählung mit Häkchen in der App (29.10., Matteo): nur Listen mit diesem Merkmal werden zur Checkliste
+const CheckableList = BulletList.extend({
+  addAttributes() {
+    return { check: { default: false, parseHTML: (el: HTMLElement) => el.hasAttribute('data-check'), renderHTML: (v: Record<string, any>) => v.check ? { 'data-check': '' } : {} } }
+  },
+})
+
 /** Position des Aufzählungspunkts, in dem der Cursor steht (sonst null) */
 function itemAt(ed: Editor, at?: number): number | null {
   const $from = at != null ? ed.state.doc.resolve(Math.min(at, ed.state.doc.content.size)) : ed.state.selection.$from
@@ -154,8 +161,8 @@ export function ArticleBody({ initial, urls, onChange, upload, editorOut }: { in
   }
   const editor = useEditor({
     extensions: [
-      StarterKit.configure({ listItem: false, heading: { levels: [2, 3] }, code: false, codeBlock: false, strike: false, horizontalRule: false, underline: false, link: { openOnClick: false, autolink: true } }),
-      MediaItem, WikiImage, Media,
+      StarterKit.configure({ listItem: false, bulletList: false, heading: { levels: [2, 3] }, code: false, codeBlock: false, strike: false, horizontalRule: false, underline: false, link: { openOnClick: false, autolink: true } }),
+      MediaItem, CheckableList, WikiImage, Media,
       Placeholder.configure({ placeholder: 'Hier schreiben … Text aus Word oder einer Mail kannst du einfach einfügen, Aufzählungen bleiben erhalten.' }),
     ],
     content: blocksToHtml(initial, urls) || '<p></p>',
@@ -225,7 +232,11 @@ export function ArticleBody({ initial, urls, onChange, upload, editorOut }: { in
         <B label="Kursiv" icon={<Italic size={15} />} on={editor.isActive('italic')} run={() => editor.chain().focus().toggleItalic().run()} />
         <B label="Link" icon={<Link2 size={15} />} on={editor.isActive('link')} run={link} />
         {sep}
-        <B text label="Liste" tip="Aufzählung" icon={<List size={16} />} on={editor.isActive('bulletList')} run={() => editor.chain().focus().toggleBulletList().run()} />
+        <B text label="Liste" tip="Aufzählung (in der App eine normale Liste)" icon={<List size={16} />} on={editor.isActive('bulletList', { check: false })} run={() => editor.isActive('bulletList', { check: true }) ? editor.chain().focus().updateAttributes('bulletList', { check: false }).run() : editor.chain().focus().toggleBulletList().run()} />
+        <B text label="Checkliste" tip="Checkliste: in der App mit Häkchen zum Abhaken" icon={<ListChecks size={16} />} on={editor.isActive('bulletList', { check: true })}
+          run={() => editor.isActive('bulletList', { check: true }) ? editor.chain().focus().toggleBulletList().run()
+            : editor.isActive('bulletList') ? editor.chain().focus().updateAttributes('bulletList', { check: true }).run()
+            : editor.chain().focus().toggleBulletList().updateAttributes('bulletList', { check: true }).run()} />
         <B label="Nummerierte Liste (Schritte)" icon={<ListOrdered size={16} />} on={editor.isActive('orderedList')} run={() => editor.chain().focus().toggleOrderedList().run()} />
         <B text label="Hinweis" tip="Hinweis: erscheint in der App rot als wichtige Regel" icon={<AlertTriangle size={15} />} on={editor.isActive('blockquote')} run={() => editor.chain().focus().toggleBlockquote().run()} />
         {sep}

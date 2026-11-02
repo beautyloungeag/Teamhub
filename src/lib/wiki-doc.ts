@@ -16,7 +16,7 @@ export function blocksToHtml(bs: WikiBlock[], urls: Record<string, string>): str
       case 'h': return `<h${b.level === 3 ? 3 : 2}>${esc(b.text ?? '')}</h${b.level === 3 ? 3 : 2}>`
       case 'p': return `<p>${mdInline(b.text ?? '')}</p>`
       case 'quote': return `<blockquote><p>${mdInline(b.text ?? '')}</p></blockquote>`
-      case 'ul': case 'ol': return `<${b.t}>${(b.items ?? []).map((x, j) => `<li${liAttrs(b.media?.[j], urls)}><p>${mdInline(x)}</p></li>`).join('')}</${b.t}>`
+      case 'ul': case 'ol': return `<${b.t}${b.t === 'ul' && b.check ? ' data-check=""' : ''}>${(b.items ?? []).map((x, j) => `<li${liAttrs(b.media?.[j], urls)}><p>${mdInline(x)}</p></li>`).join('')}</${b.t}>`
       case 'img': return b.src ? `<img src="${esc(urls[b.src] ?? (/^https?:/.test(b.src) ? b.src : ''))}" data-path="${esc(b.src)}">` : ''
       case 'video': return b.src ? `<div data-media="video" data-src="${esc(b.src)}" data-name="${esc(b.name ?? '')}"></div>` : b.url ? `<div data-media="yt" data-url="${esc(b.url)}"></div>` : ''
       case 'file': return b.src ? `<div data-media="file" data-src="${esc(b.src)}" data-name="${esc(b.name ?? '')}"></div>` : ''
@@ -65,10 +65,11 @@ const textOf = (n: J): string => n.type === 'text' ? n.text ?? '' : (n.content ?
 
 // Listen flach machen (Unterlisten werden weitere Punkte). Ein Bild oder Video am Punkt (Attribut oder erstes Bild im
 // Punkt) gehört zum Punkt. Weitere Bilder, Videos, Dateien oder ein Hinweis im Punkt teilen die Liste an dieser Stelle.
-function listBlocks(list: J, tag: 'ul' | 'ol', out: WikiBlock[]) {
+// Checkliste (29.10., Matteo): nur Aufzählungen, die bewusst als Checkliste markiert sind, bekommen in der App Häkchen
+function listBlocks(list: J, tag: 'ul' | 'ol', out: WikiBlock[], check = false) {
   let items: string[] = [], media: (ItemMedia | null)[] = []
   const flush = () => {
-    if (items.length) out.push(media.some(Boolean) ? { t: tag, items, media } : { t: tag, items })
+    if (items.length) out.push({ t: tag, items, ...(media.some(Boolean) ? { media } : {}), ...(check && tag === 'ul' ? { check: true } : {}) })
     items = []; media = []
   }
   const walk = (l: J) => {
@@ -101,7 +102,7 @@ export function docToBlocks(doc: J): WikiBlock[] {
   for (const n of doc.content ?? []) {
     if (n.type === 'paragraph') { const text = inline(n.content).trim(); if (text) out.push({ t: 'p', text }) }
     else if (n.type === 'heading') { const text = textOf(n).trim(); if (text) out.push({ t: 'h', text, level: Number(n.attrs?.level) >= 3 ? 3 : 2 }) }
-    else if (n.type === 'bulletList' || n.type === 'orderedList') listBlocks(n, n.type === 'bulletList' ? 'ul' : 'ol', out)
+    else if (n.type === 'bulletList' || n.type === 'orderedList') listBlocks(n, n.type === 'bulletList' ? 'ul' : 'ol', out, !!n.attrs?.check)
     else if (n.type === 'blockquote') { const text = (n.content ?? []).map((p) => p.type === 'paragraph' ? inline(p.content).trim() : textOf(p).trim()).filter(Boolean).join('\n'); if (text) out.push({ t: 'quote', text }) }
     else if (n.type === 'image') { if (n.attrs?.path) out.push({ t: 'img', src: n.attrs.path }) }
     else if (n.type === 'media') {

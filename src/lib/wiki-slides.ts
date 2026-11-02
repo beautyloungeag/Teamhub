@@ -46,11 +46,12 @@ export function expandList(b: WikiBlock, key: string): SlideItem[] {
 
 const isWichtig = (x: string) => /^wichtig/i.test(x.trim())
 
-export function buildSlides(items: SlideItem[], cover: { title: string; intro?: string }, _totalSteps?: number): Slide[] {
+export function buildSlides(items: SlideItem[], cover: { title: string; intro?: string; photo?: string }, _totalSteps?: number): Slide[] {
   // Schritte fortlaufend zählen (zusammengefasste kurze Listen zählen nicht mit)
   const totalSteps = items.filter((x) => x.k === 'step').length
   let stepNo = 0
-  const coverSlide: Slide = { key: 'cover', kind: 'cover', title: cover.title, sub: cover.intro || undefined, body: [] }
+  // Eigenes Titelbild (Feld im Editor, 02.11.): belegt die Titelfolie; ein Foto oben im Text wird dann eine eigene Folie
+  const coverSlide: Slide = { key: 'cover', kind: 'cover', title: cover.title, sub: cover.intro || undefined, body: [], ...(cover.photo ? { photo: cover.photo } : {}) }
   const slides: Slide[] = [coverSlide]
   let cur = coverSlide, pending: string | null = null
   let lastP: { slide: Slide; where: 'sub' | 'body'; text: string; item?: SlideBody } | null = null
@@ -123,6 +124,7 @@ export function buildSlides(items: SlideItem[], cover: { title: string; intro?: 
     }
     if (b.t === 'img') {
       if (!b.src) return
+      if (cur === coverSlide && b.src === cover.photo) return // dasselbe Foto wie das Titelbild nicht doppelt
       if (!cur.photo && !cur.video) { cur.photo = b.src; lastP = null; return }
       return open({ key: 'p' + i, kind: 'photo', title: caption() ?? fallback(), photo: b.src, body: [] })
     }
@@ -199,4 +201,20 @@ export function planArticle(blocks: WikiBlock[] | null): Plan {
     return { mode: 'sections', pre, steps, flow: [{ t: 'steps', from: 0, to: steps.length }] }
   }
   return { mode: 'plain', pre: [], steps, flow }
+}
+
+/** Folien eines Artikels aus seinen Bausteinen: dieselbe Rechnung für die App und die Folienliste im Editor (02.11.) */
+export function slidesOf(blocks: WikiBlock[], cover: { title: string; intro?: string; photo?: string }): { slides: Slide[]; plan: Plan; total: number } {
+  const plan = planArticle(blocks)
+  // Kurze nummerierte Listen ohne Zusatztext werden eine Folie mit Liste und zählen nicht als Schritte
+  const shortList = (f: { from: number; to: number }) => plan.steps.slice(f.from, f.to).every(x => x.key.startsWith('o') && !x.title && !x.parts && !x.media && (x.text ?? '').length <= 90)
+  const tickSteps = plan.mode !== 'steps' ? plan.steps : plan.flow.flatMap(f => 'from' in f && !shortList(f) ? plan.steps.slice(f.from, f.to) : [])
+  const items: SlideItem[] = plan.mode === 'sections' ? blocks.flatMap((b, i): SlideItem[] => b.t === 'h' ? [{ k: 'section', key: 'h' + i, no: plan.steps.findIndex(x => x.key === 'h' + i) + 1, title: b.text ?? '' }] : expandList(b, 'b' + i))
+    : plan.mode === 'steps' ? plan.flow.flatMap((f): SlideItem[] => 'from' in f
+      ? shortList(f)
+        ? [{ k: 'block', b: { t: 'ol', items: plan.steps.slice(f.from, f.to).map(x => x.text ?? '') } }]
+        : plan.steps.slice(f.from, f.to).map((step, j) => ({ k: 'step', step, no: f.from + j + 1 }))
+      : f.t === 'check' ? [{ k: 'check', key: f.key, title: f.title, items: f.items }] : expandList(f, 'f' + blocks.indexOf(f)))
+    : blocks.flatMap((b, i) => expandList(b, 'b' + i))
+  return { slides: buildSlides(items, cover, tickSteps.length), plan, total: tickSteps.length }
 }

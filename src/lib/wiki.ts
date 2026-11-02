@@ -32,7 +32,13 @@ export const AREAS: Area[] = [
 const catArea = new Map<string, string>()
 export type AreaRow = { key: string; name: string; description: string; icon: string; tone: string; access_level: Area['access']; sort: number }
 /** Bereiche und Zuordnungen aus der Datenbank übernehmen (die Liste bleibt dasselbe Objekt, damit alle Importe mitziehen) */
-export function setWikiStructure(rows: AreaRow[], cats: { key: string; area_key: string | null }[]) {
+// Anzeigename je Thema, so wie das Büro ihn getippt hat (29.10., Matteo: „Wimpern & brauen“ statt „Wimpern & Brauen“)
+const catNames = new Map<string, string>()
+/** Thema für die Anzeige: gespeicherter Name, sonst erster Buchstabe gross */
+export const catLabel = (cat: string) => catNames.get(catKey(cat)) ?? (cat.slice(0, 1).toUpperCase() + cat.slice(1))
+export function setWikiStructure(rows: AreaRow[], cats: { key: string; area_key: string | null; name?: string | null }[]) {
+  catNames.clear()
+  for (const c of cats) if (c.name?.trim()) catNames.set(c.key, c.name.trim())
   if (rows.length) AREAS.splice(0, AREAS.length, ...[...rows].sort((a, b) => a.sort - b.sort || a.name.localeCompare(b.name))
     .map(r => ({ key: r.key, name: r.name, desc: r.description, cats: DEFAULT_CATS[r.key] ?? [], icon: r.icon, tone: r.tone, access: r.access_level, sort: r.sort })))
   catArea.clear()
