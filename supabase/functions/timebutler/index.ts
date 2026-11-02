@@ -9,7 +9,8 @@
 //   clock      {command: start|pause|resume|stop}
 //   request    {absenceTypeId, startDate, endDate, halfDay?, comments?}   Ferien/Abwesenheit beantragen, auch Krankmeldung (Art mit „krank“ im Namen)
 //   withdraw   {id}                                 eigenen Antrag zurückziehen (offen) oder Stornierung anfragen
-//   balance_sync {}                                 nur Cron (x-notify-secret): Stundensaldo aller über API v1 (TIMEBUTLER_V1_TOKEN) nach timebutler_balances
+//   balance_sync {}                                 nur Cron (x-notify-secret): Stundensaldo aller über API v1 nach timebutler_balances
+//   company_status | company_set {token} | company_sync | company_remove   nur Büro: Firmen-Schlüssel v1 eintragen, prüfen, abgleichen
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 import { clockResult } from './clock-result.ts'
 import { parseBalances, usersByEmail } from './balance.ts'
@@ -78,11 +79,19 @@ async function knownInTimebutler(email: string): Promise<boolean | null> {
 }
 
 /* ---------- Stundensaldo über API v1 (Firmen-Token) ---------- */
-async function v1(action: string, params: Record<string, string> = {}) {
-  const k = Deno.env.get('TIMEBUTLER_V1_TOKEN'); if (!k) throw new Error('not_configured')
+// Schlüssel: vom Büro in TeamHub eingetragen (verschlüsselt in timebutler_company), sonst Secret TIMEBUTLER_V1_TOKEN
+// deno-lint-ignore no-explicit-any
+async function companyToken(admin: any): Promise<string | null> {
+  const { data } = await admin.from('timebutler_company').select('token_sealed').eq('id', 1).maybeSingle()
+  if (data?.token_sealed) return await open(data.token_sealed)
+  return Deno.env.get('TIMEBUTLER_V1_TOKEN')?.trim() || null
+}
+async function v1(action: string, params: Record<string, string> = {}, token?: string | null) {
+  const k = token; if (!k) throw new Error('not_configured')
   const r = await fetch('https://app.timebutler.com/api/v1/' + action, { method: 'POST', body: new URLSearchParams({ auth: k.trim(), ...params }), signal: AbortSignal.timeout(60000) })
   const text = await r.text()
   if (/MAX_REQUESTS_PER_DAY_LIMIT_EXCEEDED/.test(text)) throw new Error('limit')
+  if (r.status === 401) throw new Error('key_invalid')
   if (r.status !== 200) throw new Error(`v1_${action}_${r.status}`)
   return text
 }
@@ -97,8 +106,9 @@ async function syncBalances(admin: any) {
   if (calls >= 10) return { ok: false, error: 'limit_guard', calls }
   const note = async (v: Record<string, unknown>) => { await admin.from('app_settings').upsert({ key, value: { day, calls: calls + 1, at: new Date().toISOString(), ...v }, updated_at: new Date().toISOString() }) }
   try {
-    const users = usersByEmail(await v1('users'))
-    const { header, rows } = parseBalances(await v1('worktimeaccountbalance', { date: day, minutes: 'true' }))
+    const k = await companyToken(admin)
+    const users = usersByEmail(await v1('users', {}, k))
+    const { header, rows } = parseBalances(await v1('worktimeaccountbalance', { date: day, minutes: 'true' }, k))
     const { data: emps } = await admin.from('employees').select('id, email').eq('active', true)
     const { data: accts } = await admin.from('timebutler_accounts').select('employee_id, tb_email')
     const byUser = new Map(rows.map(r => [r.userid, r]))
@@ -158,6 +168,40 @@ Deno.serve(async (req) => {
       return json({ ok: true, connected: true })
     }
     if (action === 'disconnect') { await admin.from('timebutler_accounts').delete().eq('employee_id', me.id); return json({ ok: true, connected: false }) }
+
+    // Firmen-Schlüssel für den Stundensaldo (nur Büro). Der Schlüssel selbst verlässt den Server nie wieder.
+    if (action.startsWith('company_')) {
+      if (me.app_role !== 'buero') return json({ ok: false, error: 'forbidden' }, 403)
+      const status = async () => {
+        const { data: row } = await admin.from('timebutler_company').select('set_at, set_by').eq('id', 1).maybeSingle()
+        const { data: st } = await admin.from('app_settings').select('value').eq('key', 'timebutler_balance_sync').maybeSingle()
+        const { count } = await admin.from('employees').select('id', { count: 'exact', head: true }).eq('active', true)
+        let by: string | null = null
+        if (row?.set_by) { const { data: e } = await admin.from('employees').select('first_name, last_name').eq('id', row.set_by).maybeSingle(); by = e ? `${e.first_name ?? ''} ${e.last_name ?? ''}`.trim() : null }
+        const v = (st?.value ?? {}) as Record<string, unknown>
+        return { ok: true, configured: !!row || !!Deno.env.get('TIMEBUTLER_V1_TOKEN'), setAt: row?.set_at ?? null, setBy: by, employees: count ?? 0,
+          sync: st ? { at: v.at ?? null, ok: v.ok ?? null, matched: v.matched ?? null, error: v.error ?? null, callsToday: v.day === today() ? v.calls ?? 0 : 0 } : null }
+      }
+      if (action === 'company_status') return json(await status())
+      if (action === 'company_remove') { await admin.from('timebutler_company').delete().eq('id', 1); await admin.from('timebutler_balances').delete().not('employee_id', 'is', null); return json(await status()) }
+      if (action === 'company_sync') return json({ ...(await status()), result: await syncBalances(admin) })
+      if (action === 'company_set') {
+        const token = String(body.token ?? '').trim()
+        if (token.length < 8 || /\s/.test(token)) return json({ ok: false, error: 'key_empty' })
+        // Erst prüfen, dann speichern: users kostet keinen der 12 Saldo-Abrufe
+        try {
+          const users = usersByEmail(await v1('users', {}, token))
+          if (!users.size) return json({ ok: false, error: 'key_no_users' })
+        } catch (err) {
+          const m = err instanceof Error ? err.message : ''
+          // tb_… ist der persönliche Token der neueren Schnittstelle (v2), nicht der Firmen-Schlüssel
+          return json({ ok: false, error: m === 'key_invalid' ? (/^tb_/.test(token) ? 'key_is_v2' : 'key_invalid') : 'unreachable' })
+        }
+        await admin.from('timebutler_company').upsert({ id: 1, token_sealed: await seal(token), set_by: me.id, set_at: new Date().toISOString() })
+        return json({ ...(await status()), result: await syncBalances(admin) })
+      }
+      return json({ ok: false, error: 'bad_action' }, 400)
+    }
 
     const tok = await accessFor(admin, me.id)
     if (!tok) return json({ ok: true, configured: true, connected: false, email: me.email, known: await knownInTimebutler(me.email) })

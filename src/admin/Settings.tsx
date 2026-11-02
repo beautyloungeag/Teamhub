@@ -198,7 +198,69 @@ function General() {
       <Select className="w-44" tone="stone" value={days} onChange={save} options={[['90', '3 Monate'], ['180', '6 Monate'], ['365', '12 Monate'], ['730', '2 Jahre']].map(([v, l]) => ({ value: v, label: l }))} />
     </div>
     <MailSettings />
+    <TimebutlerKey />
   </div>
+}
+
+/* ---------- Timebutler-Firmen-Schlüssel (Büro): Stundensaldo für alle ---------- */
+// Matteo 29.10.: Stundensaldo in der App. Den liefert nur die ältere Timebutler-Schnittstelle (v1) mit einem Firmen-Schlüssel.
+// Das Büro trägt ihn hier selbst ein; die Function prüft ihn sofort, legt ihn verschlüsselt ab und holt den ersten Saldo.
+type TbCompany = { ok: boolean; error?: string; configured?: boolean; setAt?: string | null; setBy?: string | null; employees?: number
+  sync?: { at: string | null; ok: boolean | null; matched: number | null; error: string | null; callsToday: number } | null
+  result?: { ok: boolean; matched?: number; error?: string } }
+const TB_ERR: Record<string, string> = {
+  key_empty: 'Bitte den Schlüssel vollständig einfügen.',
+  key_is_v2: 'Das ist der persönliche Token der neueren Schnittstelle (beginnt mit tb_). Gebraucht wird der «Legacy-Token (API v1)» für die übrigen Endpunkte.',
+  key_invalid: 'Timebutler lehnt den Schlüssel ab. Ist unter API-Tokens die Schnittstelle für die übrigen Endpunkte eingeschaltet und der richtige Token kopiert?',
+  key_no_users: 'Der Schlüssel funktioniert, Timebutler liefert damit aber keine Mitarbeiterinnen.',
+  unreachable: 'Timebutler ist gerade nicht erreichbar. Bitte später nochmal versuchen.',
+  limit: 'Timebutler erlaubt 12 Abrufe am Tag, für heute sind sie aufgebraucht. Morgen früh geht es automatisch weiter.',
+  limit_guard: 'Für heute sind die Abrufe aufgebraucht. Morgen früh geht es automatisch weiter.',
+}
+function TimebutlerKey() {
+  const [st, setSt] = useState<TbCompany | null>(null), [key, setKey] = useState(''), [busy, setBusy] = useState(false), [err, setErr] = useState(''), [ask, setAsk] = useState(false)
+  const run = async (body: Record<string, unknown>) => {
+    setBusy(true); setErr('')
+    const { data } = await supabase!.functions.invoke('timebutler', { body }).catch(() => ({ data: null }))
+    setBusy(false)
+    const r = data as TbCompany | null
+    if (!r?.ok) { setErr(TB_ERR[r?.error ?? ''] ?? 'Das hat nicht geklappt.'); return null }
+    setSt(r); return r
+  }
+  useEffect(() => { run({ action: 'company_status' }) }, [])
+  const save = async () => {
+    const r = await run({ action: 'company_set', token: key })
+    if (!r) return
+    setKey('')
+    toast(r.result?.ok ? `Verbunden: Saldo für ${r.result.matched ?? 0} Personen geholt` : 'Schlüssel gespeichert')
+    if (r.result && !r.result.ok) setErr(TB_ERR[r.result.error ?? ''] ?? 'Der Schlüssel ist gespeichert, der erste Abgleich hat aber nicht geklappt.')
+  }
+  const sync = async () => { const r = await run({ action: 'company_sync' }); if (r?.result && !r.result.ok) setErr(TB_ERR[r.result.error ?? ''] ?? 'Der Abgleich hat nicht geklappt.'); else if (r) toast('Saldo abgeglichen') }
+  const s = st?.sync
+  return (
+    <div className="py-6 border-t border-line mt-6">
+      <div className="flex items-start justify-between gap-6">
+        <div className="min-w-0"><p className="rubric text-ink/70">Timebutler: Stundensaldo</p>
+          <p className="text-[14px] mt-3">Mit dem Firmen-Schlüssel holt TeamHub dreimal am Tag den Überstundensaldo aus Timebutler. Jede Mitarbeiterin sieht ihren eigenen unter «Zeit & Ferien».</p>
+          <p className="text-xs text-mute mt-1">Den Schlüssel findet ein Timebutler-Admin unter Einstellungen → Mein Konto → API-Tokens im Abschnitt «Legacy-Token (API v1)», Schnittstelle für die übrigen Endpunkte (nicht Personalakte und Gehalt).</p></div>
+        {st && <span className={`shrink-0 text-[13.5px] ${st.configured ? 'text-done' : 'text-mute'}`}>{st.configured ? 'Verbunden' : 'Nicht verbunden'}</span>}
+      </div>
+      {st?.configured && <div className="mt-4 text-[14px] space-y-1">
+        {st.setAt && <p className="text-mute">Eingetragen {fmtDate(st.setAt.slice(0, 10))}{st.setBy ? ` von ${st.setBy}` : ''}</p>}
+        {s?.at && <p>{s.ok ? `Letzter Abgleich ${fmtDate(String(s.at).slice(0, 10))}, ${fmtTime(String(s.at))}: Saldo für ${s.matched ?? 0} von ${st.employees ?? 0} Personen` : `Letzter Abgleich ${fmtDate(String(s.at).slice(0, 10))}, ${fmtTime(String(s.at))} hat nicht geklappt. ${TB_ERR[s.error ?? ''] ?? ''}`}</p>}
+      </div>}
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <input type="password" autoComplete="off" spellCheck={false} value={key} onChange={e => setKey(e.target.value)} onKeyDown={e => e.key === 'Enter' && key.trim() && save()}
+          placeholder={st?.configured ? 'Neuen Schlüssel einfügen' : 'Schlüssel einfügen'} className="h-10 flex-1 min-w-[240px] rounded-[10px] bg-sage-50 px-3 text-[14px] outline-none" />
+        <button disabled={busy || !key.trim()} onClick={save} className={btn}>{busy ? 'Prüft …' : 'Speichern und prüfen'}</button>
+        {st?.configured && <button disabled={busy} onClick={sync} className={btn2}>Jetzt abgleichen</button>}
+        {st?.configured && (ask
+          ? <span className="flex items-center gap-2 text-[13.5px]">Schlüssel entfernen?<button onClick={async () => { setAsk(false); await run({ action: 'company_remove' }) }} className={btn2}>Entfernen</button><button onClick={() => setAsk(false)} className={btn2}>Nein</button></span>
+          : <button onClick={() => setAsk(true)} className="h-10 px-2 text-[13.5px] text-mute hover:text-alert">Entfernen</button>)}
+      </div>
+      {err && <p className="mt-2 text-[13.5px] text-alert">{err}</p>}
+    </div>
+  )
 }
 
 /* ---------- System (Büro): Fehler der App, Zugriffe auf Kundendaten ---------- */
