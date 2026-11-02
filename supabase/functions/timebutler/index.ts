@@ -9,12 +9,14 @@
 //   clock      {command: start|pause|resume|stop}
 //   request    {absenceTypeId, startDate, endDate, halfDay?, comments?}   Ferien/Abwesenheit beantragen, auch Krankmeldung (Art mit „krank“ im Namen)
 //   withdraw   {id}                                 eigenen Antrag zurückziehen (offen) oder Stornierung anfragen
+//   balance_sync {}                                 nur Cron (x-notify-secret): Stundensaldo aller über API v1 (TIMEBUTLER_V1_TOKEN) nach timebutler_balances
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 import { clockResult } from './clock-result.ts'
+import { parseBalances, usersByEmail } from './balance.ts'
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-notify-secret',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { ...cors, 'Content-Type': 'application/json' } })
@@ -75,9 +77,59 @@ async function knownInTimebutler(email: string): Promise<boolean | null> {
   } catch { return null }
 }
 
+/* ---------- Stundensaldo über API v1 (Firmen-Token) ---------- */
+async function v1(action: string, params: Record<string, string> = {}) {
+  const k = Deno.env.get('TIMEBUTLER_V1_TOKEN'); if (!k) throw new Error('not_configured')
+  const r = await fetch('https://app.timebutler.com/api/v1/' + action, { method: 'POST', body: new URLSearchParams({ auth: k.trim(), ...params }), signal: AbortSignal.timeout(60000) })
+  const text = await r.text()
+  if (/MAX_REQUESTS_PER_DAY_LIMIT_EXCEEDED/.test(text)) throw new Error('limit')
+  if (r.status !== 200) throw new Error(`v1_${action}_${r.status}`)
+  return text
+}
+// Ein Lauf für alle: E-Mail aus TeamHub (bzw. die beim Verbinden benutzte) → Timebutler-userid → Saldo zum heutigen Tag
+// deno-lint-ignore no-explicit-any
+async function syncBalances(admin: any) {
+  const day = today(), key = 'timebutler_balance_sync'
+  const { data: st } = await admin.from('app_settings').select('value').eq('key', key).maybeSingle()
+  const prev = (st?.value ?? {}) as { day?: string; calls?: number }
+  const calls = prev.day === day ? prev.calls ?? 0 : 0
+  // Timebutler erlaubt 12 Abrufe je Kalendertag, wir lassen Luft für einen Abruf von Hand
+  if (calls >= 10) return { ok: false, error: 'limit_guard', calls }
+  const note = async (v: Record<string, unknown>) => { await admin.from('app_settings').upsert({ key, value: { day, calls: calls + 1, at: new Date().toISOString(), ...v }, updated_at: new Date().toISOString() }) }
+  try {
+    const users = usersByEmail(await v1('users'))
+    const { header, rows } = parseBalances(await v1('worktimeaccountbalance', { date: day, minutes: 'true' }))
+    const { data: emps } = await admin.from('employees').select('id, email').eq('active', true)
+    const { data: accts } = await admin.from('timebutler_accounts').select('employee_id, tb_email')
+    const byUser = new Map(rows.map(r => [r.userid, r]))
+    const out: Record<string, unknown>[] = []
+    for (const e of (emps ?? []) as { id: string; email: string }[]) {
+      const mails = [e.email, ...((accts ?? []) as { employee_id: string; tb_email: string }[]).filter(a => a.employee_id === e.id).map(a => a.tb_email)]
+      const uid = mails.map(m => users.get(String(m ?? '').toLowerCase())).find(Boolean)
+      const r = uid ? byUser.get(uid) : undefined
+      if (uid && r) out.push({ employee_id: e.id, tb_userid: uid, balance_minutes: r.minutes, as_of: day, row: r.row, fetched_at: new Date().toISOString() })
+    }
+    if (out.length) { const { error } = await admin.from('timebutler_balances').upsert(out); if (error) throw new Error('save_failed') }
+    await note({ ok: true, header, users: users.size, rows: rows.length, matched: out.length })
+    return { ok: true, matched: out.length, rows: rows.length }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    // Ohne Token ist das kein Fehler, nur noch nicht eingerichtet; dann zählt der Lauf auch nicht als Abruf
+    if (msg === 'not_configured') return { ok: true, configured: false }
+    await note({ ok: false, error: msg.slice(0, 120) })
+    return { ok: false, error: msg.slice(0, 120) }
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
   const url = Deno.env.get('SUPABASE_URL')!, anon = Deno.env.get('SUPABASE_ANON_KEY')!, service = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+  const secret = Deno.env.get('NOTIFY_SECRET')
+  if (secret && req.headers.get('x-notify-secret') === secret) {
+    const b = await req.json().catch(() => ({}))
+    if (b.action !== 'balance_sync') return json({ ok: false, error: 'bad_action' }, 400)
+    return json(await syncBalances(createClient(url, service)))
+  }
   const userDb = createClient(url, anon, { global: { headers: { Authorization: req.headers.get('Authorization') ?? '' } } })
   const { data: me } = await userDb.rpc('current_employee')
   if (!me?.id) return json({ ok: false, error: 'not_signed_in' }, 401)
@@ -141,6 +193,8 @@ Deno.serve(async (req) => {
       get('user/profile'), get('time-tracking/time-off-summary'), get('time-clock/status'), get('time-tracking/work-summary'),
       get('absence-requests/my'), get('absence-types'), ...months.map(([yy, mm]) => get(`time-entries/my?year=${yy}&month=${mm}`)),
     ])
+    // Stundensaldo aus dem letzten v1-Abgleich (nur der eigene)
+    const { data: bal } = await admin.from('timebutler_balances').select('balance_minutes, as_of, fetched_at').eq('employee_id', me.id).maybeSingle()
     const p = profile as { name?: string; email?: string; isTimeTrackingEnabled?: boolean } | null
     return json({
       ok: true, configured: true, connected: true, today: d,
@@ -148,6 +202,7 @@ Deno.serve(async (req) => {
       summary, clock, work, requests: Array.isArray(requests) ? requests : [],
       types: Array.isArray(types) ? (types as { id: string; name: string; halfDaysAllowed?: boolean; needsApproval?: boolean; requiresMedicalCertificate?: boolean }[]).map(x => ({ id: x.id, name: x.name, half: !!x.halfDaysAllowed, approval: !!x.needsApproval, cert: !!x.requiresMedicalCertificate })) : [],
       entries: entries.flatMap(x => Array.isArray(x) ? x : []),
+      balance: bal && bal.balance_minutes != null ? { minutes: bal.balance_minutes, asOf: bal.as_of, fetchedAt: bal.fetched_at } : null,
     })
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)

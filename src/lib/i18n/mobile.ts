@@ -891,4 +891,6 @@ export default {
   "Timebutler lässt dich keine Krankmeldung selbst eintragen. Melde dich bitte bei deiner Filialleitung.": ["Timebutler doesn’t let you record sick leave yourself. Please contact your branch manager.", "Timebutler ne te permet pas d’enregistrer toi-même un arrêt maladie. Contacte ta responsable de salon."],
   "Krankmeldung senden": ["Send sick note", "Envoyer l’arrêt maladie"],
   "Die Krankmeldung geht direkt an Timebutler.": ["The sick note goes straight to Timebutler.", "L’arrêt maladie est envoyé directement à Timebutler."],
+  "Überstunden": ["Overtime", "Heures supplémentaires"],
+  "Stand {d}": ["As of {d}", "Au {d}"],
 } as Record<string, [string, string]>

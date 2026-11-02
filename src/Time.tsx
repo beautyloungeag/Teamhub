@@ -19,6 +19,8 @@ type Overview = {
   summary?: { vacationDaysRemaining: number; vacationDaysTotal: number; vacationDaysApproved: number; vacationDaysPending: number; illnessDaysTaken: number } | null
   clock?: ClockSt | null; work?: { workedMinutes: number; commitmentMinutes: number; percentDone: number } | null
   requests?: Req[]; types?: AType[]; entries?: { date: string; workedMinutes: number }[]
+  // Stundensaldo aus Timebutler (API v1, Abgleich dreimal am Tag), nur der eigene
+  balance?: { minutes: number; asOf: string; fetchedAt: string } | null
 }
 export const TIMEBUTLER = { web: 'https://app.timebutler.com/login/', ios: 'https://apps.apple.com/ch/app/timebutler/id6763064084', android: 'https://play.google.com/store/apps/details?id=com.timebutler.mobile' }
 const tbLink = () => isIOS() ? TIMEBUTLER.ios : isAndroid() ? TIMEBUTLER.android : TIMEBUTLER.web
@@ -31,6 +33,7 @@ const demo = (): Overview => {
   return { ok: true, configured: true, connected: true, today: d, profile: { timeTracking: true },
     summary: { vacationDaysRemaining: 12.5, vacationDaysTotal: 25, vacationDaysApproved: 10, vacationDaysPending: 1, illnessDaysTaken: 2 },
     clock: { status: 'running', workTimeElapsedSeconds: (3 * 60 + 42) * 60 }, work: { workedMinutes: 222, commitmentMinutes: 504, percentDone: 44 },
+    balance: { minutes: 12 * 60 + 15, asOf: d, fetchedAt: new Date().toISOString() },
     entries: [{ date: mon, workedMinutes: 495 }, { date: addDays(1, mon), workedMinutes: 450 }].filter(x => x.date < d),
     types: [{ id: '1', name: 'Ferien', half: true, approval: true }, { id: '2', name: 'Überstundenabbau', half: true, approval: true }, { id: 'KRA', name: 'Krankheit', half: true, approval: false, cert: true }],
     requests: [
@@ -131,6 +134,12 @@ export function TimeView() {
               <div className={`w-full rounded-[8px] ${isToday ? 'bg-done' : x.min ? 'bg-studio' : 'bg-sage-100'}`} style={{ height: x.min ? Math.max(8, x.min / max * 80) + '%' : '6px' }} />
               <span className={`text-[12.5px] ${isToday ? 'font-semibold text-ink' : 'text-mute'}`}>{new Intl.DateTimeFormat(locale(), { timeZone: 'UTC', weekday: 'short' }).format(new Date(x.d + 'T12:00:00Z')).replace('.', '')}</span>
             </div> })}</div>
+          {/* Stundensaldo wie in Timebutler „Überstundenguthaben zum Stichtag“ (29.10., Matteo) */}
+          {o.balance && <div className="mt-4 pt-4 border-t border-line flex items-baseline justify-between gap-3">
+            <div className="min-w-0"><p className="text-[15.5px]">{t('Überstunden')}</p>
+              <p className="text-[13px] text-mute">{t('Stand {d}', { d: new Intl.DateTimeFormat(locale(), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Zurich' }).format(new Date(o.balance.fetchedAt)) })}</p></div>
+            <p className={`font-display text-[22px] tabular-nums shrink-0 ${o.balance.minutes < 0 ? TONE.duty.fg : ''}`}>{o.balance.minutes < 0 ? '−' : '+'}{hm(Math.abs(o.balance.minutes))} h</p>
+          </div>}
         </div>}
 
         <div className="rounded-[22px] bg-white overflow-hidden">
