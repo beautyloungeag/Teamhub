@@ -51,7 +51,7 @@ function useScope(includeTests: boolean) {
   return { people, studios, br, setBr }
 }
 function useLearnStats() {
-  const { news, newsReads, quizzes, attempts, steps, me, progressVersion } = useApp()
+  const { news, newsReads, quizzes, attempts, steps, me, progressVersion, wiki } = useApp()
   const [ob, setOb] = useState<{ employee_id: string; step_id: string }[] | null>(null)
   useEffect(() => { const scope = captureAccountScope(me.id); let alive = true; if (!scope) return; supabase!.from('onboarding_progress').select('employee_id, step_id').abortSignal(scope.signal).then(({ data, error }) => { if (alive && isCurrentAccountScope(scope) && !error) setOb(data ?? []) }); return () => { alive = false } }, [me.id, progressVersion])
   const must = news.filter(n => n.mustRead && new Date(n.publishAt) <= new Date())
@@ -59,7 +59,9 @@ function useLearnStats() {
     const done = new Set((ob ?? []).filter(x => x.employee_id === p.id).map(x => x.step_id))
     const mine = steps.filter(s => s.branchIds.length === 0 || s.branchIds.some(b => inBranch(p, b)))
     const myMust = must.filter(n => inNewsAudience(p, n))
-    const qz = quizzes.filter(q => !q.newsId || news.some(n => n.id === q.newsId && inNewsAudience(p, n)))
+    // Quiz zu einem Artikel zählt nur, wenn die Person den Artikel sieht (Entwurf oder Filialleitungs-Artikel nicht bei allen, 02.11.)
+    const seesArticle = (id: string) => wiki.some(a => a.id === id && a.published && (a.accessLevel === 'alle' || (a.accessLevel === 'filialleitung' && p.app_role === 'filialleitung') || p.app_role === 'buero'))
+    const qz = quizzes.filter(q => q.newsId ? news.some(n => n.id === q.newsId && inNewsAudience(p, n)) : !q.articleId || seesArticle(q.articleId))
     const best = (qid: string) => { const a = attempts.filter(x => x.quizId === qid && x.employeeId === p.id); return { n: a.length, max: a.length ? Math.max(...a.map(x => x.scorePct)) : null, passed: a.some(x => x.passed), at: a.find(x => x.passed)?.at ?? null } }
     return {
       loaded: !!ob, steps: mine.map(s => ({ s, done: done.has(s.id) })), obDone: mine.filter(s => done.has(s.id)).length, obTotal: mine.length,

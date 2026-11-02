@@ -32,7 +32,7 @@ const demo = (): Overview => {
     summary: { vacationDaysRemaining: 12.5, vacationDaysTotal: 25, vacationDaysApproved: 10, vacationDaysPending: 1, illnessDaysTaken: 2 },
     clock: { status: 'running', workTimeElapsedSeconds: (3 * 60 + 42) * 60 }, work: { workedMinutes: 222, commitmentMinutes: 504, percentDone: 44 },
     entries: [{ date: mon, workedMinutes: 495 }, { date: addDays(1, mon), workedMinutes: 450 }].filter(x => x.date < d),
-    types: [{ id: '1', name: 'Ferien', half: true, approval: true }, { id: '2', name: 'Überstundenabbau', half: true, approval: true }],
+    types: [{ id: '1', name: 'Ferien', half: true, approval: true }, { id: '2', name: 'Überstundenabbau', half: true, approval: true }, { id: 'KRA', name: 'Krankheit', half: true, approval: false, cert: true }],
     requests: [
       { id: 'a', type: 'Ferien', startDate: addDays(23, d), endDate: addDays(27, d), days: 5, status: 'approved' },
       { id: 'b', type: 'Ferien', startDate: addDays(58, d), endDate: addDays(58, d), days: 1, status: 'pending' },
@@ -116,7 +116,11 @@ export function TimeView() {
             {[[v.vacationDaysApproved, 'genehmigt', 'done'], [v.vacationDaysPending, 'beantragt', 'note'], [v.illnessDaysTaken, 'krank', 'duty']].map(([n, l, tn]) =>
               <div key={l as string} className={`rounded-[14px] py-2 ${TONE[tn as Tone].bg}`}><p className={`font-display text-[20px] ${TONE[tn as Tone].fg}`}>{num(n as number)}</p><p className="text-[12.5px] text-ink/70">{t(l as string)}</p></div>)}
           </div>
-          <button onClick={() => setAsk('ferien')} className={`mt-3 w-full h-12 rounded-[16px] font-semibold flex items-center justify-center gap-2 ${TONE.learn.bg} ${TONE.learn.fg}`}><Plane size={18} />{t('Ferien beantragen')}</button>
+          {/* Krank melden direkt an Timebutler (29.10., Matteo: niemand soll zwei Systeme pflegen) */}
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button onClick={() => setAsk('ferien')} className={`flex-[1_1_auto] h-12 px-4 rounded-[16px] font-semibold whitespace-nowrap flex items-center justify-center gap-2 ${TONE.learn.bg} ${TONE.learn.fg}`}><Plane size={18} />{t('Ferien beantragen')}</button>
+            <button onClick={() => setAsk('krank')} className={`flex-[1_1_auto] h-12 px-4 rounded-[16px] font-semibold whitespace-nowrap ${TONE.duty.bg} ${TONE.duty.fg}`}>{t('Krank melden')}</button>
+          </div>
         </div>}
 
         {tracking && <div className="rounded-[22px] bg-white p-5">
@@ -130,10 +134,9 @@ export function TimeView() {
         </div>}
 
         <div className="rounded-[22px] bg-white overflow-hidden">
-          {/* Krank melden direkt an Timebutler (29.10., Matteo: niemand soll zwei Systeme pflegen) */}
           <div className="px-5 pt-4 pb-2 flex items-center justify-between gap-2"><p className="rubric text-ink/70">{t('Meine Anträge')}</p>
-            <span className="flex items-center gap-1.5"><button onClick={() => setAsk('krank')} className={`h-8 px-3 rounded-full text-[14px] flex items-center gap-1 ${TONE.duty.bg} ${TONE.duty.fg}`}>{t('Krank melden')}</button>
-              <button onClick={() => setAsk('ferien')} className="h-8 px-3 rounded-full bg-sage-50 text-[14px] flex items-center gap-1"><Plus size={14} />{t('Ferien')}</button></span></div>
+            <span className="flex items-center gap-1.5">{!v && <button onClick={() => setAsk('krank')} className={`h-8 px-3 rounded-full text-[14px] whitespace-nowrap ${TONE.duty.bg} ${TONE.duty.fg}`}>{t('Krank melden')}</button>}
+              <button onClick={() => setAsk('ferien')} className="h-8 px-3 rounded-full bg-sage-50 text-[14px] whitespace-nowrap flex items-center gap-1"><Plus size={14} />{t('Neu')}</button></span></div>
           {!upcoming.length && !past.length && <p className="px-5 pb-4 text-[15.5px] text-mute">{t('Keine Einträge in diesem Jahr.')}</p>}
           <div className="divide-y divide-line">{[...upcoming, ...past].map(a => { const [label, tone] = STATE[a.status] ?? [a.status, 'studio' as Tone], isPast = a.endDate < today, sick = /krank/i.test(a.type)
             return <div key={a.id} className={`px-5 py-3.5 flex items-center gap-3 ${isPast ? 'opacity-60' : ''}`}>

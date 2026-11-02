@@ -319,8 +319,8 @@ function CategoryPage({ name, onBack, onOpen, onRenamed }: { name: string; onBac
         <div className="min-w-0">
           <input value={title} onChange={e => setTitle(e.target.value)} onBlur={rename} onKeyDown={e => e.key === 'Enter' && (e.target as HTMLInputElement).blur()} title="Namen ändern" className="font-display text-[30px] leading-tight bg-transparent outline-none rounded-[8px] -ml-1 px-1 hover:bg-sage-50 focus:bg-sage-50 w-full" />
           {ask ? <div className="mt-1 flex flex-wrap items-center gap-2 text-[13px]"><span>„{cap(name)}“ in „{ask}“ umbenennen?{items.length ? ` ${items.length === 1 ? 'Der Artikel zieht' : `Alle ${items.length} Artikel ziehen`} mit.` : ''}</span>
-              <button onMouseDown={e => e.preventDefault()} onClick={doRename} className={`${btn} !h-8`}>Umbenennen</button>
-              <button onMouseDown={e => e.preventDefault()} onClick={() => { setAsk(null); setTitle(cap(name)) }} className={`${btn2} !h-8`}>Abbrechen</button></div>
+              <span className="flex items-center gap-2"><button onMouseDown={e => e.preventDefault()} onClick={doRename} className={`${btn} !h-8`}>Umbenennen</button>
+              <button onMouseDown={e => e.preventDefault()} onClick={() => { setAsk(null); setTitle(cap(name)) }} className={`${btn2} !h-8`}>Abbrechen</button></span></div>
             : <p className="text-[13px] text-mute">{items.length === 1 ? '1 Artikel' : `${items.length} Artikel`} · Emoji und Name lassen sich anklicken und ändern</p>}
           <div className="mt-2 flex items-center gap-2 text-[13px]"><span className="text-mute">Bereich</span><Select compact className="w-60" value={area} onChange={setArea} placeholder="Automatisch" options={[{ value: '', label: `Automatisch (${AREAS.find(a => a.key === areaOf(name, ''))?.name ?? ''})` }, ...AREAS.map(a => ({ value: a.key, label: a.name }))]} /></div>
         </div>
@@ -392,6 +392,9 @@ function Editable({ value, onChange, className, placeholder, onNext, elRef, auto
 function MarcWrite({ topic }: { topic?: string }) {
   return <button onClick={() => openBenniDraft(`Schreib einen Wissensartikel${topic ? ` im Thema ${topic}` : ''} aus diesem Text (oder aus der angehängten Datei): `)} className={`${btn2} flex items-center gap-1.5`}><Sparkles size={15} />Mit Marc schreiben</button>
 }
+
+// Inhalt ohne leere Zeilen: der Editor hängt beim ersten Klick eine leere Zeile ans Ende, das ist keine Änderung (02.11.)
+const sigOf = (bs: WikiBlock[]) => JSON.stringify(bs.filter(b => !(TEXTY.has(b.t) && !textOf(b).trim() && !b.media?.some(Boolean))))
 
 type Row = { title: string; intro: string; category: string; access_level: string; published: boolean; owner_id: string | null; blocks: WikiBlock[] | null; body: string; media_kind: string; media_url: string | null; review_due: string | null; cover_path: string | null }
 function ArticleEditor({ id, category, onBack, onSaved }: { id: string | null; category: string; onBack: () => void; onSaved: (id: string) => void }) {
@@ -518,6 +521,9 @@ function ArticleEditor({ id, category, onBack, onSaved }: { id: string | null; c
     editor.on('selectionUpdate', f); editor.on('focus', f)
     return () => { editor.off('selectionUpdate', f); editor.off('focus', f) }
   }, [editor])
+  // Neue, verschobene oder gelöschte Folien: Markierung neu bestimmen, solange im Text gearbeitet wird
+  const follow = useRef(false)
+  useEffect(() => { if (editor && (editor.isFocused || follow.current)) { follow.current = false; setActive(slideAtCursor(editor, slides)) } }, [slides]) // eslint-disable-line react-hooks/exhaustive-deps
   // Vorschau schreibt mit: der Rahmen (gleiche App-Ansicht) zeichnet sofort neu und springt zur Folie, an der geschrieben wird
   const writePreview = async (slide?: number) => {
     const bs = blocks.current
@@ -555,7 +561,7 @@ function ArticleEditor({ id, category, onBack, onSaved }: { id: string | null; c
     {/* Drei Spalten (29.10., Matteo): links die Folien, in der Mitte der Text, rechts die Handy-Ansicht, die beim Tippen mitläuft */}
     <div className="grid lg:grid-cols-[210px_minmax(0,1fr)] xl:grid-cols-[210px_minmax(0,1fr)_280px] gap-x-8 gap-y-6 items-start">
       <aside className="hidden lg:block lg:sticky lg:top-[76px] max-h-[calc(100dvh-100px)] overflow-y-auto no-scrollbar pb-4 -mx-1 px-1">
-        <SlideOutline slides={slides} active={active} show={show} editor={editor} onPick={pick} />
+        <SlideOutline slides={slides} active={active} show={show} editor={editor} onPick={pick} onMoved={() => { follow.current = true }} />
       </aside>
 
       <article className="min-w-0 pb-10">
@@ -590,9 +596,9 @@ function ArticleEditor({ id, category, onBack, onSaved }: { id: string | null; c
           <Editable elRef={introRef} value={intro} onChange={v => { setIntro(v); setDirty(true) }} onNext={() => { const ed = editorRef.current; if (!ed) return; ed.view.dom.focus(); ed.commands.setTextSelection(1) }} placeholder="Kurzfassung in einem Satz (steht auf der Titelfolie im Balken)" className="mt-2 text-[16px] text-mute leading-snug" />
         </div>
         <div className="mt-5"><ArticleBody key={doc.ver} editorOut={editorRef} onEditor={setEditor} initial={doc.blocks} urls={doc.urls} upload={upload}
-          onChange={b => { blocks.current = b; setDirty(true); clearTimeout(liveTimer.current); liveTimer.current = window.setTimeout(() => setLive(b), 150) }} /></div>
+          onChange={b => { const changed = sigOf(b) !== sigOf(blocks.current); blocks.current = b; if (changed) setDirty(true); clearTimeout(liveTimer.current); liveTimer.current = window.setTimeout(() => setLive(b), 150) }} /></div>
         {/* Folien auf schmalen Bildschirmen unter dem Text */}
-        <div className="lg:hidden mt-8"><SlideOutline slides={slides} active={active} show={show} editor={editor} onPick={pick} /></div>
+        <div className="lg:hidden mt-8"><SlideOutline slides={slides} active={active} show={show} editor={editor} onPick={pick} onMoved={() => { follow.current = true }} /></div>
         {id && <button onClick={del} className="mt-10 text-[13px] text-mute hover:text-alert flex items-center gap-1.5"><Trash2 size={14} />Artikel löschen</button>}
       </article>
 

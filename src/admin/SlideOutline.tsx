@@ -4,6 +4,7 @@
 import { useState } from 'react'
 import type { Editor } from '@tiptap/react'
 import type { Node as PMNode } from '@tiptap/pm/model'
+import { TextSelection } from '@tiptap/pm/state'
 import { ArrowDown, ArrowUp, Image as ImageIcon, Plus, Trash2 } from 'lucide-react'
 import { plain, type Slide } from '../lib/wiki-slides'
 
@@ -77,14 +78,22 @@ export function revealSlide(ed: Editor, slides: Slide[], i: number) {
     ed.state.doc.descendants((n, p) => { if (pos != null) return false; if (n.isTextblock && norm(n.textContent).startsWith(want)) { pos = p + n.nodeSize - 1; return false } return true })
   }
   if (pos == null) return
-  ed.chain().focus().setTextSelection(Math.min(pos, ed.state.doc.content.size)).scrollIntoView().run()
+  const at = Math.min(pos, ed.state.doc.content.size)
+  ed.chain().focus(undefined, { scrollIntoView: false }).setTextSelection(at).run()
+  // Der Editor setzt den Fokus erst im nächsten Frame und scrollt dabei an den Textanfang: danach den Absatz selbst in die Mitte holen
+  const { node } = ed.view.domAtPos(at)
+  const el = (node instanceof HTMLElement ? node : node.parentElement)?.closest('h2, h3, p, li, blockquote, figure') ?? null
+  requestAnimationFrame(() => setTimeout(() => el?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 30))
 }
 
 /** Abschnitt einer Folie mit eigener Überschrift: von der Überschrift bis zur nächsten */
 function sectionRange(ed: Editor, slides: Slide[], i: number) {
   const h = headingOf(ed, slides, i); if (!h) return null
-  const all = tops(ed), next = all.slice(h.k + 1).find(x => x.node.type.name === 'heading')
-  return { from: h.pos, to: next ? next.pos : ed.state.doc.content.size, k: h.k }
+  const all = tops(ed), nk = all.findIndex((x, k) => k > h.k && x.node.type.name === 'heading')
+  // Leere Zeilen am Ende gehören nicht zur Folie (sonst wandert die leere Schlusszeile mit und lässt eine Lücke)
+  let end = nk < 0 ? all.length : nk
+  while (end - 1 > h.k && all[end - 1].node.type.name === 'paragraph' && !all[end - 1].node.textContent.trim()) end--
+  return { from: h.pos, to: end < all.length ? all[end].pos : ed.state.doc.content.size, k: h.k }
 }
 
 export function moveSlide(ed: Editor, slides: Slide[], i: number, dir: -1 | 1) {
@@ -96,7 +105,11 @@ export function moveSlide(ed: Editor, slides: Slide[], i: number, dir: -1 | 1) {
   if (!other) return false
   const [a, b] = dir < 0 ? [other, me] : [me, other]
   const doc = ed.state.doc, A = doc.slice(a.from, a.to).content, B = doc.slice(b.from, b.to).content
-  ed.view.dispatch(ed.state.tr.replaceWith(a.from, b.to, B.append(A)))
+  const tr = ed.state.tr.replaceWith(a.from, b.to, B.append(A))
+  // Cursor in die verschobene Überschrift, damit die Markierung links mit der Folie mitwandert
+  const start = dir < 0 ? a.from : a.from + B.size, head = tr.doc.nodeAt(start)
+  if (head) tr.setSelection(TextSelection.create(tr.doc, start + head.nodeSize - 1))
+  ed.view.dispatch(tr)
   return true
 }
 
@@ -110,12 +123,14 @@ export function deleteSlide(ed: Editor, slides: Slide[], i: number) {
 export function addSlide(ed: Editor) {
   const all = tops(ed), at = ed.state.selection.$from.index(0)
   const next = all.slice(at + 1).find(x => x.node.type.name === 'heading')
-  const pos = next ? next.pos : ed.state.doc.content.size
+  // Am Ende: vor die leere Schlusszeile, sonst bleibt eine Lücke über der neuen Folie
+  const last = all[all.length - 1], tail = !next && last && last.node.type.name === 'paragraph' && !last.node.textContent.trim() && all.length > 1
+  const pos = next ? next.pos : tail ? last.pos : ed.state.doc.content.size
   ed.chain().insertContentAt(pos, [{ type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Neue Folie' }] }, { type: 'paragraph' }]).run()
   ed.chain().focus().setTextSelection({ from: pos + 1, to: pos + 11 }).scrollIntoView().run()
 }
 
-export function SlideOutline({ slides, active, show, editor, onPick }: { slides: Slide[]; active: number; show: (path?: string) => string | null; editor: Editor | null; onPick: (i: number) => void }) {
+export function SlideOutline({ slides, active, show, editor, onPick, onMoved }: { slides: Slide[]; active: number; show: (path?: string) => string | null; editor: Editor | null; onPick: (i: number) => void; onMoved?: () => void }) {
   const [ask, setAsk] = useState<number | null>(null)
   const movable = (i: number) => !!editor && !!headingOf(editor, slides, i)
   return <div className="space-y-1.5">
@@ -135,11 +150,11 @@ export function SlideOutline({ slides, active, show, editor, onPick }: { slides:
         {/* Verschieben und Löschen nur bei Folien mit eigener Überschrift, Bestätigung in der Karte statt Browser-Dialog */}
         {own && editor && (ask === i
           ? <div className="px-2 pb-2 flex items-center gap-1.5 text-[12px]"><span className="flex-1 text-alert">Folie mit Inhalt löschen?</span>
-              <button type="button" onClick={() => { deleteSlide(editor, slides, i); setAsk(null) }} className="h-7 px-2 rounded-[7px] bg-alert text-white">Löschen</button>
+              <button type="button" onClick={() => { if (deleteSlide(editor, slides, i)) onMoved?.(); setAsk(null) }} className="h-7 px-2 rounded-[7px] bg-alert text-white">Löschen</button>
               <button type="button" onClick={() => setAsk(null)} className="h-7 px-2 rounded-[7px] bg-sage-50">Nein</button></div>
           : <div className={`px-2 pb-1.5 flex items-center gap-0.5 ${on ? '' : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100'}`}>
-              <button type="button" title="Nach oben" aria-label="Folie nach oben" onClick={() => moveSlide(editor, slides, i, -1)} className="w-7 h-7 rounded-[7px] text-mute hover:bg-sage-50 flex items-center justify-center"><ArrowUp size={14} /></button>
-              <button type="button" title="Nach unten" aria-label="Folie nach unten" onClick={() => moveSlide(editor, slides, i, 1)} className="w-7 h-7 rounded-[7px] text-mute hover:bg-sage-50 flex items-center justify-center"><ArrowDown size={14} /></button>
+              <button type="button" title="Nach oben" aria-label="Folie nach oben" onClick={() => { if (moveSlide(editor, slides, i, -1)) onMoved?.() }} className="w-7 h-7 rounded-[7px] text-mute hover:bg-sage-50 flex items-center justify-center"><ArrowUp size={14} /></button>
+              <button type="button" title="Nach unten" aria-label="Folie nach unten" onClick={() => { if (moveSlide(editor, slides, i, 1)) onMoved?.() }} className="w-7 h-7 rounded-[7px] text-mute hover:bg-sage-50 flex items-center justify-center"><ArrowDown size={14} /></button>
               <button type="button" title="Folie löschen" aria-label="Folie löschen" onClick={() => setAsk(i)} className="ml-auto w-7 h-7 rounded-[7px] text-mute hover:text-alert hover:bg-sage-50 flex items-center justify-center"><Trash2 size={14} /></button>
             </div>)}
       </div> })}
