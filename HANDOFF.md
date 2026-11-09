@@ -1,5 +1,13 @@
 # HANDOFF — Beautylounge TeamHub
 
+### 2026-11-09 — Wissen-Editor: Folienwechsel sprang zurück, Fehlalarm „Ungespeicherte Änderungen“
+
+- **Anlass:** Matteos Mail vom 02.11. (wegen Zustellproblem cyon → M365 erst am 04.11. über renbaum5@gmail.com nachgeschickt) mit Video `Folienwechsel_Wissen-Editor_2026-11-02.mp4`: Klick auf eine Folie, der Text gleitet zur Stelle und springt sofort zurück.
+- **Ursache 1 (belegt per Scroll-Protokoll im Browser):** `installMobileViewport` misst nach jedem Fokuswechsel bei 0/250/700 ms nach (`settle`, seit `e5e0282` vom 02.11.) und holt dabei das fokussierte Feld per `scrollInPane` in Sicht. Beim Wissen-Editor ist das Feld der ganze Editor, also scrollte `main` zurück an dessen Anfang und brach das weiche Scrollen von `revealSlide` ab. **Behoben:** am Computer (`DESKTOP_MEDIA`) wird gar nicht mehr nachgescrollt (keine Bildschirmtastatur), und bei `contenteditable` zählt die Cursor-Zeile statt des ganzen Felds (`caretRect`). Test in `tests/mobile-viewport.test.ts`.
+- **Ursache 2:** Ein Klick in den Text setzte „Ungespeicherte Änderungen“, weil der Editor eine Checkliste als `{t, items, check}` zurückgibt, gespeichert ist `{t, check, items}`; `sigOf` verglich den JSON-Text. Jetzt mit sortierten Schlüsseln.
+- **Geprüft** lokal als Büro (info@aleksa.ai) am Artikel „Lashlifting – Schritt für Schritt“: Folie nach unten und nach oben, Scrollweg ohne einen Schritt in Gegenrichtung, Ziel bleibt stehen; Öffnen und Klick in den Text lassen „Gespeichert“ stehen; Tippen eines Zeichens meldet weiter „Ungespeicherte Änderungen“ (danach rückgängig, nichts gespeichert). `npm test` 96/96.
+- **Sonst aus der Woche 02.–08.11.:** Timebutler-Firmenschlüssel ist eingetragen (02.11.), Abgleich läuft, 50 von 97 Timebutler-Nutzern zugeordnet. Google-Freigabe der Business Profile API für Beautylounges Projekt `320359015615` kam am 30.10.; Matteo will Aleksa ins Cloud-Projekt „Beautylounge Bewertungen“ einladen und fragt, mit welchem Google-Konto. Renée testet ab KW 46 (neue Filiale hatte Vorrang). Telefonbots: von Aleksa am 28.10. bewusst entfernt, kommen später auf Feleo.
+
 ### 2026-11-02 — Matteos Mails vom 29./30.10. komplett umgesetzt und durchgeklickt
 
 - **Anlass:** Matteo schickte am 29. und 30.10. mehrere Mails mit Bildschirmfotos (Wissen-Editor, Quiz, Folien, Timebutler, Google-Bewertungen über Ella). Commits `e5e0282`, `66dd668`, `22c9968`, Migration `20261102100000_matteo_paket_2.sql` (live), Functions `quiz`, `assistant`, `timebutler` neu ausgerollt.

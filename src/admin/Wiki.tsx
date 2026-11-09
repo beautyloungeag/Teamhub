@@ -394,7 +394,9 @@ function MarcWrite({ topic }: { topic?: string }) {
 }
 
 // Inhalt ohne leere Zeilen: der Editor hängt beim ersten Klick eine leere Zeile ans Ende, das ist keine Änderung (02.11.)
-const sigOf = (bs: WikiBlock[]) => JSON.stringify(bs.filter(b => !(TEXTY.has(b.t) && !textOf(b).trim() && !b.media?.some(Boolean))))
+// Felder sortiert: der Editor liefert z. B. eine Checkliste als {t, items, check} statt {t, check, items}, das ist keine Änderung (09.11.)
+const sorted = (_k: string, v: unknown) => v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v as Record<string, unknown>).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) : v
+const sigOf = (bs: WikiBlock[]) => JSON.stringify(bs.filter(b => !(TEXTY.has(b.t) && !textOf(b).trim() && !b.media?.some(Boolean))), sorted)
 
 type Row = { title: string; intro: string; category: string; access_level: string; published: boolean; owner_id: string | null; blocks: WikiBlock[] | null; body: string; media_kind: string; media_url: string | null; review_due: string | null; cover_path: string | null }
 function ArticleEditor({ id, category, onBack, onSaved }: { id: string | null; category: string; onBack: () => void; onSaved: (id: string) => void }) {

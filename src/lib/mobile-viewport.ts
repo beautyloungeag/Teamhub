@@ -20,10 +20,22 @@ export function paneScrollTop(pane: { top: number; height: number; scrollTop: nu
   return Math.max(0, Math.min(desired, Math.max(0, pane.scrollHeight - pane.height)))
 }
 
-export function scrollInPane(pane: HTMLElement | null, target: HTMLElement | null, align: 'nearest' | 'start' | 'end' = 'nearest', smooth = false) {
+export function scrollInPane(pane: HTMLElement | null, target: HTMLElement | null, align: 'nearest' | 'start' | 'end' = 'nearest', smooth = false, rect?: { top: number; bottom: number }) {
   if (!pane || !target || !pane.contains(target)) return
-  const p = pane.getBoundingClientRect(), t = target.getBoundingClientRect()
+  const p = pane.getBoundingClientRect(), t = rect ?? target.getBoundingClientRect()
   pane.scrollTo({ top: paneScrollTop({ top: p.top, height: pane.clientHeight, scrollTop: pane.scrollTop, scrollHeight: pane.scrollHeight }, t, align), behavior: smooth && !matchMedia('(prefers-reduced-motion: reduce)').matches ? 'smooth' : 'auto' })
+}
+
+/** Stelle des Cursors im Fenster, falls er sichtbar gesetzt ist */
+function caretRect(): { top: number; bottom: number } | null {
+  const sel = typeof window.getSelection === 'function' ? window.getSelection() : null
+  if (!sel || !sel.rangeCount) return null
+  const r = sel.getRangeAt(0).getBoundingClientRect()
+  if (r.top || r.bottom) return { top: r.top, bottom: r.bottom }
+  // Leere Zeile: der Bereich hat keine Masse, dann die Zeile selbst nehmen
+  const n = sel.focusNode, el = n instanceof Element ? n : n?.parentElement
+  const b = el?.getBoundingClientRect()
+  return b ? { top: b.top, bottom: b.bottom } : null
 }
 
 export function installMobileViewport() {
@@ -48,9 +60,14 @@ export function installMobileViewport() {
     // Native focus scrolling is retained at login. In the signed-in canvas and
     // dialogs, reveal only the nearest scroll pane rather than moving the page.
     if (!editable() || root.classList.contains('teamhub-login-mode')) return
+    // Am Computer geht keine Bildschirmtastatur auf, also nichts nachscrollen. Sonst riss das Nachmessen nach 250/700 ms
+    // den Wissen-Editor zurück, während er zur angeklickten Folie glitt (09.11., Matteos Video „Folienwechsel“).
+    if (typeof window.matchMedia === 'function' && window.matchMedia(DESKTOP_MEDIA).matches) return
     const target = document.activeElement as HTMLElement
+    // Bei einem Textfeld über viele Zeilen (Wissen-Editor) zählt die Zeile mit dem Cursor, nicht das ganze Feld
+    const caret = target.isContentEditable ? caretRect() : null
     for (let pane = target.parentElement; pane && pane !== document.body; pane = pane.parentElement) {
-      if (/(auto|scroll)/.test(getComputedStyle(pane).overflowY) && pane.scrollHeight > pane.clientHeight) { scrollInPane(pane, target); break }
+      if (/(auto|scroll)/.test(getComputedStyle(pane).overflowY) && pane.scrollHeight > pane.clientHeight) { scrollInPane(pane, target, 'nearest', false, caret ?? undefined); break }
     }
   }
   const schedule = () => { if (!stopped && !frame) frame = requestAnimationFrame(update) }

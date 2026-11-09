@@ -101,3 +101,28 @@ test('short keyboard frames can scroll an oversized composer into view and attac
   assert.equal(paneScrollTop(canvas, { top: 290, bottom: 334 }), 106)
   assert.equal(paneScrollTop(canvas, { top: 350, bottom: 394 }), 160)
 })
+
+// 09.11. (Matteos Video): am Computer darf das Nachmessen nach einem Fokuswechsel nie den Inhalt scrollen,
+// sonst springt der Wissen-Editor nach dem Klick auf eine Folie zurück
+test('desktop never scrolls a pane after focus changes', () => {
+  const names = ['window','document','innerHeight','innerWidth','HTMLElement','requestAnimationFrame','cancelAnimationFrame','getComputedStyle']
+  const originals = Object.fromEntries(names.map(k => [k, Object.getOwnPropertyDescriptor(globalThis,k)]))
+  const queue = new Map<number,FrameRequestCallback>()
+  let scrolled = 0, desktop = true
+  const pane = { scrollHeight: 4000, clientHeight: 800, scrollTop: 0, parentElement: null as unknown, contains: () => true, getBoundingClientRect: () => ({ top: 0, bottom: 800 }), scrollTo: () => { scrolled++ } }
+  class Element { matches() { return true } parentElement = pane; isContentEditable = false; getBoundingClientRect() { return { top: -900, bottom: 3000 } } }
+  const win = Object.assign(new EventTarget(), { matchMedia: () => ({ matches: desktop }) }), doc = new EventTarget()
+  const root = { clientHeight:800, style:{setProperty(){}},dataset:{} as Record<string,string>,classList:{contains:()=>false} }
+  Object.assign(doc,{documentElement:root,activeElement:null,body:{}})
+  let seq=0
+  try {
+    Object.assign(globalThis,{window:win,document:doc,innerHeight:800,innerWidth:1400,HTMLElement:Element,getComputedStyle:()=>({overflowY:'auto'}),requestAnimationFrame:(f:FrameRequestCallback)=>{queue.set(++seq,f);return seq},cancelAnimationFrame:(id:number)=>queue.delete(id)})
+    const flush=()=>{for(const [id,f] of [...queue]){queue.delete(id);f(0)}}
+    const stop=installMobileViewport()
+    Object.assign(doc,{activeElement:new Element()});doc.dispatchEvent(new Event('focusin'));flush()
+    assert.equal(scrolled, 0)
+    desktop = false; doc.dispatchEvent(new Event('focusin')); flush()
+    assert.equal(scrolled, 1)
+    stop()
+  } finally { for(const k of names){const d=originals[k];if(d)Object.defineProperty(globalThis,k,d);else Reflect.deleteProperty(globalThis,k)} }
+})
