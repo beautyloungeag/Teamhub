@@ -638,7 +638,7 @@ Abgleich mit Projektplan/Roadmap (18.08.), Vertrag, Gesprächen 25./26.08., Abna
 
 - **Neue Rhythmen (Renée 16.11.):** „An Wochentagen“ mit Mehrfachauswahl (z. B. Mo + Do = zweimal wöchentlich) und „Alle X Tage“ (2–14, ab Starttag). Eine Regel für alle: `src/lib/recurrence.ts` (`dueOn`, `weekdaysOf`), Kopie `supabase/functions/_shared/recurrence.ts` (Test `tests/recurrence.test.ts` prüft Gleichheit). Benutzt in `store.tsx` (`appliesOn`), Backoffice `admin/Tasks.tsx`, App-Label `Mobile.tsx`, Marc (`assistant/index.ts`, Werkzeug `vorschlag_checkliste` mit `wochentage`, `alle_tage`, `ab_datum`) und `notify`. Migration `20261117120000_aufgaben_rhythmus.sql` (Spalten `weekdays int[]`, `every_days`, `start_day`, `repeat` erlaubt `interval`; `weekday` bleibt = erster Tag, alte Wochenlisten unverändert) live angewendet. Im Backoffice gespeichert und per DB geprüft, Testliste per ID gelöscht.
 - ⚠️ **Functions immer mit `--no-verify-jwt` deployen** (es gibt kein `config.toml`). Am 17.11. liefen `assistant` und `notify` kurz mit JWT-Prüfung, sofort korrigiert, Cron-Aufrufe blieben 200.
-- **Phorest Academy:** Phorest (Pascal Wierling, Ticket 962322, 17.11.) gibt **keinen** API-Zugang und erlaubt **kein** Einbetten der Videos, nur Direktlinks je Kurs. Neuer Wissensartikel „Phorest Academy: alle Kurse“ (Kategorie `phorest` im Bereich Kundinnen & Kasse) mit allen 13 Kurslinks, Marc verweist darauf.
+- **Phorest Academy:** Phorest-Support (Ticket 962322, 17.11.) gibt **keinen** API-Zugang und erlaubt **kein** Einbetten der Videos, nur Direktlinks je Kurs. Neuer Wissensartikel „Phorest Academy: alle Kurse“ (Kategorie `phorest` im Bereich Kundinnen & Kasse) mit allen 13 Kurslinks, Marc verweist darauf.
 
 ## Zugänge
 
