@@ -276,6 +276,7 @@ export default {
   "Jeden Tag": ["Every day", "Chaque jour"],
   "Jeden {day}": ["Every {day}", "Chaque {day}"],
   "Am {n}. jedes Monats": ["On the {n}th of every month", "Le {n} de chaque mois"],
+  "Alle {n} Tage": ["Every {n} days", "Tous les {n} jours"],
   "Alles erledigt": ["All done", "Tout est fait"],
   "fertig": ["done", "fait"],
   "Rückgängig": ["Undo", "Annuler"],

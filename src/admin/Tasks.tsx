@@ -8,6 +8,7 @@ import { Avatar } from '../People'
 import { useTodos, reloadTodos, isLate, useDue, ReminderField, remindAt, remindKind, HandOver, type Todo, type Remind } from '../Todos'
 import { H, New, Th, inpStone, btn, btn2, Err, retranslate, Select, Seg, Modal, Chips, Back, Section, Status, Empty, ReadOnly } from './kit'
 import { Donut } from './charts'
+import { weekdaysOf } from '../lib/recurrence'
 
 // Aufgaben gibt es in zwei Arten:
 //   Checklisten: feste Abläufe, die jeden Tag (Woche, Monat) neu beginnen und fürs ganze Studio gelten. Wer abhakt, steht dabei.
@@ -17,7 +18,13 @@ import { Donut } from './charts'
 type Comp = { item_id: string; done_by: string | null; done_by_name: string; done_at: string; photo_path: string | null }
 const WD = ['', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag']
 const hm = (iso: string) => new Intl.DateTimeFormat('de-CH', { timeZone: 'Europe/Zurich', hour: '2-digit', minute: '2-digit' }).format(new Date(iso))
-const when = (t: Pick<Template, 'repeat' | 'weekday' | 'monthday'>) => t.repeat === 'daily' ? 'Jeden Tag' : t.repeat === 'weekly' ? `Jeden ${WD[t.weekday ?? 1]}` : `Jeden Monat am ${t.monthday ?? 1}.`
+const WDS = ['', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So']
+const joinDe = (xs: string[]) => xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} und ${xs[xs.length - 1]}`
+const when = (t: Pick<Template, 'repeat' | 'weekday' | 'weekdays' | 'monthday' | 'everyDays' | 'startDay'>) =>
+  t.repeat === 'daily' ? 'Jeden Tag'
+  : t.repeat === 'weekly' ? `Jeden ${joinDe(weekdaysOf(t).map(d => WD[d]))}`
+  : t.repeat === 'interval' ? `Alle ${t.everyDays ?? 2} Tage${t.startDay ? ` ab ${fmtDate(t.startDay + 'T12:00:00Z', { day: 'numeric', month: 'numeric' })}` : ''}`
+  : `Jeden Monat am ${t.monthday ?? 1}.`
 const until = (t: Template) => t.items.map(i => i.time).filter(Boolean).sort().pop()
 
 export function TasksAdmin() {
@@ -254,7 +261,7 @@ function ChecklistPage({ id, onBack }: { id: string | 'neu'; onBack: () => void 
   const mine = [me.branch_id, ...(me.extra ?? [])]
   const canEdit = !t || office || (t.branchIds.length > 0 && t.branchIds.every(b => mine.includes(b)))
   const own = branches.filter(b => !b.is_office && (office || mine.includes(b.id)))
-  const [name, setName] = useState(t?.name ?? ''), [repeat, setRepeat] = useState<Template['repeat']>(t?.repeat ?? 'daily'), [weekday, setWeekday] = useState(String(t?.weekday ?? 1)), [monthday, setMonthday] = useState(String(t?.monthday ?? 1))
+  const [name, setName] = useState(t?.name ?? ''), [repeat, setRepeat] = useState<Template['repeat']>(t?.repeat ?? 'daily'), [weekdays, setWeekdays] = useState<string[]>(t ? weekdaysOf(t).map(String) : ['1']), [monthday, setMonthday] = useState(String(t?.monthday ?? 1)), [everyDays, setEveryDays] = useState(String(t?.everyDays ?? 2)), [startDay, setStartDay] = useState(t?.startDay ?? isoDay())
   const [studios, setStudios] = useState<string[]>(t?.branchIds ?? (office ? [] : [me.branch_id]))
   const [rows, setRows] = useState<Row[]>(t ? t.items.map(i => ({ id: i.id, time: i.time, title: i.title, proof: i.proof, prio: i.prio, articleId: i.articleId, linkUrl: i.linkUrl ?? '' })) : [blankRow()])
   const [linkOpen, setLinkOpen] = useState<number | null>(null), [lq, setLq] = useState('')
@@ -265,8 +272,12 @@ function ChecklistPage({ id, onBack }: { id: string | 'neu'; onBack: () => void 
     const items = rows.filter(r => r.title.trim())
     if (!name.trim() || !items.length) { setErr('Name und mindestens ein Punkt sind nötig.'); return }
     if (!office && !studios.length) { setErr('Bitte dein Studio wählen.'); return }
+    if (repeat === 'weekly' && !weekdays.length) { setErr('Bitte mindestens einen Wochentag wählen.'); return }
+    if (repeat === 'interval' && !/^\d{4}-\d{2}-\d{2}$/.test(startDay)) { setErr('Bitte den ersten Tag wählen.'); return }
     setBusy(true); setErr('')
-    const head = { name: name.trim(), repeat, weekday: repeat === 'weekly' ? Number(weekday) : null, monthday: repeat === 'monthly' ? Number(monthday) : null, branch_ids: studios }
+    const wds = weekdays.map(Number).sort((a, b) => a - b)
+    const head = { name: name.trim(), repeat, weekday: repeat === 'weekly' ? wds[0] : null, weekdays: repeat === 'weekly' ? wds : null, monthday: repeat === 'monthly' ? Number(monthday) : null,
+      every_days: repeat === 'interval' ? Number(everyDays) : null, start_day: repeat === 'interval' ? startDay : null, branch_ids: studios }
     const res = t ? await supabase!.from('task_templates').update(head).eq('id', t.id).select('id').single() : await supabase!.from('task_templates').insert({ ...head, sort: templates.length }).select('id').single()
     if (res.error || !res.data) { setBusy(false); setErr('Speichern hat nicht geklappt.'); return }
     const tid = res.data.id
@@ -309,8 +320,12 @@ function ChecklistPage({ id, onBack }: { id: string | 'neu'; onBack: () => void 
             : <span className="pt-2 text-[14px]">{t?.branchIds.length ? t.branchIds.map(b => branches.find(x => x.id === b)?.name).join(', ') : 'Alle Studios'}</span>}</div>
         <div className="flex items-start gap-4 py-3"><span className={label}>Wann</span>
           {canEdit ? <div className="flex flex-wrap items-center gap-3">
-            <Seg value={repeat} onChange={touch(setRepeat)} items={[['daily', 'Jeden Tag'], ['weekly', 'Jede Woche'], ['monthly', 'Jeden Monat']]} />
-            {repeat === 'weekly' && <Select tone="stone" className="w-44" value={weekday} onChange={touch(setWeekday)} options={WD.slice(1).map((d, i) => ({ value: String(i + 1), label: d }))} />}
+            <Seg value={repeat} onChange={touch(setRepeat)} items={[['daily', 'Jeden Tag'], ['weekly', 'An Wochentagen'], ['interval', 'Alle X Tage'], ['monthly', 'Jeden Monat']]} />
+            {repeat === 'weekly' && <Chips tone="stone" items={WDS.slice(1).map((d, i) => ({ value: String(i + 1), label: d }))} value={weekdays} onChange={touch(setWeekdays)} />}
+            {repeat === 'interval' && <>
+              <Select tone="stone" className="w-36" value={everyDays} onChange={touch(setEveryDays)} options={Array.from({ length: 13 }, (_, i) => ({ value: String(i + 2), label: `alle ${i + 2} Tage` }))} />
+              <label className="flex items-center gap-2 text-[13.5px] text-mute">ab <input type="date" value={startDay} onChange={e => touch(setStartDay)(e.target.value)} className={inpStone.replace("w-full", "w-40")} /></label>
+            </>}
             {repeat === 'monthly' && <Select tone="stone" className="w-36" value={monthday} onChange={touch(setMonthday)} options={Array.from({ length: 31 }, (_, i) => ({ value: String(i + 1), label: `am ${i + 1}.` }))} />}
           </div> : <span className="pt-2 text-[14px]">{t ? when(t) : ''}</span>}</div>
         <div className="flex items-start gap-4 py-3"><span className={label}>Wer erledigt sie</span><span className="pt-2 text-[14px] text-ink/80">Alle im Studio. Wer einen Punkt abhakt, steht mit Uhrzeit dabei.</span></div>

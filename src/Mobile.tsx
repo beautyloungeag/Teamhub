@@ -1,4 +1,5 @@
 import { captureAccountScope, isCurrentAccountScope, onAccountScopeChange } from './lib/account-scope'
+import { weekdaysOf } from './lib/recurrence'
 import { DESKTOP_MEDIA, scrollInPane } from './lib/mobile-viewport'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { motion } from 'motion/react'
@@ -528,7 +529,8 @@ function Tasks({ open }: { open: (s: Sub) => void }) {
     const tpl = templates.find(tp => tp.items.some(i => i.id === items[0]?.id))
     const times = items.map(i => i.time).filter(Boolean).sort()
     const when = !tpl ? '' : tpl.repeat === 'daily' ? t('Jeden Tag')
-      : tpl.repeat === 'weekly' ? t('Jeden {day}', { day: new Intl.DateTimeFormat(locale(), { weekday: 'long', timeZone: 'UTC' }).format(new Date(Date.UTC(2024, 0, tpl.weekday ?? 1))) })
+      : tpl.repeat === 'weekly' ? t('Jeden {day}', { day: new Intl.ListFormat(locale(), { type: 'conjunction' }).format(weekdaysOf(tpl).map(d => new Intl.DateTimeFormat(locale(), { weekday: 'long', timeZone: 'UTC' }).format(new Date(Date.UTC(2024, 0, d))))) })
+      : tpl.repeat === 'interval' ? t('Alle {n} Tage', { n: tpl.everyDays ?? 2 })
       : t('Am {n}. jedes Monats', { n: tpl.monthday ?? 1 })
     // Frist der Liste = spätester Punkt
     const span = times.length ? t('bis {time}', { time: times[times.length - 1] }) : ''

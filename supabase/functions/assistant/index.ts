@@ -10,6 +10,8 @@
 // Secrets: OPENAI_API_KEY (optional; ohne ihn antwortet Marc nur aus dem Wissen),
 //          ASSISTANT_MODEL, ASSISTANT_REASONING, TITLE_MODEL (optional).
 import { createClient } from 'jsr:@supabase/supabase-js@2.117.2'
+import { dueOn, type Rule } from '../_shared/recurrence.ts'
+const ruleOf = (t: any): Rule => ({ repeat: t.repeat, weekday: t.weekday, weekdays: t.weekdays, monthday: t.monthday, everyDays: t.every_days, startDay: t.start_day })
 import { appendToolRound, CONTEXT_BUCKET, contextPathAllowed, privateRequest, readContext, saveContext, type Context, type Item } from './privacy-context.ts'
 import { contactPolicy } from './contact-policy.ts'
 import { actionDefs, decide, propose, readTool, READ_TOOLS, stage, SYSTEM_NOTE, type Action, type Ctx } from './actions.ts'
@@ -55,7 +57,6 @@ const isShift = (q: string) => /dienst|schicht|arbeitet|arbeite ich|wer ist|im s
 // Kalendertag in Zürich als YYYY-MM-DD, verschoben um n Tage
 // Kalendertage in Zürich zählen (nicht 24-Stunden-Schritte, sonst Fehler bei der Zeitumstellung)
 const zDay = (n = 0) => { const [y, m, d] = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Zurich' }).format(new Date()).split('-').map(Number); return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10) }
-const isoDow = (day: string) => ((new Date(day + 'T12:00:00Z').getUTCDay() + 6) % 7) + 1
 const ROLE = { mitarbeiterin: 'Mitarbeiterin', filialleitung: 'Filialleitung', buero: 'Büro' } as Record<string, string>
 
 // Wo was in der App liegt, damit Marc Wege erklären kann
@@ -175,7 +176,7 @@ Deno.serve(async (req) => {
       db.from('onboarding_steps').select('id, title, proposed, is_sample').order('sort'),
       db.from('onboarding_progress').select('step_id').eq('employee_id', me.id),
       db.from('standby_days').select('day').eq('employee_id', me.id).gte('day', day0).order('day').limit(10),
-      db.from('task_templates').select('id, name, repeat, weekday, monthday, branch_ids, is_sample').eq('active', true),
+      db.from('task_templates').select('id, name, repeat, weekday, weekdays, monthday, every_days, start_day, branch_ids, is_sample').eq('active', true),
       db.from('task_items').select('id, template_id, title, due_time, prio, proof_photo').order('sort'),
       db.from('task_completions').select('item_id, branch_id, done_by_name, done_at').eq('day', day0),
       db.from('todos').select('id, title, due_at, assignee_id, branch_id, created_by, created_by_name').is('done_at', null).order('due_at', { ascending: true, nullsFirst: false }).limit(60),
@@ -197,7 +198,7 @@ Deno.serve(async (req) => {
     // Tagesaufgaben des eigenen Studios (gleiche Regel wie in der App)
     const myBranch = me.branch_id
     const tpls = (tplR.data ?? []).filter(keep).filter((t: any) => myBranch !== 'buero' && ((t.branch_ids ?? []).length === 0 || t.branch_ids.includes(myBranch)) &&
-      (t.repeat === 'daily' || (t.repeat === 'weekly' && t.weekday === isoDow(day0)) || (t.repeat === 'monthly' && Math.min(t.monthday ?? 1, new Date(Date.UTC(Number(day0.slice(0, 4)), Number(day0.slice(5, 7)), 0)).getUTCDate()) === Number(day0.slice(8, 10)))))
+      dueOn(ruleOf(t), day0))
     const items = (itemR.data ?? []).filter((i: any) => tpls.some((t: any) => t.id === i.template_id))
     const doneItems = new Map((compR.data ?? []).filter((c: any) => c.branch_id === myBranch).map((c: any) => [c.item_id, c]))
     const openItems = items.filter((i: any) => !doneItems.has(i.id)).sort((a: any, b: any) => String(a.due_time ?? '99').localeCompare(String(b.due_time ?? '99')))
@@ -239,7 +240,7 @@ Deno.serve(async (req) => {
       '- Fachfragen (Behandlungen, Hygiene, Abläufe, Geräte, Regeln) beantwortest du nur aus dem Wissen: zuerst die Vorauswahl unten, sonst search_knowledge und read_article. Steht es nicht drin, sag das ehrlich und erfinde nichts.',
       '- Fragen zu News: news. Wege in der App erklärst du mit dem App-Leitfaden unten.',
       `- Rechte: ${me.app_role === 'mitarbeiterin' ? 'Du siehst Termine nur für das eigene Studio und nur den eigenen Dienstplan im Detail.' : me.app_role === 'filialleitung' ? `Du siehst Phorest für das eigene Studio (${studio}).` : 'Du siehst Phorest für alle Studios.'} ${contactPolicy(me.app_role)}`,
-      '- Bei Fragen zur Bedienung von Phorest suche zuerst im Wissen nach Phorest und dem Thema und lies den passenden Artikel. Offizielle öffentliche Phorest-Hilfe und interne Studio-Regeln sind unterschiedliche Quellen: nenne die passende Quelle mit Link. Die Phorest Academy DACH ist ein geschützter Kursbereich; ohne bereitgestellte Kursinhalte behauptest du keinen Zugriff und erfindest keine Kursanleitungen. Änderungen in Phorest führst du nicht aus; TeamHub-Zugriffsrechte bleiben auch bei Hilfefragen verbindlich.',
+      '- Bei Fragen zur Bedienung von Phorest suche zuerst im Wissen nach Phorest und dem Thema und lies den passenden Artikel. Offizielle öffentliche Phorest-Hilfe und interne Studio-Regeln sind unterschiedliche Quellen: nenne die passende Quelle mit Link. Die Phorest Academy DACH ist ein geschützter Kursbereich von Phorest; ihre Videos liegen nicht in TeamHub. Der Wissensartikel „Phorest Academy: alle Kurse“ enthält die Direktlinks zu allen Kursen: verweise auf den passenden Kurs mit Link, behaupte keinen Zugriff auf die Videos und erfinde keine Kursinhalte. Änderungen in Phorest führst du nicht aus; TeamHub-Zugriffsrechte bleiben auch bei Hilfefragen verbindlich.',
       '- Lernmodus (Onboarding, „lass uns lernen“, „Nächste Lektion“): onboarding_status, ersten offenen Schritt nehmen, Artikel mit read_article lesen. Dann so:',
       '  1. Erklär den Schritt in Lernkarten: cards mit 1 bis 3 Karten, je {"title": kurzer Titel, "body": 2 bis 4 Sätze oder eine kurze Liste mit „- “}. Eine Karte, ein Gedanke, nur aus dem Artikel. Der text ist dann nur die Überleitung („Bereit für eine Kontrollfrage?“) mit choices ["Ja, frag mich", "Erst weiterlernen"].',
       '  2. „Erst weiterlernen“: weitere Karten zum selben Schritt (vertiefen, Beispiele aus dem Artikel), danach wieder dieselbe Überleitung.',

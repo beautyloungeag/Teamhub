@@ -12,6 +12,7 @@
 // Dazu auf Knopfdruck: remind_event (alle ohne Antwort zu einem Termin), remind_poll (alle ohne Antwort zu einer Umfrage)
 // Secrets: VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT, NOTIFY_SECRET
 import { createClient } from 'jsr:@supabase/supabase-js@2.117.2'
+import { dueOn } from '../_shared/recurrence.ts'
 import { deliverChatPush, allowedPushEndpoint } from './chat-push.ts'
 import webpush from 'npm:web-push@3.6.7'
 
@@ -243,16 +244,15 @@ Deno.serve(async (req) => {
   const day = `${zg('year')}-${zg('month')}-${zg('day')}`, mins = (Number(zg('hour')) % 24) * 60 + Number(zg('minute'))
   if (mins >= 6 * 60 && mins <= 21 * 60) {
     const [{ data: tpls }, { data: items }, { data: alerts }, { data: comp }, { data: demo }] = await Promise.all([
-      admin.from('task_templates').select('id, name, repeat, weekday, monthday, branch_ids, active, proposed, is_sample'),
+      admin.from('task_templates').select('id, name, repeat, weekday, weekdays, monthday, every_days, start_day, branch_ids, active, proposed, is_sample'),
       admin.from('task_items').select('id, template_id, due_time'),
       admin.from('lead_alerts').select('branch_id, template_id').eq('day', day),
       admin.from('task_completions').select('item_id, branch_id').eq('day', day),
       admin.from('app_settings').select('value').eq('key', 'demo_data').maybeSingle(),
     ])
     const showSample = demo?.value !== false
-    const dow = ((new Date(day + 'T12:00:00Z').getUTCDay() + 6) % 7) + 1, last = new Date(Date.UTC(Number(day.slice(0, 4)), Number(day.slice(5, 7)), 0)).getUTCDate()
     const applies = (t: any, b: string) => t.active && !t.proposed && (showSample || !t.is_sample) && ((t.branch_ids ?? []).length === 0 || t.branch_ids.includes(b))
-      && (t.repeat === 'daily' || (t.repeat === 'weekly' && t.weekday === dow) || (t.repeat === 'monthly' && Math.min(t.monthday ?? 1, last) === Number(day.slice(8, 10))))
+      && dueOn({ repeat: t.repeat, weekday: t.weekday, weekdays: t.weekdays, monthday: t.monthday, everyDays: t.every_days, startDay: t.start_day }, day)
     const toMin = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5))
     for (const b of (brs ?? []).filter((x: any) => x.id !== 'buero')) {
       for (const t of (tpls ?? []).filter((x: any) => applies(x, b.id))) {

@@ -24,7 +24,7 @@ const THING: Record<string, string> = {
 const FIELD: Record<string, string> = {
   title: 'Titel', teaser: 'Kurzfassung', body: 'Text', tag: 'Kategorie', must_read: 'Pflicht', audience_branches: 'Studios', audience_groups: 'Gruppen', audience_skills: 'Skills',
   audience_people: 'Personen', publish_at: 'Veröffentlichung', wiki_category: 'Ins Wissen', image_path: 'Bild', kind: 'Art', description: 'Beschreibung', starts_at: 'Beginn', ends_at: 'Ende',
-  place: 'Ort', link: 'Link', capacity: 'Plätze', register_until: 'Anmeldeschluss', name: 'Name', repeat: 'Wiederholung', weekday: 'Wochentag', monthday: 'Tag im Monat', branch_ids: 'Studios',
+  place: 'Ort', link: 'Link', capacity: 'Plätze', register_until: 'Anmeldeschluss', name: 'Name', repeat: 'Wiederholung', weekday: 'Wochentag', weekdays: 'Wochentage', every_days: 'Alle X Tage', start_day: 'Ab', monthday: 'Tag im Monat', branch_ids: 'Studios',
   active: 'Aktiv', proposed: 'Vorschlag', due_time: 'Fällig um', prio: 'Wichtig', proof_photo: 'Fotonachweis', note: 'Notiz', due_at: 'Frist', assignee_id: 'Für', branch_id: 'Studio',
   done_at: 'Erledigt', done_by_name: 'Erledigt von', status: 'Status', assignee: 'Zuständig', first_name: 'Vorname', last_name: 'Nachname', email: 'E-Mail', phone: 'Telefon',
   job_title: 'Funktion', app_role: 'Rechte', extra_branch_ids: 'Zusatzstudios', skills: 'Skills', day: 'Tag', start_time: 'Von', end_time: 'Bis', skill: 'Skill', to_all: 'An alle',

@@ -3,6 +3,7 @@
 // Gleiches Muster wie actions.ts: Vorschlag als Karte, ausgeführt erst nach „Ausführen“, mit dem Login der Person (RLS).
 // Nicht abgedeckt: Timebutler und Postfach verbinden (brauchen Passwörter), Chats schreiben.
 import type { Action, Ctx, Me } from './actions.ts'
+import { weekdaysOf } from '../_shared/recurrence.ts'
 import { arr, fmt, fmtDay, isDay, isTime, myStudios, plain, s, zIso } from './util.ts'
 
 type Def = [string, string, Record<string, unknown>, string[]]
@@ -13,7 +14,7 @@ type Res = { ok: boolean; text: string }
 const NEWS_TAGS = ['Wichtig', 'Schulung', 'Team', 'Salon']
 const GROUPS = ['Filialleitung', 'Kosmetikerinnen', 'Lernende', 'Büro']
 const EVENT_KINDS = ['Schulung', 'Meeting', 'Team']
-const REPEAT: Record<string, string> = { daily: 'täglich', weekly: 'wöchentlich', monthly: 'monatlich' }
+const REPEAT: Record<string, string> = { daily: 'täglich', weekly: 'wöchentlich', interval: 'alle X Tage', monthly: 'monatlich' }
 const WEEKDAYS = ['', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag']
 const METRICS: Record<string, string> = { revenue: 'Umsatz CHF', treatments: 'Behandlungen', avg_ticket: 'Durchschnittsbon CHF', clients: 'Kunden', requested: 'Wunschtermine', rating: 'Bewertung', reviews: 'Bewertungen' }
 const SETTINGS: Record<string, { label: string; type: 'bool' | 'int' | 'text'; min?: number; max?: number; allowed?: number[] }> = {
@@ -77,8 +78,8 @@ export function recordDefs(me: Me): Def[] {
     ['vorschlag_aufgabe_aendern', `Einzelaufgabe ändern, erledigt setzen oder wieder öffnen. ${keep} ${v}`, {
       todo_id: str(), title: str(), notiz: str(), datum: str('neue Frist YYYY-MM-DD'), uhrzeit: str('HH:MM'), ohne_frist: bool('Frist entfernen'), status: { type: 'string', enum: ['erledigt', 'offen'] },
     }, ['todo_id']],
-    ['vorschlag_checkliste', `Studio-Checkliste (feste Abläufe, jeden Tag/Woche/Monat neu) anlegen oder ändern, ein- oder ausschalten. Punkte ersetzen die bisherigen Punkte in dieser Reihenfolge. ${v}`, {
-      checkliste_id: str('leer = neue Checkliste'), name: str(), rhythmus: { type: 'string', enum: Object.keys(REPEAT) }, wochentag: { type: 'number', description: '1 = Montag … 7 = Sonntag, bei weekly' }, monatstag: { type: 'number', description: '1–31, bei monthly' },
+    ['vorschlag_checkliste', `Studio-Checkliste (feste Abläufe, jeden Tag, an bestimmten Wochentagen wie zweimal wöchentlich, alle X Tage oder monatlich neu) anlegen oder ändern, ein- oder ausschalten. Punkte ersetzen die bisherigen Punkte in dieser Reihenfolge. ${v}`, {
+      checkliste_id: str('leer = neue Checkliste'), name: str(), rhythmus: { type: 'string', enum: Object.keys(REPEAT) }, wochentag: { type: 'number', description: '1 = Montag … 7 = Sonntag, bei weekly mit einem Tag' }, wochentage: { type: 'array', items: { type: 'number' }, description: 'bei weekly mit mehreren Tagen, z. B. [1,4] = Montag und Donnerstag (zweimal wöchentlich)' }, alle_tage: { type: 'number', description: '2–31, bei interval: alle so viele Tage' }, ab_datum: str('YYYY-MM-DD, erster Tag bei interval, Standard heute'), monatstag: { type: 'number', description: '1–31, bei monthly' },
       studios: ids(own), aktiv: bool('eingeschaltet'),
       punkte: { type: 'array', items: { type: 'object', properties: { titel: str(), bis: str('HH:MM, optional'), foto: bool('Foto als Nachweis nötig'), wichtig: bool('als wichtig markieren'), artikel_id: str('Wissensartikel „So geht es“'), link: str('Link oder Video') }, required: ['titel'] } },
     }, []],
@@ -144,10 +145,10 @@ export async function recordRead(name: string, a: any, c: Ctx): Promise<unknown>
       return { aufgaben: (data ?? []).map((t: any) => ({ id: t.id, titel: t.title, notiz: t.note, fuer: t.assignee_id ? nm.get(t.assignee_id) ?? '?' : `Studio ${t.branch_id}`, frist: t.due_at ? fmt(t.due_at) : null, von: t.created_by_name, erledigt: t.done_at ? `${fmt(t.done_at)} von ${t.done_by_name}` : null })) }
     }
     case 'checklisten': {
-      let x = db.from('task_templates').select('id, name, repeat, weekday, monthday, branch_ids, active, proposed, task_items(id, title, due_time, prio, proof_photo, sort, article_id, link_url)').order('sort').limit(80)
+      let x = db.from('task_templates').select('id, name, repeat, weekday, weekdays, monthday, every_days, start_day, branch_ids, active, proposed, task_items(id, title, due_time, prio, proof_photo, sort, article_id, link_url)').order('sort').limit(80)
       if (id) x = x.eq('id', id)
       const { data } = await like(x, 'name')
-      return { checklisten: (data ?? []).map((t: any) => ({ id: t.id, name: t.name, rhythmus: REPEAT[t.repeat] ?? t.repeat, wochentag: t.weekday ? WEEKDAYS[t.weekday] : null, monatstag: t.monthday, studios: t.branch_ids?.length ? t.branch_ids : 'alle', aktiv: t.active, vorschlag: t.proposed,
+      return { checklisten: (data ?? []).map((t: any) => ({ id: t.id, name: t.name, rhythmus: REPEAT[t.repeat] ?? t.repeat, wochentag: t.repeat === 'weekly' ? weekdaysOf({ repeat: t.repeat, weekday: t.weekday, weekdays: t.weekdays }).map((d) => WEEKDAYS[d]).join(', ') : null, alle_tage: t.every_days, ab_datum: t.start_day, monatstag: t.monthday, studios: t.branch_ids?.length ? t.branch_ids : 'alle', aktiv: t.active, vorschlag: t.proposed,
         punkte: id || q ? (t.task_items ?? []).sort((x: any, y: any) => x.sort - y.sort).map((i: any) => ({ titel: i.title, bis: i.due_time?.slice(0, 5) ?? null, foto: i.proof_photo, wichtig: i.prio, artikel_id: i.article_id, link: i.link_url })) : `${(t.task_items ?? []).length} Punkte` })) }
     }
     case 'lektionen': {
@@ -317,7 +318,7 @@ export async function recordPropose(name: string, a: any, c: Ctx): Promise<Propo
 
   if (name === 'vorschlag_checkliste') {
     const id = s(a.checkliste_id)
-    const old = id ? (await db.from('task_templates').select('id, name, repeat, weekday, monthday, branch_ids, active, proposed, task_items(id, title, sort)').eq('id', id).maybeSingle()).data : null
+    const old = id ? (await db.from('task_templates').select('id, name, repeat, weekday, weekdays, monthday, every_days, start_day, branch_ids, active, proposed, task_items(id, title, sort)').eq('id', id).maybeSingle()).data : null
     if (id && !old) return { error: 'checkliste_nicht_gefunden' }
     if (old && lead && !(old.branch_ids?.length && old.branch_ids.every((b: string) => mine.includes(b)))) return { error: 'keine_berechtigung', grund: 'Checkliste gilt auch für andere Studios, ändert nur das Büro' }
     const head: Record<string, unknown> = {}, lines: string[] = []
@@ -325,10 +326,18 @@ export async function recordPropose(name: string, a: any, c: Ctx): Promise<Propo
     if (!nm) return { error: 'name_noetig' }
     if (!old || nm !== old.name) head.name = nm
     const rep = REPEAT[a.rhythmus] ? a.rhythmus : old?.repeat ?? 'daily'
-    if (!old || rep !== old.repeat || has(a, 'wochentag') || has(a, 'monatstag')) {
+    if (!old || rep !== old.repeat || has(a, 'wochentag') || has(a, 'wochentage') || has(a, 'alle_tage') || has(a, 'ab_datum') || has(a, 'monatstag')) {
       head.repeat = rep
-      head.weekday = rep === 'weekly' ? Math.min(7, Math.max(1, Math.round(Number(a.wochentag ?? old?.weekday) || 1))) : null
+      const wd = (x: unknown) => Math.min(7, Math.max(1, Math.round(Number(x) || 1)))
+      const wds = rep === 'weekly'
+        ? [...new Set((Array.isArray(a.wochentage) && a.wochentage.length ? a.wochentage : has(a, 'wochentag') ? [a.wochentag] : old?.weekdays?.length ? old.weekdays : [old?.weekday ?? 1]).map(wd) as number[])].sort((x, y) => x - y)
+        : null
+      head.weekday = wds ? wds[0] : null
+      head.weekdays = wds
       head.monthday = rep === 'monthly' ? Math.min(31, Math.max(1, Math.round(Number(a.monatstag ?? old?.monthday) || 1))) : null
+      head.every_days = rep === 'interval' ? Math.min(31, Math.max(2, Math.round(Number(a.alle_tage ?? old?.every_days) || 2))) : null
+      if (rep === 'interval' && a.ab_datum && !isDay(a.ab_datum)) return { error: 'ab_datum_YYYY-MM-DD' }
+      head.start_day = rep === 'interval' ? (a.ab_datum || old?.start_day || new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Zurich' })) : null
     }
     if (!old || (has(a, 'studios') && !same(leadStudios(arr(a.studios)), old.branch_ids))) { const br = arr(a.studios), x = checkStudios(br); if (x) return x; head.branch_ids = leadStudios(br) }
     if (typeof a.aktiv === 'boolean' && a.aktiv !== old?.active) { head.active = a.aktiv; if (a.aktiv && old?.proposed) head.proposed = false }
@@ -337,7 +346,9 @@ export async function recordPropose(name: string, a: any, c: Ctx): Promise<Propo
       items = a.punkte.map((p: any, i: number) => ({ title: s(p.titel, 200), due_time: isTime(p.bis) ? p.bis : null, proof_photo: p.foto === true, prio: p.wichtig === true, sort: i, article_id: s(p.artikel_id, 60) || null, link_url: s(p.artikel_id) ? null : s(p.link, 400) ? (/^https?:\/\//.test(s(p.link, 400)) ? s(p.link, 400) : `https://${s(p.link, 400)}`) : null })).filter((p: any) => p.title)
       if (!items!.length) return { error: 'mindestens_ein_punkt' }
     } else if (!old) return { error: 'punkte_noetig' }
-    const when = `${REPEAT[rep]}${rep === 'weekly' ? `, ${WEEKDAYS[head.weekday as number ?? old?.weekday] ?? ''}` : rep === 'monthly' ? `, am ${head.monthday ?? old?.monthday}.` : ''}`
+    const when = rep === 'weekly' ? `wöchentlich, ${weekdaysOf({ repeat: rep, weekday: (head.weekday ?? old?.weekday) as number, weekdays: (head.weekdays ?? old?.weekdays) as number[] }).map((d) => WEEKDAYS[d]).join(', ')}`
+      : rep === 'interval' ? `alle ${head.every_days ?? old?.every_days} Tage ab ${head.start_day ?? old?.start_day}`
+      : `${REPEAT[rep]}${rep === 'monthly' ? `, am ${head.monthday ?? old?.monthday}.` : ''}`
     lines.push(`„${nm}“${old && head.name ? ` (vorher „${old.name}“)` : ''}`, `${when} · ${studioLine((head.branch_ids ?? old?.branch_ids ?? []) as string[])}${old && head.branch_ids ? ' (neu)' : ''}`)
     if (head.active !== undefined) lines.push(head.active ? 'Wird eingeschaltet' : 'Wird ausgeschaltet')
     else if (!old) lines.push('Sofort eingeschaltet')

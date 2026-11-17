@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { dueOn, type Repeat } from './lib/recurrence'
 import { useAuth, type Employee } from './lib/auth'
 import { supabase } from './lib/supabase'
 import { captureAccountScope, isCurrentAccountScope, type AccountScope } from './lib/account-scope'
@@ -14,7 +15,7 @@ export type Staff = { id: string; first: string; last: string; branch: string; b
 export type Absence = { id: string; employeeId: string; from: string; until: string; note: string }
 export type News = { id: string; title: string; teaser: string; body: string; author: string; authorId: string | null; date: string; tag: string; mustRead: boolean; audience: string; audienceBranches: string[]; audienceGroups: string[]; audienceSkills: string[]; audiencePeople: string[]; publishAt: string; wikiCategory: string | null; image: string | null; orig: { title: string; teaser: string; body: string } | null }
 export type TaskItem = { id: string; title: string; time: string; group: string; prio: boolean; proof: boolean; articleId: string | null; linkUrl: string | null }
-export type Template = { id: string; name: string; repeat: 'daily' | 'weekly' | 'monthly'; weekday: number | null; monthday: number | null; branchIds: string[]; items: TaskItem[]; active: boolean; proposed: boolean; sample: boolean }
+export type Template = { id: string; name: string; repeat: Repeat; weekday: number | null; weekdays: number[] | null; monthday: number | null; everyDays: number | null; startDay: string | null; branchIds: string[]; items: TaskItem[]; active: boolean; proposed: boolean; sample: boolean }
 export type Done = { by: string; byId: string | null; at: string; photo: string | null }
 export type Ticket = { id: string; kind: 'Meldung' | 'Idee' | 'Learning' | 'Anliegen'; title: string; body: string; branch: string; branchId: string; allStudios: boolean; status: 'Neu' | 'Zugewiesen' | 'In Arbeit' | 'Erledigt'; who: string; when: string; createdAt?: string; assignee: string | null; photo: string | null; mediaKind: 'photo' | 'video'; viaAI: boolean; mine: boolean; votes: number; voted: boolean; comments: Comment[] }
 export type Comment = { id: string; author: string; authorId: string | null; body: string; when: string }
@@ -58,11 +59,10 @@ const relWhen = (s: string) => {
   const d = isoDay(new Date(s)), today = isoDay(), y = addDays(-1)
   return d === today ? `${tr('Heute')}, ${fmtTime(s)}` : d === y ? tr('Gestern') : fmtDate(s, { day: '2-digit', month: '2-digit' })
 }
-const isoDow = (day: string) => ((new Date(day + 'T12:00:00Z').getUTCDay() + 6) % 7) + 1
 // Gilt die Vorlage heute für diese Filiale?
 export const appliesOn = (t: Template, day: string, branch: string) =>
   (t.branchIds.length === 0 || t.branchIds.includes(branch)) &&
-  (t.repeat === 'daily' || (t.repeat === 'weekly' && t.weekday === isoDow(day)) || (t.repeat === 'monthly' && Math.min(t.monthday ?? 1, new Date(Date.UTC(Number(day.slice(0, 4)), Number(day.slice(5, 7)), 0)).getUTCDate()) === Number(day.slice(8, 10))))
+  dueOn(t, day)
 
 type Ctx = {
   me: Staff; employee: Employee
@@ -358,7 +358,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (progressCurrent) setNewsReads((rd.data ?? []) as Ctx['newsReads'])
     const items = (ti.data ?? []) as any[]
     setTemplates(keep(tt.data).map((x: any) => ({
-      id: x.id, name: tx(x, 'name', lang), repeat: x.repeat, weekday: x.weekday, monthday: x.monthday, branchIds: x.branch_ids ?? [],
+      id: x.id, name: tx(x, 'name', lang), repeat: x.repeat, weekday: x.weekday, weekdays: x.weekdays ?? null, monthday: x.monthday, everyDays: x.every_days ?? null, startDay: x.start_day ?? null, branchIds: x.branch_ids ?? [],
       items: items.filter(i => i.template_id === x.id).map(i => ({ id: i.id, title: tx(i, 'title', lang), time: i.due_time ? String(i.due_time).slice(0, 5) : '', group: tx(x, 'name', lang), prio: i.prio, proof: i.proof_photo, articleId: i.article_id ?? null, linkUrl: i.link_url ?? null })),
       active: x.active, proposed: x.proposed, sample: x.is_sample,
     })))
