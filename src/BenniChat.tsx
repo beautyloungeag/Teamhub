@@ -29,7 +29,7 @@ export type MsgData = {
   actions?: ChatAction[]
 }
 // Vorschlag von Marc im Backoffice: erst nach „Ausführen“ wirksam, mit den Rechten der Person (Function assistant, actions.ts)
-export type ChatAction = { id: string; kind: string; title: string; lines: string[]; status: 'offen' | 'laeuft' | 'ausgefuehrt' | 'verworfen' | 'fehler'; result?: string }
+export type ChatAction = { id: string; kind: string; title: string; lines: string[]; previews?: string[]; status: 'offen' | 'laeuft' | 'ausgefuehrt' | 'verworfen' | 'fehler'; result?: string }
 export type ChatMsg = { id: string; me: boolean; t: string; data: MsgData; at: string }
 type Chat = { id: string; title: string; updated: string; msgs: ChatMsg[] | null; loading?: boolean; busy: boolean; steps: Step[] }
 type BenniAnswer = MsgData & { ok: boolean; text?: string; message_id?: string; title?: string }
@@ -736,10 +736,32 @@ function ActionCard({ a, messageId }: { a: ChatAction; messageId: string }) {
     <div className={`mt-2 rounded-[16px] bg-white p-4 shadow-[inset_0_0_0_1px_var(--color-line)] ${dropped ? 'opacity-60' : ''}`}>
       <p className="rubric text-note">{t(a.title)}</p>
       <ul className="mt-1.5 space-y-0.5 text-[15.5px] leading-snug">{a.lines.map((l, i) => <li key={i} className={i === 0 ? 'font-medium' : 'text-ink/75'}>{l}</li>)}</ul>
+      {a.previews?.length ? <ActionPreviews paths={a.previews} /> : null}
       {a.status === 'offen' || a.status === 'laeuft' ? <div className="mt-3 flex gap-2">
         <button disabled={!!busy || a.status === 'laeuft'} onClick={() => decide(true)} className="h-10 px-4 rounded-full bg-olive-800 text-white text-[15px] font-semibold flex items-center gap-1.5 disabled:opacity-60"><Check size={16} />{busy === 'run' || a.status === 'laeuft' ? t('Wird ausgeführt …') : t('Ausführen')}</button>
         <button disabled={!!busy || a.status === 'laeuft'} onClick={() => decide(false)} className="h-10 px-4 rounded-full bg-sage-50 text-[15px] disabled:opacity-60">{t('Verwerfen')}</button>
       </div> : <p className={`mt-2.5 text-[14.5px] flex items-center gap-1.5 ${done ? 'text-done' : failed ? 'text-duty' : 'text-mute'}`}>{done ? <Check size={15} /> : failed ? <X size={15} /> : null}{a.result ?? (done ? t('Erledigt') : dropped ? t('Verworfen.') : '')}</p>}
     </div>
   )
+}
+
+// Von Marc erzeugte Bilder (media) als Vorschau in der Karte, damit man vor „Ausführen“ sieht, was eingefügt wird
+function ActionPreviews({ paths }: { paths: string[] }) {
+  const [urls, setUrls] = useState<Record<string, string>>({})
+  const [open, setOpen] = useState<string | null>(null)
+  useEffect(() => {
+    let live = true
+    if (supabase) void supabase.storage.from('media').createSignedUrls(paths, 3600).then(({ data }) => {
+      if (live) setUrls(Object.fromEntries((data ?? []).filter(x => x.signedUrl && x.path).map(x => [x.path!, x.signedUrl as string])))
+    })
+    return () => { live = false }
+  }, [paths.join('|')])
+  return <>
+    <div className="mt-2.5 flex flex-wrap gap-2">
+      {paths.map(p => urls[p]
+        ? <button key={p} onClick={() => setOpen(urls[p])} className="block"><img src={urls[p]} alt="" className="h-24 w-36 rounded-[12px] object-cover" /></button>
+        : <div key={p} className="h-24 w-36 rounded-[12px] bg-sage-50" />)}
+    </div>
+    {open ? <div onClick={() => setOpen(null)} className="fixed inset-0 z-[80] bg-black/80 flex items-center justify-center p-4"><img src={open} alt="" className="max-h-full max-w-full rounded-[12px]" /></div> : null}
+  </>
 }

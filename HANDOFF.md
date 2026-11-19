@@ -1,5 +1,12 @@
 # HANDOFF — Beautylounge TeamHub
 
+### 2026-11-19 — Marc erzeugt Bilder für Wissensartikel
+
+- **Anlass:** Renée (13.11.) braucht je Artikel 10–15 Bilder; zugesagt bis Ende Woche.
+- **Gebaut:** Werkzeug `bild_erzeugen` im Backoffice-Copiloten (`assistant/actions.ts`, nur Büro, höchstens 12 je Antwort). OpenAI `images/generations` mit Beautylounges `OPENAI_API_KEY`, Modell `IMAGE_MODEL` (Standard `gpt-image-2.5-sunburst`), JPEG, Qualität medium (~140 KB je Bild, wegen Egress). Das Bild landet sofort in `media/wiki/alle/…-ki-….jpg` und zählt wie ein angehängtes Foto (`[[foto N]]`, `bild_nr`). Die Vorschlagskarte zeigt Vorschaubilder (`previews`, `ActionPreviews` in `BenniChat.tsx`, Tipp vergrössert). Beim Ausführen wird das Bild nur in den Ordner der Sichtbarkeit verschoben, nicht neu hochgeladen.
+- **Geprüft:** Function v53 live; echter Lauf als info@aleksa.ai (Büro): zwei Bilder + Artikelentwurf-Karte in 24 s (Modell Schnell). Testkarte verworfen, Chat und Bilder per ID gelöscht.
+- **Grenzen:** Verworfene Karten lassen ihre erzeugten Bilder in `media/wiki/alle` liegen (kein Aufräumlauf). Free-Plan = 150 s Laufzeit je Antwort; viele Bilder plus „Gründlich“ kann daran stossen.
+
 ### 2026-11-09 — Wissen-Editor: Folienwechsel sprang zurück, Fehlalarm „Ungespeicherte Änderungen“
 
 - **Anlass:** Matteos Mail vom 02.11. (wegen Zustellproblem cyon → M365 erst am 04.11. über renbaum5@gmail.com nachgeschickt) mit Video `Folienwechsel_Wissen-Editor_2026-11-02.mp4`: Klick auf eine Folie, der Text gleitet zur Stelle und springt sofort zurück.

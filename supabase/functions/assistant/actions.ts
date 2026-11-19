@@ -9,8 +9,9 @@ import { RECORD_NOTE, RECORD_READ, recordDefs, recordExecute, recordPropose, rec
 
 export type Me = { id: string; app_role: string; branch_id: string; extra_branch_ids?: string[]; first_name: string; last_name: string }
 export type Branch = { id: string; name: string; is_office: boolean }
-export type Staged = { name: string; mime: string; data: string }
-export type Action = { id: string; kind: string; title: string; lines: string[]; payload: Record<string, any>; status: 'offen' | 'laeuft' | 'ausgefuehrt' | 'verworfen' | 'fehler'; result?: string; at: string }
+// Fotos aus dem Chat tragen data (base64). Von Marc erzeugte Bilder liegen schon in media und tragen path (19.11.).
+export type Staged = { name: string; mime: string; data?: string; path?: string }
+export type Action = { id: string; kind: string; title: string; lines: string[]; previews?: string[]; payload: Record<string, any>; status: 'offen' | 'laeuft' | 'ausgefuehrt' | 'verworfen' | 'fehler'; result?: string; at: string }
 export type Ctx = { db: SupabaseClient; me: Me; branches: Branch[]; chatId: string | null; images: Staged[]; fn: (name: string, body: unknown) => Promise<any> }
 
 const NEWS_TAGS = ['Wichtig', 'Schulung', 'Team', 'Salon']
@@ -19,12 +20,13 @@ const GROUPS = ['Filialleitung', 'Kosmetikerinnen', 'Lernende', 'Büro']
 const TICKET_STATUS = ['Neu', 'Zugewiesen', 'In Arbeit', 'Erledigt']
 const ROLES: Record<string, string> = { mitarbeiterin: 'Mitarbeiterin', filialleitung: 'Filialleitung', buero: 'Büro' }
 const EXPIRES_H = 24
+const MAX_GEN = 12
 
 import { arr, fmt, fmtDay, isDay, isTime, myStudios, plain, s, zIso } from './util.ts'
 export { zIso }
 
 /** Lesende Werkzeuge des Copiloten (laufen ohne Karte) */
-export const READ_TOOLS = new Set(['team_list', 'events_overview', 'tickets_list', 'wiki_outline', 'wissen_liste', ...RECORD_READ])
+export const READ_TOOLS = new Set(['bild_erzeugen', 'team_list', 'events_overview', 'tickets_list', 'wiki_outline', 'wissen_liste', ...RECORD_READ])
 const LEVELS: Record<string, string> = { alle: 'Alle', filialleitung: 'Leitung und Büro', buero: 'Nur Büro' }
 const RANK: Record<string, number> = { alle: 0, filialleitung: 1, buero: 2 }
 // Bereiche mit eigener Sichtbarkeit (z. B. „Filialleitung“): ein Artikel darin ist mindestens so geschützt wie der Bereich,
@@ -83,6 +85,10 @@ export function actionDefs(me: Me): Def[] {
     }, ['vorname', 'nachname', 'email', 'studio']],
     ['vorschlag_meldung', `Status einer Meldung oder Idee ändern. ${v}`, { ticket_id: { type: 'string' }, status: { type: 'string', enum: TICKET_STATUS }, zugewiesen: { type: 'string', description: 'Name, wer sich kümmert (optional)' } }, ['ticket_id', 'status']],
     ...(office ? [
+      ['bild_erzeugen', `Erzeugt ein neues Bild per KI (OpenAI), z. B. für einen Wissensartikel. Pro Bild ein Aufruf, mehrere Aufrufe gleichzeitig sind möglich (höchstens ${MAX_GEN} je Antwort). Das Bild zählt danach wie ein angehängtes Foto: Ergebnis foto_nr N, im Artikel als [[foto N]] oder bei vorschlag_wissen mit bild_nr N. Die Person sieht die Bilder als Vorschau in der Karte und entscheidet mit „Ausführen“. Keine echten Personen, keine Marken, keine Schrift im Bild.`, {
+        beschreibung: { type: 'string', description: 'Was das Bild zeigen soll, konkret (Behandlung, Material, Handgriff, Umgebung). Deutsch oder Englisch.' },
+        format: { type: 'string', enum: ['quer', 'hoch', 'quadrat'], description: 'Standard quer (passt als Folienfoto)' },
+      }, ['beschreibung']] as Def,
       ['wissen_liste', 'Wissensartikel finden, auch Entwürfe und „Nur Büro“ (id, Titel, Thema, Sichtbarkeit, Status, zuletzt geändert).', { q: { type: 'string', description: 'Suchwort im Titel' }, thema: { type: 'string' } }, []] as Def,
       ['wiki_outline', 'Aufbau eines Wissensartikels (Überschriften, Schritte, Bilder mit Nummer), um Fotos oder Text an der richtigen Stelle einzufügen oder den Artikel neu zu fassen. Den ganzen Text liest read_article.', { id: { type: 'string' } }, ['id']] as Def,
       ['vorschlag_wissen_artikel', `Schreibt einen Wissensartikel neu (modus neu) oder ersetzt den Inhalt eines bestehenden durch eine neue Fassung (modus ersetzen: Titel und Thema bleiben, wenn leer; Sichtbarkeit und Entwurf/sichtbar bleiben immer, die ändert nur vorschlag_wissen_einstellungen). Inhalt als Markdown: „## “ Überschrift (jede beginnt in der App eine Folie), „### “ kleine Überschrift, „- “ Aufzählung (normale Liste), „- [ ] “ Checkliste (nur für Punkte zum Abhaken, z. B. Material oder Vorbereitung), „1. “ Schritte, „> “ Hinweis (wichtige Regel), Absätze mit Leerzeile, **fett**. Bilder als eigene Zeile oder am Ende eines Aufzählungspunkts: [[foto N]] = N-tes in dieser Nachricht angehängtes Foto, [[bild K]] = K-tes vorhandenes Bild des Artikels (Nummer aus wiki_outline), [[video https://…]] = YouTube. Beim Ersetzen vorhandene Bilder mit [[bild K]] übernehmen, sonst fehlen sie. Inhalt nur aus dem, was die Person liefert (Text, Datei, Diktat) oder ausdrücklich verlangt; nichts erfinden. ${v}`, {
@@ -116,9 +122,46 @@ export const SYSTEM_NOTE = (me: Me) => me.app_role === 'mitarbeiterin' ? '' : [
 ].filter(Boolean).join('\n')
 
 /* ---------- Lesen ---------- */
+const genCount = new WeakMap<Ctx, number>()
+/** Bild per OpenAI erzeugen, als JPEG in media ablegen (Ordner wiki/alle) und wie ein angehängtes Foto führen. */
+async function generateImage(a: any, c: Ctx): Promise<unknown> {
+  if (c.me.app_role !== 'buero') return { error: 'keine_berechtigung', grund: 'Bilder für das Wissen erzeugt nur das Büro' }
+  const desc = s(a.beschreibung, 1500)
+  if (!desc) return { error: 'beschreibung_noetig' }
+  const used = genCount.get(c) ?? 0
+  if (used >= MAX_GEN) return { error: `hoechstens_${MAX_GEN}_bilder_je_antwort` }
+  genCount.set(c, used + 1)
+  const key = Deno.env.get('OPENAI_API_KEY')
+  if (!key) return { error: 'kein_openai_schluessel' }
+  const size = a.format === 'hoch' ? '1024x1536' : a.format === 'quadrat' ? '1024x1024' : '1536x1024'
+  const slot = c.images.length
+  c.images.push({ name: '', mime: 'image/jpeg' }) // Platz reservieren, damit parallele Aufrufe feste Nummern bekommen
+  try {
+    const r = await fetch('https://api.openai.com/v1/images/generations', {
+      method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: Deno.env.get('IMAGE_MODEL') ?? 'gpt-image-2.5-sunburst', size, n: 1, quality: 'medium', output_format: 'jpeg', output_compression: 82,
+        prompt: `${desc}. Realistic, calm premium photography for a beauty salon's internal training wiki, natural light, clean and hygienic, muted warm tones. No text, no letters, no logos, no recognizable faces.` }),
+      signal: AbortSignal.timeout(110000),
+    })
+    if (!r.ok) throw new Error(`openai_${r.status}: ${(await r.text()).slice(0, 200)}`)
+    const b64 = (await r.json()).data?.[0]?.b64_json
+    if (!b64) throw new Error('kein_bild')
+    const bytes = Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0))
+    const path = `wiki/alle/${new Date().toISOString().slice(0, 10)}-ki-${crypto.randomUUID().slice(0, 8)}.jpg`
+    const { error } = await c.db.storage.from('media').upload(path, bytes, { contentType: 'image/jpeg' })
+    if (error) throw new Error(`speichern: ${error.message}`)
+    c.images[slot] = { name: `KI-Bild: ${desc.slice(0, 60)}`, mime: 'image/jpeg', path }
+    return { ok: true, foto_nr: slot + 1, hinweis: `Im Artikel als [[foto ${slot + 1}]], bei vorschlag_wissen bild_nr ${slot + 1}. Noch nicht im Artikel.` }
+  } catch (e) {
+    c.images[slot] = { name: 'fehlgeschlagen', mime: 'image/jpeg' }
+    return { error: 'bild_nicht_erzeugt', detail: String(e).slice(0, 240) }
+  }
+}
+
 export async function readTool(name: string, args: any, c: Ctx): Promise<unknown> {
   if (RECORD_READ.has(name)) return recordRead(name, args, c)
   const { db, me } = c
+  if (name === 'bild_erzeugen') return generateImage(args, c)
   if (name === 'team_list') {
     let q = db.from('employees').select('id, first_name, last_name, job_title, app_role, branch_id, extra_branch_ids, skills, active').order('first_name').limit(200)
     if (args.studio) q = q.eq('branch_id', s(args.studio))
@@ -282,7 +325,7 @@ export async function propose(name: string, a: any, c: Ctx): Promise<Proposal> {
     if (!art) return { error: 'artikel_nicht_gefunden' }
     const kind = ['bild', 'absatz', 'hinweis'].includes(a.art) ? a.art : 'bild'
     const n = Math.max(1, Math.round(Number(a.bild_nr) || 1))
-    if (kind === 'bild' && !c.images[n - 1]) return { error: 'kein_foto_angehaengt', hinweis: 'Die Person soll das Foto in dieser Nachricht anhängen.' }
+    if (kind === 'bild' && !usable(c.images[n - 1])) return { error: 'kein_foto_angehaengt', hinweis: 'Die Person soll das Foto in dieser Nachricht anhängen.' }
     if (kind !== 'bild' && !s(a.text)) return { error: 'text_noetig' }
     const after = s(a.nach, 160)
     const at = findAfter(art.blocks ?? [], after)
@@ -307,7 +350,7 @@ export async function propose(name: string, a: any, c: Ctx): Promise<Proposal> {
     if (bad.length) return { error: 'platzhalter_ungueltig', welche: bad, hinweis: '[[foto N]] nur für angehängte Fotos, [[bild K]] nur mit Nummer aus wiki_outline' }
     if (!blocks.length) return { error: 'inhalt_leer' }
     const used = [...new Set(JSON.stringify(blocks).match(/staged:\d+/g) ?? [])].map((x) => Number(x.slice(7)))
-    const missing = used.filter((n) => !c.images[n])
+    const missing = used.filter((n) => !usable(c.images[n]))
     if (missing.length) return { error: 'foto_fehlt', hinweis: `Es sind ${c.images.length} Fotos angehängt.` }
     const n = (t: string) => blocks.filter((b) => b.t === t).length
     const pics = n('img') + blocks.flatMap((b) => b.media ?? []).filter((m) => m?.t === 'img').length
@@ -358,7 +401,7 @@ export async function stage(p: { kind: string; title: string; lines: string[]; p
   const id = crypto.randomUUID(), payload = { ...p.payload }
   if (payload.img != null) {
     const f = c.images[payload.img]
-    if (!f || !c.chatId) return { error: 'foto_nur_im_chat' }
+    if (!usable(f) || !c.chatId) return { error: 'foto_nur_im_chat' }
     const path = `${c.me.id}/${c.chatId}/${id}.json`
     const { error } = await c.db.storage.from('assistant-context').upload(path, new Blob([JSON.stringify(f)], { type: 'application/json' }), { contentType: 'application/json', upsert: false })
     if (error) return { error: 'foto_nicht_gesichert' }
@@ -369,7 +412,7 @@ export async function stage(p: { kind: string; title: string; lines: string[]; p
     if (!c.chatId) return { error: 'foto_nur_im_chat' }
     const map: Record<string, string> = {}
     for (const n of payload.imgs as number[]) {
-      const f = c.images[n]; if (!f) return { error: 'foto_fehlt' }
+      const f = c.images[n]; if (!usable(f)) return { error: 'foto_fehlt' }
       const path = `${c.me.id}/${c.chatId}/${id}-${n}.json`
       const { error } = await c.db.storage.from('assistant-context').upload(path, new Blob([JSON.stringify(f)], { type: 'application/json' }), { contentType: 'application/json', upsert: false })
       if (error) return { error: 'foto_nicht_gesichert' }
@@ -377,19 +420,24 @@ export async function stage(p: { kind: string; title: string; lines: string[]; p
     }
     payload.stagedMap = map
   }
+  // Vorschau für erzeugte Bilder (liegen schon in media), damit die Person sieht, was sie einfügt
+  const previews = [p.payload.img, ...(Array.isArray(p.payload.imgs) ? p.payload.imgs : [])].filter((n) => n != null).map((n: number) => c.images[n]?.path).filter(Boolean) as string[]
   delete payload.imgs
-  return { id, kind: p.kind, title: p.title, lines: p.lines.filter(Boolean).slice(0, 8), payload, status: 'offen', at: new Date().toISOString() }
+  return { id, kind: p.kind, title: p.title, lines: p.lines.filter(Boolean).slice(0, 8), ...(previews.length ? { previews } : {}), payload, status: 'offen', at: new Date().toISOString() }
 }
 
 /* ---------- Ausführen (nach „Ausführen“ in der App) ---------- */
 const ext = (mime: string) => ({ 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/heic': 'heic', 'image/gif': 'gif' } as Record<string, string>)[mime] ?? 'jpg'
-async function loadStaged(c: Ctx, path: string): Promise<{ bytes: Uint8Array; mime: string } | null> {
+async function loadStaged(c: Ctx, path: string): Promise<{ bytes: Uint8Array; mime: string; path?: string } | null> {
   const { data } = await c.db.storage.from('assistant-context').download(path)
   if (!data) return null
   const f = JSON.parse(await data.text()) as Staged
+  if (f.path) return { bytes: new Uint8Array(), mime: f.mime, path: f.path }
+  if (!f.data) return null
   const raw = atob(f.data.replace(/^data:[^,]+,/, ''))
   return { bytes: Uint8Array.from(raw, (ch) => ch.charCodeAt(0)), mime: f.mime }
 }
+const usable = (f?: Staged) => !!f && (!!f.data || !!f.path)
 const denied = (e: { message?: string; code?: string } | null) => !!e && (/row-level security|permission|not allowed|forbidden/i.test(e.message ?? '') || e.code === '42501')
 
 export async function execute(act: Action, c: Ctx): Promise<{ ok: boolean; text: string }> {
@@ -463,8 +511,9 @@ export async function execute(act: Action, c: Ctx): Promise<{ ok: boolean; text:
     if (p.kind === 'bild') {
       const f = p.staged ? await loadStaged(c, p.staged) : null
       if (!f) return { ok: false, text: 'Das Foto ist nicht mehr da. Bitte noch einmal anhängen.' }
-      const path = `wiki/${art.access_level}/${Date.now()}-marc.${ext(f.mime)}`
-      const { error } = await db.storage.from('media').upload(path, f.bytes, { contentType: f.mime })
+      let path = `wiki/${art.access_level}/${Date.now()}-marc.${ext(f.mime)}`
+      // Erzeugtes Bild liegt schon in media (wiki/alle): nur in den Ordner der Sichtbarkeit ziehen
+      const { error } = f.path ? (f.path.startsWith(`wiki/${art.access_level}/`) ? (path = f.path, { error: null }) : await db.storage.from('media').move(f.path, path)) : await db.storage.from('media').upload(path, f.bytes, { contentType: f.mime })
       if (error) return fail(error, 'Foto hochladen')
       block = { t: 'img', src: path }
     } else block = { t: p.kind === 'hinweis' ? 'quote' : 'p', text: p.text }
@@ -495,6 +544,11 @@ export async function execute(act: Action, c: Ctx): Promise<{ ok: boolean; text:
     for (const [n, path] of Object.entries((p.stagedMap ?? {}) as Record<string, string>)) {
       const f = await loadStaged(c, path)
       if (!f) return { ok: false, text: 'Ein Foto ist nicht mehr da. Bitte noch einmal anhängen.' }
+      if (f.path) { // erzeugtes Bild liegt schon in media (wiki/alle): nur in den Ordner der Sichtbarkeit ziehen
+        const to = f.path.startsWith(`wiki/${p.level}/`) ? f.path : `wiki/${p.level}/${f.path.split('/').pop()}`
+        if (to !== f.path) { const { error } = await db.storage.from('media').move(f.path, to); if (error) return fail(error, 'Bild verschieben') }
+        done[`staged:${n}`] = to; continue
+      }
       const to = `wiki/${p.level}/${Date.now()}-marc-${n}.${ext(f.mime)}`
       const { error } = await db.storage.from('media').upload(to, f.bytes, { contentType: f.mime })
       if (error) return fail(error, 'Foto hochladen')
