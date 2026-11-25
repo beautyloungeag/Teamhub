@@ -13,7 +13,9 @@
 - **Geprüft (lokale Vorschau gegen die echte Datenbank, als Büro und als Test-Mitarbeiterin):** Kommentar mit PNG, PDF und HEIC gesendet und als meldende Person gelesen; Thema «Organisation» dem Bereich zugeordnet (bleibt so, war der gemeldete Fall); Artikel dupliziert, Titelbild erzeugt, Bild per Drop eingefügt; Gruppe angelegt, Nachricht gesendet, als Mitglied gesehen; Profilbild gesetzt; Skill-Filter. Alle Testdaten per ID gelöscht. 101 Tests grün.
 - **Nicht geprüft:** Ankunft der Mitteilung auf einem echten Handy (der Lauf setzt `notified_at`, das Testkonto hat kein Abo auf diesem Gerät), HEIC-Umwandlung in Safari, Upload grosser Videos über Mobilfunk.
 - **Functions:** `notify` v17, `assistant` v54, `newsdraft` v6. Migrationen `20261125100000_kommentar_anhaenge.sql`, `20261125110000_buero_gruppen.sql` sind live. Hinweis: Die Supabase-CLI verlangt für Deploys auf Produktion inzwischen `--yes`.
-- **Offen:** Videoanleitung für Mitarbeiterinnen, Claude-Plugin (MCP) und Architekturübersicht zur Abnahme, Warnung «Disk IO Budget» vom 23.11. untersuchen.
+- **Supabase «Disk IO Budget» (Warnung 23.11.):** `cron.job_run_details` wurde nie aufgeräumt (rund 156'000 Zeilen seit 28.09., 80 von 105 MB der Datenbank; zwei Jobs laufen jede Minute). Neuer Job `teamhub-cron-log-cleanup` (täglich 03:45, löscht alles über drei Tage), Altbestand einmalig gelöscht (`20261125120000_cron_protokoll_aufraeumen.sql`). Dass dies die Ursache der Warnung war, ist nicht belegt; in der Auswertung der Datenbank war es der grösste Schreiber. Der Platz wird wiederverwendet, die Datei schrumpft erst mit `VACUUM FULL`.
+- **Anleitung für Mitarbeiterinnen:** Wissensartikel «TeamHub einrichten: App aufs Handy und Mitteilungen einschalten» liegt als Entwurf im Thema Organisation. Veröffentlichen entscheidet das Büro.
+- **Offen:** Videoanleitung für Mitarbeiterinnen, Claude-Plugin (MCP) und Architekturübersicht zur Abnahme.
 
 ### 2026-11-19 — Marc erzeugt Bilder für Wissensartikel
 
