@@ -78,9 +78,11 @@ function TicketPage({ tk, canEdit, assignees, onBack }: { tk: Ticket; canEdit: b
   const studio = tk.allStudios ? 'Alle Studios' : branches.find(b => b.id === tk.branchId)?.name ?? tk.branch
   // Löschen: zuerst Foto/Video (die Speicherregel prüft über die Meldung), dann die Meldung samt Kommentaren und Stimmen
   const del = async () => {
-    if (!confirm(`${tk.kind} „${tk.title}“ endgültig löschen? Kommentare und Foto werden mitgelöscht.`)) return
+    if (!confirm(`${tk.kind} „${tk.title}“ endgültig löschen? Kommentare, Foto und Anhänge werden mitgelöscht.`)) return
     const { data } = await supabase!.from('tickets').select('photo_path').eq('id', tk.id).maybeSingle()
     if (data?.photo_path) await supabase!.storage.from('ticket-photos').remove([data.photo_path])
+    const attached = tk.comments.flatMap(c => c.files.map(f => f.path))
+    if (attached.length) await supabase!.storage.from('ticket-photos').remove(attached)
     const { error } = await supabase!.from('tickets').delete().eq('id', tk.id)
     if (error) { toast('Löschen hat nicht geklappt', 'error'); return }
     await reload(); toast('Gelöscht'); onBack()

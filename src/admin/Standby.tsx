@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { ChevronLeft, ChevronRight, Trash2 } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { ChevronLeft, ChevronRight, ChevronDown, Check, Trash2 } from 'lucide-react'
 import { useApp, isoDay, addDays, fmtDate, type Staff } from '../store'
 import { supabase } from '../lib/supabase'
 import { notifyNow } from '../lib/push'
@@ -33,14 +33,39 @@ export function StandbyAdmin() {
 }
 
 /* ---------- Einsatzplan ---------- */
+/** Mehrere Skills zugleich (Inhaberin 19.11.): gezeigt wird, wer alle gewählten Skills hat. */
+function SkillFilter({ all, value, onChange }: { all: string[]; value: string[]; onChange: (v: string[]) => void }) {
+  const [open, setOpen] = useState(false)
+  const box = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const out = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false) }
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', out); document.addEventListener('keydown', esc)
+    return () => { document.removeEventListener('mousedown', out); document.removeEventListener('keydown', esc) }
+  }, [open])
+  const toggle = (k: string) => onChange(value.includes(k) ? value.filter(x => x !== k) : [...value, k])
+  const text = value.length === 0 ? 'Alle Skills' : value.length <= 2 ? value.join(' + ') : `${value.length} Skills`
+  return <div ref={box} className="relative">
+    <button onClick={() => setOpen(o => !o)} aria-haspopup="listbox" aria-expanded={open} className="h-10 w-60 px-3 rounded-[10px] bg-sage-50 text-[14px] flex items-center justify-between gap-2">
+      <span className="truncate">{text}</span><ChevronDown size={15} className="text-mute shrink-0" /></button>
+    {open && <div role="listbox" aria-multiselectable="true" className="absolute z-20 mt-1 w-72 max-h-[340px] overflow-y-auto rounded-[12px] bg-white shadow-[0_12px_30px_-12px_rgba(29,34,28,.35)] border border-line p-1.5">
+      {value.length > 0 && <button onClick={() => onChange([])} className="w-full h-9 px-2.5 rounded-[8px] text-left text-[13px] text-mute hover:bg-sage-50">Auswahl aufheben</button>}
+      {all.map(k => { const on = value.includes(k)
+        return <button key={k} role="option" aria-selected={on} onClick={() => toggle(k)} className="w-full h-9 px-2.5 rounded-[8px] text-left text-[14px] hover:bg-sage-50 flex items-center gap-2.5">
+          <span className={`w-[18px] h-[18px] rounded-[5px] flex items-center justify-center shrink-0 ${on ? 'bg-olive-700 text-white' : 'shadow-[inset_0_0_0_1.5px_#B9C4AF]'}`}>{on && <Check size={12} strokeWidth={3} />}</span>
+          <span className="truncate">{k}</span></button> })}
+    </div>}
+  </div>
+}
 function Plan({ onAsk }: { onAsk: (d: string) => void }) {
   const { standby, staff, skillCatalog, me } = useApp()
-  const [start, setStart] = useState(isoDay()), [sk, setSk] = useState('')
+  const [start, setStart] = useState(isoDay()), [sk, setSk] = useState<string[]>([])
   const days = Array.from({ length: 14 }, (_, i) => addDays(i, start))
   const can = (s: Staff, d: string) => standby.some(x => x.employee_id === s.id && x.day === d)
   const mine = [me.branch_id, ...(me.extra ?? [])]
   // Testkonten nur, wenn sie Tage eingetragen haben (für Vorführungen), dann markiert
-  const people = staff.filter(s => s.active && s.branch_id !== 'buero' && (!sk || s.skills.includes(sk)) && days.some(d => can(s, d)))
+  const people = staff.filter(s => s.active && s.branch_id !== 'buero' && sk.every(k => s.skills.includes(k)) && days.some(d => can(s, d)))
     .sort((a, b) => Number(!mine.includes(a.branch_id)) - Number(!mine.includes(b.branch_id)) || a.branch.localeCompare(b.branch) || a.first.localeCompare(b.first))
   const today = isoDay()
   const weekend = (d: string) => [0, 6].includes(new Date(d + 'T12:00:00Z').getUTCDay())
@@ -51,7 +76,8 @@ function Plan({ onAsk }: { onAsk: (d: string) => void }) {
         <span className="px-2 text-[14px] min-w-[170px] text-center tabular-nums">{label(days[0], { day: 'numeric', month: 'numeric' })} – {label(days[13], { day: 'numeric', month: 'numeric' })}</span>
         <button onClick={() => setStart(addDays(7, start))} aria-label="Eine Woche weiter" className="w-8 h-8 rounded-[8px] hover:bg-white flex items-center justify-center"><ChevronRight size={16} /></button>
       </div>
-      <Select tone="stone" className="w-52" value={sk} onChange={setSk} options={[{ value: '', label: 'Alle Skills' }, ...skillCatalog.map(k => ({ value: k, label: k }))]} />
+      <SkillFilter all={skillCatalog} value={sk} onChange={setSk} />
+      {sk.length > 1 && <span className="text-[13px] text-mute">Zeigt, wer alle {sk.length} Skills hat</span>}
     </div>
     <div className="overflow-x-auto">
       <table className="w-full text-[14px] border-collapse min-w-[880px] table-fixed">

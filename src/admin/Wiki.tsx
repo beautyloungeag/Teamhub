@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState, type MutableRefObject } from 'react'
 import type { Editor } from '@tiptap/react'
-import { Search, Trash2, ChevronRight, Sparkles, Smartphone, X, GraduationCap, Image as ImageIcon } from 'lucide-react'
+import { Search, Trash2, ChevronRight, Sparkles, Smartphone, X, GraduationCap, Image as ImageIcon, Copy } from 'lucide-react'
 import { openBenniDraft } from '../BenniChat'
 import { useApp, type WikiBlock } from '../store'
 import { supabase } from '../lib/supabase'
@@ -28,10 +28,11 @@ const cap = (s: string) => catLabel(s)
 
 export function WikiAdmin() {
   const [cat, setCat] = useState<string | null>(null)
-  const [art, setArt] = useState<{ id: string | null; cat: string } | null>(null)
+  const [art, setArt] = useState<{ id: string | null; cat: string; copy?: number } | null>(null)
   // Neue Seite beginnt oben (28.10.: der neue Artikel öffnete in der Scroll-Position der Themenliste, der Titel war weg)
   useEffect(() => { document.querySelector('main')?.scrollTo({ top: 0 }) }, [cat, art?.id, art === null])
-  if (art) return <ArticleEditor id={art.id} category={art.cat} onBack={() => setArt(null)} onSaved={id => setArt({ id, cat: art.cat })} />
+  // Eine Kopie öffnet in einem frischen Editor (eigener key), damit Titel, Text und Bildpfade der Kopie geladen werden
+  if (art) return <ArticleEditor key={art.copy ?? 'editor'} id={art.id} category={art.cat} onBack={() => setArt(null)} onSaved={id => setArt({ id, cat: art.cat, copy: art.copy })} onDuplicated={id => setArt({ id, cat: art.cat, copy: Date.now() })} />
   if (cat !== null) return <CategoryPage name={cat} onBack={() => setCat(null)} onOpen={id => setArt({ id, cat })} onRenamed={setCat} />
   return <Home onCat={setCat} onOpen={(id, c) => setArt({ id, cat: c })} />
 }
@@ -304,7 +305,8 @@ function CategoryPage({ name, onBack, onOpen, onRenamed }: { name: string; onBac
   const setArea = async (k: string) => {
     const target = AREAS.find(a => a.key === k)
     if (target && target.access !== 'alle' && !confirm(`„${cap(name)}“ in „${target.name}“ verschieben? Die ${items.length} Artikel sind danach nur noch für ${LEVEL[target.access]} sichtbar.`)) return
-    const { error } = await supabase!.from('wiki_categories').upsert({ key: catKey(name), area_key: k || null, updated_at: new Date().toISOString() })
+    // emoji ist Pflichtspalte: ohne sie lehnt die Datenbank den Upsert ab, auch wenn es das Thema schon gibt (Fehler 19.11.)
+    const { error } = await supabase!.from('wiki_categories').upsert({ key: catKey(name), emoji: emojiOf(name, catEmojis), area_key: k || null, updated_at: new Date().toISOString() })
     if (error) { toast('Das hat nicht geklappt', 'error'); return }
     await reloadWiki()
     const n = k ? await enforceAreaLevel(name) : 0
@@ -390,7 +392,7 @@ function Editable({ value, onChange, className, placeholder, onNext, elRef, auto
 
 // Artikel mit Marc schreiben (26.10., Renée: „Artikel mit der KI erstellen geht noch nicht?“): öffnet Marc mit vorbereitetem Auftrag
 function MarcWrite({ topic }: { topic?: string }) {
-  return <button onClick={() => openBenniDraft(`Schreib einen Wissensartikel${topic ? ` im Thema ${topic}` : ''} aus diesem Text (oder aus der angehängten Datei): `)} className={`${btn2} flex items-center gap-1.5`}><Sparkles size={15} />Mit Marc schreiben</button>
+  return <button onClick={() => openBenniDraft(`Schreib einen Wissensartikel${topic ? ` im Thema ${topic}` : ''} aus diesem Text (oder aus der angehängten Datei): `)} className={`${btn2} flex items-center gap-1.5`}><Sparkles size={15} />Mit Jarvis schreiben</button>
 }
 
 // Inhalt ohne leere Zeilen: der Editor hängt beim ersten Klick eine leere Zeile ans Ende, das ist keine Änderung (02.11.)
@@ -399,7 +401,7 @@ const sorted = (_k: string, v: unknown) => v && typeof v === 'object' && !Array.
 const sigOf = (bs: WikiBlock[]) => JSON.stringify(bs.filter(b => !(TEXTY.has(b.t) && !textOf(b).trim() && !b.media?.some(Boolean))), sorted)
 
 type Row = { title: string; intro: string; category: string; access_level: string; published: boolean; owner_id: string | null; blocks: WikiBlock[] | null; body: string; media_kind: string; media_url: string | null; review_due: string | null; cover_path: string | null }
-function ArticleEditor({ id, category, onBack, onSaved }: { id: string | null; category: string; onBack: () => void; onSaved: (id: string) => void }) {
+function ArticleEditor({ id, category, onBack, onSaved, onDuplicated }: { id: string | null; category: string; onBack: () => void; onSaved: (id: string) => void; onDuplicated: (id: string) => void }) {
   const { wiki, staff, reloadWiki, quizzes } = useApp()
   const cats = [...new Set(wiki.filter(a => !a.fromNews).map(a => a.catKey))].sort((a, b) => a.localeCompare(b))
   const [title, setTitle] = useState(''), [intro, setIntro] = useState(''), [cat, setCat] = useState(category)
@@ -463,6 +465,44 @@ function ArticleEditor({ id, category, onBack, onSaved }: { id: string | null; c
     if (!f.type.startsWith('image/')) { toast('Bitte ein Foto wählen.', 'error'); return }
     const r = await upload(f); if (!r) return
     setCover(r.path); setDirty(true)
+  }
+  // Titelbild aus dem Inhalt erzeugen (Büro 19.11.): Titel, Kurzfassung und Textanfang gehen an die Bild-KI
+  const [coverBusy, setCoverBusy] = useState(false), [coverOver, setCoverOver] = useState(false)
+  const makeCover = async () => {
+    if (coverBusy) return
+    if (!title.trim()) { toast('Bitte zuerst einen Titel eingeben.', 'error'); return }
+    setCoverBusy(true)
+    const text = blocks.current.map(b => plain(textOf(b))).filter(Boolean).join(' ').slice(0, 1500)
+    const { data, error } = await supabase!.functions.invoke('newsdraft', { body: { action: 'cover', title: title.trim(), intro: intro.trim(), text, topic: cap(cat), level } })
+    setCoverBusy(false)
+    if (error || !data?.ok || !data.path) { toast('Das Titelbild konnte gerade nicht erzeugt werden.', 'error'); return }
+    await sign([data.path])
+    setCover(data.path); setDirty(true); toast('Titelbild erzeugt. Mit «Speichern» übernimmst du es.')
+  }
+  // Artikel duplizieren (Büro 24.11.): Kopie als Entwurf mit eigenen Dateien, damit Vorlagen entstehen können
+  const [copying, setCopying] = useState(false)
+  const duplicate = async () => {
+    if (!id || copying) return
+    if (dirty && !confirm('Ungespeicherte Änderungen sind in der Kopie nicht enthalten. Trotzdem duplizieren?')) return
+    setCopying(true)
+    const fail = () => { setCopying(false); toast('Duplizieren hat nicht geklappt', 'error') }
+    const { data: src } = await supabase!.from('wiki_articles').select('title, intro, category, access_level, owner_id, blocks, body, minutes, tags, cover_path').eq('id', id).single()
+    if (!src) return fail()
+    // Jede Datei bekommt eine eigene Kopie: sonst teilen sich Original und Kopie ein Bild und stören sich beim Verschieben oder Löschen
+    const map = new Map<string, string>(); let n = 0
+    for (const path of new Set([...pathsOf((src.blocks ?? []) as WikiBlock[]), src.cover_path ?? ''].filter(x => x.startsWith('wiki/')))) {
+      const to = `wiki/${src.access_level}/${Date.now()}-${n++}-${(path.split('/').pop() ?? 'datei').replace(/^\d+-(\d+-)?/, '')}`
+      const { error } = await supabase!.storage.from('media').copy(path, to)
+      if (error) return fail()
+      map.set(path, to)
+    }
+    const swap = (x?: string | null) => x ? map.get(x) ?? x : x
+    const copied = ((src.blocks ?? []) as WikiBlock[]).map(b => ({ ...b, ...(b.src ? { src: swap(b.src)! } : {}), ...(b.media ? { media: b.media.map(m => m?.src ? { ...m, src: swap(m.src)! } : m) } : {}) }))
+    const { data: made, error } = await supabase!.from('wiki_articles').insert({ title: `${src.title} (Kopie)`.slice(0, 200), intro: src.intro, category: src.category, access_level: src.access_level, owner_id: src.owner_id,
+      blocks: src.blocks ? copied : null, body: src.body, minutes: src.minutes, tags: src.tags, cover_path: swap(src.cover_path), published: false, media_kind: 'none', media_url: null, sort: 0 }).select('id').single()
+    if (error || !made) return fail()
+    await reloadWiki(); retranslate(); setCopying(false); setDirty(false); markUnsaved(guard, false)
+    toast('Kopie als Entwurf angelegt'); onDuplicated(made.id)
   }
 
   const save = async () => {
@@ -557,7 +597,8 @@ function ArticleEditor({ id, category, onBack, onSaved }: { id: string | null; c
       <Back onClick={back}>{cap(category) || 'Wissen'}</Back>
       <span className="ml-auto mb-4 text-[13px] text-brass">{dirty ? 'Ungespeicherte Änderungen' : ''}</span>
       <button onClick={openPreview} className={`${btn2} mb-4 flex xl:hidden items-center gap-1.5`}><Smartphone size={15} />In der App ansehen</button>
-      {id && <button onClick={() => { if (dirty && !confirm('Ungespeicherte Änderungen verwerfen?')) return; markUnsaved(guard, false); openBenniDraft(`Fass den Wissensartikel „${title}“ (id ${id}) neu: `) }} className={`${btn2} mb-4 hidden lg:flex items-center gap-1.5`}><Sparkles size={15} />Mit Marc neu fassen</button>}
+      {id && <button onClick={() => { if (dirty && !confirm('Ungespeicherte Änderungen verwerfen?')) return; markUnsaved(guard, false); openBenniDraft(`Fass den Wissensartikel „${title}“ (id ${id}) neu: `) }} className={`${btn2} mb-4 hidden lg:flex items-center gap-1.5`}><Sparkles size={15} />Mit Jarvis neu fassen</button>}
+      {id && <button onClick={duplicate} disabled={copying} title="Kopie als Entwurf anlegen, zum Beispiel als Vorlage" className={`${btn2} mb-4 hidden lg:flex items-center gap-1.5 disabled:opacity-50`}><Copy size={15} />{copying ? 'Kopiert …' : 'Duplizieren'}</button>}
       <button disabled={busy || (!dirty && !!id)} onClick={save} title="Speichern (⌘S)" className={`${btn} mb-4 min-w-[120px] disabled:opacity-50`}>{busy ? 'Speichert …' : id ? (dirty ? 'Speichern' : 'Gespeichert') : 'Artikel anlegen'}</button>
     </div>
     {/* Drei Spalten (29.10., Matteo): links die Folien, in der Mitte der Text, rechts die Handy-Ansicht, die beim Tippen mitläuft */}
@@ -566,7 +607,16 @@ function ArticleEditor({ id, category, onBack, onSaved }: { id: string | null; c
         <SlideOutline slides={slides} active={active} show={show} editor={editor} onPick={pick} onMoved={() => { follow.current = true }} />
       </aside>
 
-      <article className="min-w-0 pb-10">
+      {/* Dateien irgendwo auf den Artikel ziehen (Büro 19.11.): im Text landen sie an der Stelle, sonst am Ende des Textes.
+          Ohne das öffnet der Browser die Datei und der Entwurf ist weg. */}
+      <article className="min-w-0 pb-10"
+        onDragOver={e => { if ([...e.dataTransfer.types].includes('Files')) e.preventDefault() }}
+        onDrop={e => {
+          if (!e.nativeEvent.isTrusted || !e.dataTransfer.files.length || (e.target as HTMLElement).closest('.wiki-editor-body')) return
+          e.preventDefault()
+          const body = document.querySelector('.wiki-editor-body'), last = body?.lastElementChild?.getBoundingClientRect()
+          if (body && last) body.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, clientX: last.left + 4, clientY: last.bottom - 2, dataTransfer: e.dataTransfer }))
+        }}>
         {/* Einstellungen kompakt über dem Text */}
         <div className="mb-6 rounded-[14px] bg-sage-50/70 px-4 py-3 space-y-3">
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -585,9 +635,12 @@ function ArticleEditor({ id, category, onBack, onSaved }: { id: string | null; c
           </div>
           {areaAccess !== 'alle' && <p className="text-[12px] text-mute">Bereich „{areaOfCat?.name}“: nur für {LEVEL[areaAccess]}.</p>}
           {/* Titelbild: ein Feld statt „Foto ganz oben“ (29.10., Matteo) */}
-          <div className="flex items-center gap-3 pt-1">
+          <div onDragOver={e => { if ([...e.dataTransfer.types].includes('Files')) { e.preventDefault(); setCoverOver(true) } }} onDragLeave={() => setCoverOver(false)}
+            onDrop={e => { const f = [...e.dataTransfer.files].find(x => x.type.startsWith('image/')); setCoverOver(false); if (!f) return; e.preventDefault(); e.stopPropagation(); void pickCover(f) }}
+            className={`flex flex-wrap items-center gap-3 pt-1 rounded-[10px] ${coverOver ? 'outline outline-2 outline-olive-700 outline-offset-4' : ''}`}>
             <span className="w-[74px] h-[50px] rounded-[9px] overflow-hidden bg-olive-900 shrink-0 flex items-center justify-center text-white/60">{show(cover) ? <img src={show(cover)!} alt="" className="w-full h-full object-cover" /> : <ImageIcon size={18} />}</span>
-            <div className="min-w-0 flex-1"><p className="text-[13.5px] font-medium">Titelbild</p><p className="text-[12px] text-mute leading-snug">{cover ? 'Steht auf der Titelfolie, auf der Startseite und in den Listen.' : 'Ohne eigenes Foto zeigt die App das Bild des Bereichs.'}</p></div>
+            <div className="min-w-[160px] flex-1"><p className="text-[13.5px] font-medium">Titelbild</p><p className="text-[12px] text-mute leading-snug">{coverBusy ? 'Wird erzeugt, das dauert bis zu einer Minute …' : cover ? 'Steht auf der Titelfolie, auf der Startseite und in den Listen.' : 'Foto hierher ziehen, wählen oder aus dem Inhalt erzeugen. Ohne Bild zeigt die App das Bild des Bereichs.'}</p></div>
+            <button onClick={makeCover} disabled={coverBusy} title="Erzeugt ein Bild passend zu Titel und Inhalt" className={`${btn2} !h-9 shrink-0 flex items-center gap-1.5 disabled:opacity-50`}><Sparkles size={14} />{coverBusy ? 'Erzeugt …' : 'Erzeugen'}</button>
             <button onClick={() => coverInput.current?.click()} className={`${btn2} !h-9 shrink-0`}>{cover ? 'Ändern' : 'Foto wählen'}</button>
             {cover && <button onClick={() => { setCover(null); setDirty(true) }} className="h-9 px-2 rounded-[10px] text-[13px] text-mute hover:text-alert shrink-0">Entfernen</button>}
             <input ref={coverInput} type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; void pickCover(f) }} />
@@ -601,7 +654,10 @@ function ArticleEditor({ id, category, onBack, onSaved }: { id: string | null; c
           onChange={b => { const changed = sigOf(b) !== sigOf(blocks.current); blocks.current = b; if (changed) setDirty(true); clearTimeout(liveTimer.current); liveTimer.current = window.setTimeout(() => setLive(b), 150) }} /></div>
         {/* Folien auf schmalen Bildschirmen unter dem Text */}
         <div className="lg:hidden mt-8"><SlideOutline slides={slides} active={active} show={show} editor={editor} onPick={pick} onMoved={() => { follow.current = true }} /></div>
-        {id && <button onClick={del} className="mt-10 text-[13px] text-mute hover:text-alert flex items-center gap-1.5"><Trash2 size={14} />Artikel löschen</button>}
+        {id && <div className="mt-10 flex items-center gap-5">
+          <button onClick={duplicate} disabled={copying} className="text-[13px] text-mute hover:text-ink flex items-center gap-1.5 disabled:opacity-50"><Copy size={14} />{copying ? 'Wird kopiert …' : 'Artikel duplizieren'}</button>
+          <button onClick={del} className="text-[13px] text-mute hover:text-alert flex items-center gap-1.5"><Trash2 size={14} />Artikel löschen</button>
+        </div>}
       </article>
 
       <aside className="hidden xl:block xl:sticky xl:top-[76px]">

@@ -3,6 +3,7 @@
 //   - News, sobald publish_at erreicht ist (auch zeitgesteuerte), an die Zielgruppe
 //   - neue Schulungen/Events an Zielgruppe (Studio, Skills)
 //   - Statuswechsel/Zuweisung einer Meldung an die meldende Person
+//   - Kommentar auf eine Meldung/Idee an meldende, zuständige und mitschreibende Personen (25.11.)
 //   - neue Aufgabe von Filialleitung/Büro an die Person bzw. das ganze Studio
 //   - Aushilfe gesucht (an Eingetragene oder alle) und „du bist eingeteilt“
 //   - für Filialleitung/Büro (abschaltbar unter Einstellungen → Mitteilungen, employees.notify_prefs):
@@ -26,9 +27,9 @@ type Msg = { title: string; body: string; url: string; tag: string }
 type Lang = 'DE' | 'EN' | 'FR'
 // Rahmentexte je Sprache der Empfängerin; Inhalte (Titel, Teaser) bleiben wie erfasst.
 const L: Record<Lang, Record<string, string>> = {
-  DE: { must: 'Bitte lesen: {t}', newsFallback: 'Neue News im TeamHub', ev: 'Neu: {k} „{t}“', join: 'jetzt anmelden', ticket: 'Deine Meldung', on: 'Mitteilungen sind eingeschaltet.', todo: 'Neue Aufgabe von {n}', until: 'bis', sb: 'Aushilfe gesucht · {b}', sbOk: 'Du hilfst aus · {b}', evRem: 'Bitte antworten: {t}', evRemBody: 'Kommst du? Kurz zu- oder absagen.', tkNew: 'Neue Meldung · {b}', ideaNew: 'Neue Idee · {b}', sbYes: '{n} kann aushelfen', evSum: 'Anmeldeschluss: {t}', evSumBody: '{a} kommen · {b} nicht · {c} ohne Antwort', promoted: 'Du bist nachgerückt: {t}', promotedBody: 'Ein Platz ist frei geworden, du bist dabei.', overdue: '{b} · {t} noch offen', overdueBody: '{n} von {m} offen, fällig bis {h}', poll: 'Bitte mitmachen: {t}', pollBody: 'Kurze Umfrage, dauert eine Minute.' , todoHand: 'Aufgabe weitergegeben von {n}', rem: 'Erinnerung: {t}', cover: 'Du vertrittst heute {n}', coverBody: '{k} offene Aufgaben gehen an dich' },
-  EN: { must: 'Please read: {t}', newsFallback: 'New news in TeamHub', ev: 'New: {k} “{t}”', join: 'register now', ticket: 'Your report', on: 'Notifications are on.', todo: 'New task from {n}', until: 'by', sb: 'Cover needed · {b}', sbOk: 'You are covering · {b}', evRem: 'Please reply: {t}', evRemBody: 'Are you coming? Quick yes or no.', tkNew: 'New report · {b}', ideaNew: 'New idea · {b}', sbYes: '{n} can cover', evSum: 'Registration closed: {t}', evSumBody: '{a} coming · {b} not · {c} no reply', promoted: 'You moved up: {t}', promotedBody: 'A place became free, you are in.', overdue: '{b} · {t} still open', overdueBody: '{n} of {m} open, due by {h}', poll: 'Please take part: {t}', pollBody: 'Short survey, takes a minute.' , todoHand: 'Task handed over by {n}', rem: 'Reminder: {t}', cover: 'You are covering for {n} today', coverBody: '{k} open tasks now go to you' },
-  FR: { must: 'À lire : {t}', newsFallback: 'Nouvelle actualité dans TeamHub', ev: 'Nouveau : {k} « {t} »', join: 'inscris-toi', ticket: 'Ton signalement', on: 'Les notifications sont activées.', todo: 'Nouvelle tâche de {n}', until: 'avant', sb: 'Remplacement recherché · {b}', sbOk: 'Tu remplaces · {b}', evRem: 'Merci de répondre : {t}', evRemBody: 'Tu viens ? Réponds oui ou non.', tkNew: 'Nouveau signalement · {b}', ideaNew: 'Nouvelle idée · {b}', sbYes: '{n} peut remplacer', evSum: 'Inscriptions closes : {t}', evSumBody: '{a} viennent · {b} non · {c} sans réponse', promoted: 'Tu as une place : {t}', promotedBody: 'Une place s’est libérée, tu en fais partie.', overdue: '{b} · {t} pas terminé', overdueBody: '{n} sur {m} ouverts, à faire avant {h}', poll: 'Merci de participer : {t}', pollBody: 'Petit sondage, une minute.' , todoHand: 'Tâche transmise par {n}', rem: 'Rappel : {t}', cover: 'Tu remplaces {n} aujourd’hui', coverBody: '{k} tâches ouvertes te reviennent' },
+  DE: { tcFile: 'Anhang', tcFiles: '{n} Anhänge', must: 'Bitte lesen: {t}', newsFallback: 'Neue News im TeamHub', ev: 'Neu: {k} „{t}“', join: 'jetzt anmelden', ticket: 'Deine Meldung', on: 'Mitteilungen sind eingeschaltet.', todo: 'Neue Aufgabe von {n}', until: 'bis', sb: 'Aushilfe gesucht · {b}', sbOk: 'Du hilfst aus · {b}', evRem: 'Bitte antworten: {t}', evRemBody: 'Kommst du? Kurz zu- oder absagen.', tkNew: 'Neue Meldung · {b}', ideaNew: 'Neue Idee · {b}', sbYes: '{n} kann aushelfen', evSum: 'Anmeldeschluss: {t}', evSumBody: '{a} kommen · {b} nicht · {c} ohne Antwort', promoted: 'Du bist nachgerückt: {t}', promotedBody: 'Ein Platz ist frei geworden, du bist dabei.', overdue: '{b} · {t} noch offen', overdueBody: '{n} von {m} offen, fällig bis {h}', poll: 'Bitte mitmachen: {t}', pollBody: 'Kurze Umfrage, dauert eine Minute.' , todoHand: 'Aufgabe weitergegeben von {n}', rem: 'Erinnerung: {t}', cover: 'Du vertrittst heute {n}', coverBody: '{k} offene Aufgaben gehen an dich' },
+  EN: { tcFile: 'Attachment', tcFiles: '{n} attachments', must: 'Please read: {t}', newsFallback: 'New news in TeamHub', ev: 'New: {k} “{t}”', join: 'register now', ticket: 'Your report', on: 'Notifications are on.', todo: 'New task from {n}', until: 'by', sb: 'Cover needed · {b}', sbOk: 'You are covering · {b}', evRem: 'Please reply: {t}', evRemBody: 'Are you coming? Quick yes or no.', tkNew: 'New report · {b}', ideaNew: 'New idea · {b}', sbYes: '{n} can cover', evSum: 'Registration closed: {t}', evSumBody: '{a} coming · {b} not · {c} no reply', promoted: 'You moved up: {t}', promotedBody: 'A place became free, you are in.', overdue: '{b} · {t} still open', overdueBody: '{n} of {m} open, due by {h}', poll: 'Please take part: {t}', pollBody: 'Short survey, takes a minute.' , todoHand: 'Task handed over by {n}', rem: 'Reminder: {t}', cover: 'You are covering for {n} today', coverBody: '{k} open tasks now go to you' },
+  FR: { tcFile: 'Pièce jointe', tcFiles: '{n} pièces jointes', must: 'À lire : {t}', newsFallback: 'Nouvelle actualité dans TeamHub', ev: 'Nouveau : {k} « {t} »', join: 'inscris-toi', ticket: 'Ton signalement', on: 'Les notifications sont activées.', todo: 'Nouvelle tâche de {n}', until: 'avant', sb: 'Remplacement recherché · {b}', sbOk: 'Tu remplaces · {b}', evRem: 'Merci de répondre : {t}', evRemBody: 'Tu viens ? Réponds oui ou non.', tkNew: 'Nouveau signalement · {b}', ideaNew: 'Nouvelle idée · {b}', sbYes: '{n} peut remplacer', evSum: 'Inscriptions closes : {t}', evSumBody: '{a} viennent · {b} non · {c} sans réponse', promoted: 'Tu as une place : {t}', promotedBody: 'Une place s’est libérée, tu en fais partie.', overdue: '{b} · {t} pas terminé', overdueBody: '{n} sur {m} ouverts, à faire avant {h}', poll: 'Merci de participer : {t}', pollBody: 'Petit sondage, une minute.' , todoHand: 'Tâche transmise par {n}', rem: 'Rappel : {t}', cover: 'Tu remplaces {n} aujourd’hui', coverBody: '{k} tâches ouvertes te reviennent' },
 }
 const fill = (s: string, v: Record<string, string>) => s.replace(/\{(\w+)\}/g, (_, k) => v[k] ?? '')
 const LOC: Record<Lang, string> = { DE: 'de-CH', EN: 'en-GB', FR: 'fr-CH' }
@@ -53,7 +54,7 @@ Deno.serve(async (req) => {
     catch { return json({ ok: false, error: 'chat_push_failed' }, 500) }
   }
 
-  const { data: emps } = await admin.from('employees').select('id, first_name, branch_id, extra_branch_ids, skills, app_role, lang, job_title, notify_prefs, deputy_id').eq('active', true)
+  const { data: emps } = await admin.from('employees').select('id, first_name, last_name, branch_id, extra_branch_ids, skills, app_role, lang, job_title, notify_prefs, deputy_id').eq('active', true)
   const staff = emps ?? []
   const inBranches = (e: any, br: string[]) => br.length === 0 || br.includes(e.branch_id) || (e.extra_branch_ids ?? []).some((b: string) => br.includes(b))
   // Gleiche Regel wie public.job_groups() / news_for_me() in der Datenbank
@@ -147,6 +148,20 @@ Deno.serve(async (req) => {
     if (tk?.created_by) add(await sendByLang(admin, staff, [tk.created_by], (l) => ({ title: L[l].ticket, body: `${tk.title}: ${t.what}`, url: `/?open=ticket:${t.ticket_id}`, tag: `ticket-${t.ticket_id}` })))
   }
   await admin.from('ticket_events').update({ notified_at: now }).is('notified_at', null).eq('what', 'Erfasst')
+  // Kommentar auf eine Meldung oder Idee (Büro 19.11.): an die meldende Person, die zuständige Person und alle,
+  // die schon mitgeschrieben haben; nie an die Schreiberin selbst.
+  const { data: tcs } = await admin.from('ticket_comments').select('id, ticket_id, author_id, author_name, body, attachments, tickets(title, created_by, assignee)').is('notified_at', null).order('created_at').limit(50)
+  for (const c of tcs ?? []) {
+    await admin.from('ticket_comments').update({ notified_at: now }).eq('id', c.id)
+    const tk: any = Array.isArray(c.tickets) ? c.tickets[0] : c.tickets
+    if (!tk) continue
+    const { data: thread } = await admin.from('ticket_comments').select('author_id').eq('ticket_id', c.ticket_id)
+    const assignee = staff.find((e) => tk.assignee && `${e.first_name} ${e.last_name}` === tk.assignee)?.id
+    const ids = [...new Set([tk.created_by, assignee, ...(thread ?? []).map((x: any) => x.author_id)])].filter((id) => id && id !== c.author_id && staff.some((e) => e.id === id)) as string[]
+    const files = Array.isArray(c.attachments) ? c.attachments.length : 0
+    const first = String(c.author_name ?? '').split(' ')[0]
+    add(await sendByLang(admin, staff, ids, (l) => ({ title: tk.title, body: `${first}: ${String(c.body ?? '').trim().slice(0, 140) || (files > 1 ? fill(L[l].tcFiles, { n: String(files) }) : L[l].tcFile)}`, url: `/?open=ticket:${c.ticket_id}`, tag: `ticket-${c.ticket_id}` })))
+  }
   // Abwesend heute (Stellvertretung, 28.10.): Aufgaben einer abwesenden Person gehen auch an ihre Ersatzperson
   const zDay = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Zurich' }).format(new Date())
   const { data: absent } = await admin.from('employee_absences').select('id, employee_id, deputy_notified_at').lte('from_day', zDay).gte('until_day', zDay)

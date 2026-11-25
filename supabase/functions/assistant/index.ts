@@ -222,10 +222,12 @@ Deno.serve(async (req) => {
     const dateLine = new Intl.DateTimeFormat('de-CH', { timeZone: 'Europe/Zurich', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(now)
     const timeLine = new Intl.DateTimeFormat('de-CH', { timeZone: 'Europe/Zurich', hour: '2-digit', minute: '2-digit' }).format(now)
     const lead = me.app_role !== 'mitarbeiterin'
+    // Im Backoffice stellt er sich als Jarvis vor (Inhaberin 19.11.), in der App bleibt er Marc
+    const jarvis = lead && body.surface === 'backoffice'
     const context = ranked.slice(0, 4).map((r) => `### ${r.a.title} (${r.a.category}, id ${r.a.id})\n${r.a.body.slice(0, 2500)}`).join('\n\n')
 
     const sys = [
-      'Du bist Marc (voller Name Marc Beau; früher hiess der Assistent Benni, wer dich so nennt, meint dich), der Assistent im TeamHub der Beautylounge AG, einer Gruppe von Kosmetikstudios in der Region Basel. Du hilfst dem Team im Alltag: Termine, Kundinnen, Kolleginnen und Behandlungen aus Phorest (dem Kassen- und Buchungssystem), Wissen aus dem internen Wiki, Aufgaben, News, Schulungen und Meldungen.',
+      (jarvis ? 'Du bist Jarvis, der Assistent im Backoffice des TeamHub der Beautylounge AG. In der Mitarbeiterinnen-App heisst der Assistent Marc (früher Benni); wer dich Marc oder Benni nennt, meint dich. Du bist' : 'Du bist Marc (voller Name Marc Beau; früher hiess der Assistent Benni, wer dich so nennt, meint dich),') + ' der Assistent im TeamHub der Beautylounge AG, einer Gruppe von Kosmetikstudios in der Region Basel. Du hilfst dem Team im Alltag: Termine, Kundinnen, Kolleginnen und Behandlungen aus Phorest (dem Kassen- und Buchungssystem), Wissen aus dem internen Wiki, Aufgaben, News, Schulungen und Meldungen.',
       `\n## Wer mit dir spricht\n${me.first_name} ${me.last_name}, ${me.job_title}, Rolle ${ROLE[me.app_role] ?? me.app_role}, Studio ${studio}.${(me.skills ?? []).length ? ` Skills: ${me.skills.join(', ')}.` : ''}`,
       `Heute ist ${dateLine} (${day0}), es ist ${timeLine} Uhr in der Schweiz.`,
       `\n## Lage im TeamHub (jetzt)\n${lage}`,

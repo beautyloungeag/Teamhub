@@ -112,7 +112,7 @@ export function recordDefs(me: Me): Def[] {
     ['vorschlag_studio', `Studio anlegen oder ändern (Name, Phorest-Filial-ID, eigene Facility-Adresse). ${v}`, { studio_id: str('leer = neu'), name: str(), phorest_id: str('freiwillig, kann später ergänzt werden'), facility_email: str('freiwillig, leer = zentrale Adresse') }, []],
     ['vorschlag_einstellung', `Einstellung ändern: ${Object.entries(SETTINGS).map(([k, x]) => `${k} (${x.label})`).join(', ')}. ${v}`, { schluessel: { type: 'string', enum: Object.keys(SETTINGS) }, wert: { description: 'true/false, Zahl oder Text' } }, ['schluessel', 'wert']],
     ['vorschlag_vorschlaege_freigeben', `Alle Vorschläge aus dem Wissen auf einmal freigeben: Checklisten oder Lektionen. ${v}`, { art: { type: 'string', enum: ['checklisten', 'lektionen'] } }, ['art']],
-    ['vorschlag_thema', `Wissens-Thema neu anlegen, umbenennen (alle Artikel ziehen mit) oder Symbol (Emoji) ändern. ${v}`, { aktion: { type: 'string', enum: ['neu', 'umbenennen', 'symbol'] }, name: str(), neuer_name: str(), symbol: str('ein Emoji') }, ['aktion', 'name']],
+    ['vorschlag_thema', `Wissens-Thema neu anlegen, umbenennen (alle Artikel ziehen mit), Symbol (Emoji) ändern oder einem Bereich zuordnen (aktion bereich, z. B. Thema «Organisation» in den Bereich «Organisation»). ${v}`, { aktion: { type: 'string', enum: ['neu', 'umbenennen', 'symbol', 'bereich'] }, name: str(), neuer_name: str(), symbol: str('ein Emoji'), bereich: str('Name des Bereichs, nur bei aktion bereich') }, ['aktion', 'name']],
   )
   return defs
 }
@@ -579,6 +579,16 @@ export async function recordPropose(name: string, a: any, c: Ctx): Promise<Propo
       const { count } = await db.from('wiki_articles').select('id', { count: 'exact', head: true }).ilike('category', nm)
       if (!count) return { error: 'thema_nicht_gefunden' }
       return { kind: 'topic', title: 'Thema umbenennen', payload: { action: 'rename', name: nm, to }, lines: [`${nm} → ${to}`, `${count} Artikel ziehen mit`] } }
+    if (a.aktion === 'bereich') {
+      const want = s(a.bereich, 60); if (!want) return { error: 'bereich_noetig' }
+      const { data: areas } = await db.from('wiki_areas').select('key, name, access_level').order('sort')
+      const area = (areas ?? []).find((x: any) => x.name.toLowerCase() === want.toLowerCase() || x.key === want.toLowerCase())
+      if (!area) return { error: 'bereich_nicht_gefunden', bereiche: (areas ?? []).map((x: any) => x.name) }
+      // Ein geschützter Bereich schränkt die Sichtbarkeit aller Artikel des Themas ein: das bleibt bewusst im Backoffice
+      if (area.access_level !== 'alle') return { error: 'geschuetzter_bereich', hinweis: 'Geschützte Bereiche im Backoffice zuordnen: Wissen → Thema öffnen → Bereich.' }
+      const { data: cat } = await db.from('wiki_categories').select('emoji').eq('key', nm.trim().toLowerCase()).maybeSingle()
+      return { kind: 'topic', title: 'Thema einem Bereich zuordnen', payload: { action: 'area', name: nm, area: area.key, emoji: cat?.emoji || '📄' }, lines: [`Thema ${nm}`, `Bereich ${area.name}`] }
+    }
     const emoji = s(a.symbol, 16) || (a.aktion === 'neu' ? '📄' : '')
     if (!emoji) return { error: 'symbol_noetig' }
     return { kind: 'topic', title: a.aktion === 'neu' ? 'Thema anlegen' : 'Symbol ändern', payload: { action: 'emoji', name: nm, emoji }, lines: [`${emoji} ${nm}`, ...(a.aktion === 'neu' ? ['Erscheint in der App, sobald ein sichtbarer Artikel darin ist'] : [])] }
@@ -736,6 +746,7 @@ export async function recordExecute(act: Action, c: Ctx): Promise<Res | null> {
     }
     case 'topic': {
       if (p.action === 'rename') { const { error } = await db.rpc('rename_wiki_category', { p_old: p.name, p_new: p.to }); if (error) return fail(error, 'Umbenennen'); await sync(); return { ok: true, text: `Das Thema heisst jetzt ${p.to}.` } }
+      if (p.action === 'area') { const { error } = await db.from('wiki_categories').upsert({ key: p.name.trim().toLowerCase(), emoji: p.emoji, area_key: p.area, updated_at: now() }); return error ? fail(error, 'Thema') : { ok: true, text: 'Das Thema ist dem Bereich zugeordnet.' } }
       const { error } = await db.from('wiki_categories').upsert({ key: p.name.trim().toLowerCase(), emoji: p.emoji, updated_at: now() })
       return error ? fail(error, 'Thema') : { ok: true, text: 'Gespeichert.' }
     }

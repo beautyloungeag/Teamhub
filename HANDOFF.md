@@ -1,5 +1,20 @@
 # HANDOFF — Beautylounge TeamHub
 
+### 2026-11-25 — Paket nach dem Go-Live: Kommentare mit Anhängen, News auf «Heute», Büro-Gruppen, Jarvis
+
+- **Anlass:** Wünsche des Büros vom 19.–24.11. nach dem Start in allen Filialen. Befund vorab: nur 10 von 52 Konten hatten Mitteilungen eingeschaltet, das erklärt die meisten «Alert»-Wünsche.
+- **Meldungen & Ideen:** Kommentare tragen bis sechs Anhänge (Foto, Video, PDF, beliebige Datei, je 50 MB; `ticket_comments.attachments`, Dateien in `ticket-photos/<eigene id>/c-<kommentar>-<n>.<endung>`). HEIC wird im Browser zu JPEG, wo er es lesen kann, sonst bleibt die Datei und erscheint als Datei zum Öffnen (`src/lib/files.ts`). Ein Kommentar löst jetzt eine Mitteilung aus: an meldende, zuständige und mitschreibende Personen, nie an die Schreiberin (`notify`, `ticket_comments.notified_at`). Der Wächter `guard_comment_attachments` lässt nur Pfade aus dem eigenen Ordner mit der ID des Kommentars zu, sonst liesse sich über einen Kommentar Leserecht auf fremde Dateien holen.
+- **App «Heute»:** ungelesene News stehen direkt unter dem Begrüssungsbild (Pflicht zuerst, höchstens zwei, Rest über «Alle n ungelesenen News»). «Gelesen» nimmt eine News von der Startseite (`open_news`), Pflicht-News nur über Öffnen und Bestätigen. Der Streifen «Neu für dich» zeigt nur noch Wissen und Schulungen. Neue Karte «Mitteilungen einschalten», solange Push auf dem Gerät möglich, aber aus ist («Später» = 7 Tage).
+- **Wissen:** Thema einem Bereich zuordnen schlug fehl, sobald das Thema noch kein eigenes Emoji hatte (Upsert ohne Pflichtspalte `emoji`, Postgres 23502). Behoben; der Assistent kann es jetzt auch (`vorschlag_thema` mit `aktion: bereich`, nur ungeschützte Bereiche). «Duplizieren» legt eine Kopie als Entwurf an, jede Datei wird kopiert (sonst stören sich Original und Kopie beim Verschieben). «Erzeugen» beim Titelbild: `newsdraft` Aktion `cover` (Bildidee aus Titel, Kurzfassung, Textanfang; Ablage `wiki/<sichtbarkeit>/`). Dateien lassen sich überall auf den Artikel ziehen, nicht nur in den Text (ausserhalb landen sie am Textende; aufs Titelbild-Feld gezogen werden sie Titelbild).
+- **Team:** Büro setzt oder entfernt das Profilbild einer Person (Team → Person → Kamera am Bild). Datei liegt im Ordner der hochladenden Person, Verweis am Profil.
+- **Aushilfe:** Skill-Filter mit Mehrfachauswahl, gezeigt wird, wer alle gewählten Skills hat.
+- **Chats:** Büro legt benannte Gruppen an («Neue Gruppe», ganze Studios per Chip), verwaltet Name und Mitglieder und löscht sie (`chat_rooms.office`, `start_chat` erweitert, `update_office_group`, `delete_office_group`). Einzelchats und eigene Gruppen der Mitarbeiterinnen bleiben am Schalter `chat_private` (aus).
+- **Jarvis:** Im Backoffice heisst der Assistent Jarvis (Navigation, Chat, Knöpfe im Wissen und bei News; Server: `surface: 'backoffice'`), in der App bleibt er Marc.
+- **Geprüft (lokale Vorschau gegen die echte Datenbank, als Büro und als Test-Mitarbeiterin):** Kommentar mit PNG, PDF und HEIC gesendet und als meldende Person gelesen; Thema «Organisation» dem Bereich zugeordnet (bleibt so, war der gemeldete Fall); Artikel dupliziert, Titelbild erzeugt, Bild per Drop eingefügt; Gruppe angelegt, Nachricht gesendet, als Mitglied gesehen; Profilbild gesetzt; Skill-Filter. Alle Testdaten per ID gelöscht. 101 Tests grün.
+- **Nicht geprüft:** Ankunft der Mitteilung auf einem echten Handy (der Lauf setzt `notified_at`, das Testkonto hat kein Abo auf diesem Gerät), HEIC-Umwandlung in Safari, Upload grosser Videos über Mobilfunk.
+- **Functions:** `notify` v17, `assistant` v54, `newsdraft` v6. Migrationen `20261125100000_kommentar_anhaenge.sql`, `20261125110000_buero_gruppen.sql` sind live. Hinweis: Die Supabase-CLI verlangt für Deploys auf Produktion inzwischen `--yes`.
+- **Offen:** Videoanleitung für Mitarbeiterinnen, Claude-Plugin (MCP) und Architekturübersicht zur Abnahme, Warnung «Disk IO Budget» vom 23.11. untersuchen.
+
 ### 2026-11-19 — Marc erzeugt Bilder für Wissensartikel
 
 - **Anlass:** Renée (13.11.) braucht je Artikel 10–15 Bilder; zugesagt bis Ende Woche.

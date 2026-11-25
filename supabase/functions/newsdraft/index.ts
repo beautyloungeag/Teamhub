@@ -51,5 +51,37 @@ Deno.serve(async (req) => {
       return json({ ok: true, path })
     } catch (e) { return json({ ok: false, error: 'ai_unavailable', detail: String(e) }, 503) }
   }
+  // Titelbild für einen Wissensartikel aus seinem Inhalt (Büro 19.11.): erst eine Bildidee aus Titel und Text, dann das Bild.
+  // Ablage unter wiki/<Sichtbarkeit>/, damit die Leserechte des Artikels auch für sein Titelbild gelten.
+  if (body.action === 'cover') {
+    if (me?.app_role !== 'buero') return json({ ok: false, error: 'forbidden' }, 403)
+    const title = String(body.title ?? '').slice(0, 200), intro = String(body.intro ?? '').slice(0, 400), text = String(body.text ?? '').slice(0, 1500), topic = String(body.topic ?? '').slice(0, 80)
+    const level = ['alle', 'filialleitung', 'buero'].includes(body.level) ? body.level : 'alle'
+    const key = Deno.env.get('OPENAI_API_KEY')
+    if (!key || !title.trim()) return json({ ok: false, error: 'empty' }, 400)
+    try {
+      const idea = await aiJson<{ image_prompt: string }>([
+        'Du beschreibst ein Titelbild für einen internen Wissensartikel der Beautylounge AG (Kosmetikstudios in der Region Basel).',
+        'image_prompt: eine kurze englische Bildbeschreibung (höchstens 60 Wörter) für ein ruhiges, hochwertiges Foto, das das Thema des Artikels zeigt: ein konkretes Motiv aus dem Studioalltag, warmes natürliches Licht.',
+        'Keine Schrift im Bild, keine Logos, keine erkennbaren Gesichter, keine Markennamen.',
+        'Gib nur JSON zurück: {"image_prompt":string}',
+      ].join('\n'), `Thema: ${topic}\nTitel: ${title}\nKurzfassung: ${intro}\nTextanfang: ${text}`)
+      const prompt = String(idea.image_prompt ?? '').slice(0, 1200) || title
+      const r = await fetch('https://api.openai.com/v1/images/generations', {
+        method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: Deno.env.get('IMAGE_MODEL') ?? 'gpt-image-2.5-sunburst', prompt: `${prompt}. Calm premium photography, natural light, muted olive and stone tones, no text, no logos, no recognizable faces.`, size: '1536x1024', n: 1 }),
+        signal: AbortSignal.timeout(120000),
+      })
+      if (!r.ok) throw new Error(`openai_${r.status}`)
+      const b64 = (await r.json()).data?.[0]?.b64_json
+      if (!b64) throw new Error('no_image')
+      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
+      const admin = createClient(url, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
+      const path = `wiki/${level}/${Date.now()}-titelbild-${crypto.randomUUID().slice(0, 8)}.png`
+      const { error } = await admin.storage.from('media').upload(path, bytes, { contentType: 'image/png' })
+      if (error) throw error
+      return json({ ok: true, path })
+    } catch (e) { return json({ ok: false, error: 'ai_unavailable', detail: String(e) }, 503) }
+  }
   return json({ ok: false, error: 'unknown_action' }, 400)
 })

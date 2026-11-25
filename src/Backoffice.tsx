@@ -4,7 +4,7 @@ import { ChatHub, ChatRoom, useChatUnread } from './Chats'
 import { Terminbuch } from './Calendar'
 import { useApp } from './store'
 import { startParams } from './lib/start'
-import { ASSISTANT } from './Mobile'
+import { OFFICE_ASSISTANT as ASSISTANT } from './Mobile'
 
 import { BMark } from './Logo'
 import { SideNav } from './Nav'
@@ -109,9 +109,9 @@ export default function Backoffice({ onSwitch }: { onSwitch?: () => void }) {
 function OfficeChats({ onMarc, onTickets, compact }: { onMarc: () => void; onTickets: () => void; compact: boolean }) {
   const [room, setRoom] = useState<string | null>(null)
   if (compact) return <div className="h-full min-h-0 flex flex-col">{room ? <ChatRoom key={room} id={room} onBack={() => setRoom(null)} />
-    : <div className="h-full overflow-y-auto no-scrollbar pt-4"><ChatHub compact active={room} onOpenMarc={onMarc} onOpenTickets={onTickets} onOpenRoom={setRoom} /></div>}</div>
+    : <div className="h-full overflow-y-auto no-scrollbar pt-4"><ChatHub compact assistant={ASSISTANT} active={room} onOpenMarc={onMarc} onOpenTickets={onTickets} onOpenRoom={setRoom} /></div>}</div>
   return <div className="h-full grid grid-cols-[420px_minmax(0,1fr)]">
-    <div className="h-full overflow-y-auto no-scrollbar border-r border-line pt-6"><ChatHub compact active={room} onOpenMarc={onMarc} onOpenTickets={onTickets} onOpenRoom={setRoom} /></div>
+    <div className="h-full overflow-y-auto no-scrollbar border-r border-line pt-6"><ChatHub compact assistant={ASSISTANT} active={room} onOpenMarc={onMarc} onOpenTickets={onTickets} onOpenRoom={setRoom} /></div>
     <div className="h-full min-h-0 bg-white">{room ? <ChatRoom key={room} id={room} embedded onBack={() => setRoom(null)} />
       : <div className="h-full flex items-center justify-center text-[15px] text-mute">Wähle links einen Chat.</div>}</div>
   </div>

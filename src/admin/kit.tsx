@@ -25,7 +25,7 @@ export function OnComputer({ title, hint, marc, onMarc, children }: { title: str
     <p className="mt-4 text-[19px] font-medium">{title}</p>
     <p className="mt-2 text-[14.5px] text-mute">Hier sind breite Tabellen und viele Felder, das klappt am Handy nur mühsam.{hint ? ` ${hint}` : ''}</p>
     <div className="mt-6 flex flex-col gap-2">
-      {onMarc && <button onClick={onMarc} className={`${btn} h-11`}>{marc ?? 'Frag Marc'}</button>}
+      {onMarc && <button onClick={onMarc} className={`${btn} h-11`}>{marc ?? 'Frag Jarvis'}</button>}
       <button onClick={() => setOpen(true)} className={`${btn2} h-11`}>Trotzdem öffnen</button>
     </div>
   </div>

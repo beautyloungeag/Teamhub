@@ -1,7 +1,7 @@
 import { captureAccountScope, isCurrentAccountScope, onAccountScopeChange, type AccountScope } from './lib/account-scope'
 import { scrollInPane } from './lib/mobile-viewport'
 import { ViewportOverlay } from './ViewportOverlay'
-import { useEffect, useRef, useState, useSyncExternalStore, type ClipboardEvent, type DragEvent, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, useSyncExternalStore, type ClipboardEvent, type DragEvent, type ReactNode } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { ArrowUp, ArrowUpRight, BookOpen, Check, ChevronDown, ChevronLeft, ExternalLink, FileSpreadsheet, FileText, Globe, Mail, MessagesSquare, Mic, Paperclip, Phone, Sparkles, Square, SquarePen, Trash2, X } from 'lucide-react'
 import { supabase, SUPABASE_URL, SUPABASE_ANON } from './lib/supabase'
@@ -97,7 +97,7 @@ export function openNewBenniChat(question?: string) {
   window.dispatchEvent(new Event('th-benni'))
 }
 
-async function sendMessage(owner: string, text: string, files: Attach[], opts: { model: Tier; web: boolean }, failText: string, after: () => void) {
+async function sendMessage(owner: string, text: string, files: Attach[], opts: { model: Tier; web: boolean; surface?: 'app' | 'backoffice' }, failText: string, after: () => void) {
   const scope = captureAccountScope(owner)
   if (!supabase || !scope) return
   S.owner = owner; S.scopeVersion = scope.version
@@ -117,7 +117,7 @@ async function sendMessage(owner: string, text: string, files: Attach[], opts: {
   c.msgs = [...(c.msgs ?? []), { id: 'u' + Date.now(), me: true, t: text, data: files.length ? { files: files.map(f => ({ name: f.name, kind: f.kind, url: f.preview })) } : {}, at: now() }]
   c.busy = true; c.steps = [{ step: 'think' }]; c.updated = now()
   S.chats = [c, ...S.chats.filter(x => x !== c)]; bump()
-  const ans: BenniAnswer = await askBenni({ chat_id: c.id, message: text, files: files.map(f => f.payload), model: opts.model, web: opts.web }, e => {
+  const ans: BenniAnswer = await askBenni({ chat_id: c.id, message: text, files: files.map(f => f.payload), model: opts.model, web: opts.web, surface: opts.surface ?? 'app' }, e => {
     if (!isCurrentAccountScope(scope) || !S.chats.includes(c)) return
     if ('title' in e && e.title) c.title = e.title; else c.steps = [...c.steps, e as Step]
     bump()
@@ -130,6 +130,9 @@ async function sendMessage(owner: string, text: string, files: Attach[], opts: {
   c.busy = false; c.steps = []; c.updated = now(); bump()
   after()
 }
+
+// Name des Assistenten je Oberfläche: Marc in der App, Jarvis im Backoffice (19.11.)
+const Who = createContext('Marc')
 
 /** Fragt Marc; meldet Arbeitsschritte und den Chat-Titel, sobald sie da sind (NDJSON-Stream der Function). */
 async function askBenni(body: Record<string, unknown>, onEvent: (e: Step | { title: string }) => void, scope: AccountScope | null = captureAccountScope()): Promise<BenniAnswer> {
@@ -416,13 +419,14 @@ function BenniMessage({ m, next, latest, busy, hidden, variant, send, onOpenArti
   m: ChatMsg; next?: ChatMsg; latest: boolean; busy: boolean; hidden: boolean; variant: 'app' | 'panel'; send: (s: string) => void
   onOpenArticle?: (id: string) => void; onOpenClient?: (id: string) => void
 }) {
+  const who = useContext(Who)
   const { t, addTicket } = useApp()
   const d = m.data, cards = d.cards ?? []
   return (
     <div className="flex gap-2.5 items-start">
       <BenniAvatar className="w-7 h-7 mt-0.5" />
       <div className="min-w-0 flex-1 max-w-[560px]">
-        <p className="text-[13px] text-mute mb-1"><span className="text-ink/80 font-medium">Marc</span> · {hhmm(m.at)}</p>
+        <p className="text-[13px] text-mute mb-1"><span className="text-ink/80 font-medium">{who}</span> · {hhmm(m.at)}</p>
         {cards.length > 0 && <div className="space-y-2 mb-2">{cards.map((c, i) => <LessonCard key={i} c={c} i={i} n={cards.length} hidden={hidden} />)}</div>}
         {m.t && <div className={bubble(variant)}><BenniText text={m.t} />
           {!hidden && !d.quiz && d.sources?.map(s => onOpenArticle
@@ -468,6 +472,7 @@ const TIERS: { k: Tier; name: string; hint: string; model: string }[] = [
 let tierPref: Tier = (() => { try { const v = localStorage.getItem('th-benni-model'); return v === 'schnell' || v === 'stark' ? v : 'standard' } catch { return 'standard' } })()
 
 function Composer({ busy, variant, onSend, draftKey }: { busy: boolean; variant: 'app' | 'panel'; draftKey: string; onSend: (text: string, files: Attach[], opts: { model: Tier; web: boolean }) => void }) {
+  const who = useContext(Who)
   const { t, lang, employee } = useApp()
   const [scope] = useState(() => captureAccountScope(employee.id))
   const [v, setV] = useState(() => drafts.get(draftKey) ?? ''), [files, setFiles] = useState<Attach[]>([]), [tier, setTier] = useState<Tier>(tierPref), [web, setWeb] = useState(false), [menu, setMenu] = useState(false)
@@ -516,9 +521,9 @@ function Composer({ busy, variant, onSend, draftKey }: { busy: boolean; variant:
           <button onClick={() => setFiles(x => x.filter(y => y.id !== f.id))} aria-label={t('Entfernen')} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-ink text-white flex items-center justify-center"><X size={11} /></button>
         </span>))}</div>}
       {dict.state === 'idle' ? (
-        <textarea ref={area} rows={1} aria-label={t('Frag Marc …')} value={v} onChange={e => setV(e.target.value)} onPaste={onPaste}
+        <textarea ref={area} rows={1} aria-label={t('Frag {name} …', { name: who })} value={v} onChange={e => setV(e.target.value)} onPaste={onPaste}
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !touch && !e.nativeEvent.isComposing) { e.preventDefault(); send() } }}
-          placeholder={t('Frag Marc …')} className="chat-composer-input block w-full resize-none bg-transparent px-4 pt-3.5 pb-1 text-[17px] leading-[22px] outline-none placeholder:text-mute max-h-[168px]" />
+          placeholder={t('Frag {name} …', { name: who })} className="chat-composer-input block w-full resize-none bg-transparent px-4 pt-3.5 pb-1 text-[17px] leading-[22px] outline-none placeholder:text-mute max-h-[168px]" />
       ) : (
         <div className="px-4 pt-3.5 pb-1 min-h-[36px] text-[17px] leading-[22px]" aria-live="polite">
           {v.trim() && <span>{v.trim()} </span>}
@@ -562,6 +567,7 @@ function Composer({ busy, variant, onSend, draftKey }: { busy: boolean; variant:
 
 /* ---------- Chatliste ---------- */
 function ChatList({ onPicked }: { onPicked?: () => void }) {
+  const who = useContext(Who)
   const { t } = useApp()
   const st = useBenni()
   const [armed, setArmed] = useState<string | null>(null)
@@ -580,7 +586,7 @@ function ChatList({ onPicked }: { onPicked?: () => void }) {
           return (
             <li key={c.id} className={`group relative flex items-center rounded-[10px] transition ${on ? 'bg-sage-100' : 'hover:bg-sage-50'}`}>
               <button onClick={() => { openChat(c.id); onPicked?.() }} className="flex-1 min-w-0 text-left pl-3 pr-2 h-10 flex items-center gap-2">
-                {c.busy && <span className="w-1.5 h-1.5 rounded-full bg-olive-700 animate-pulse shrink-0" aria-label={t('Marc arbeitet …')} />}
+                {c.busy && <span className="w-1.5 h-1.5 rounded-full bg-olive-700 animate-pulse shrink-0" aria-label={t('{name} arbeitet …', { name: who })} />}
                 <span className={`truncate text-[15.5px] ${on ? 'text-ink' : 'text-ink/80'}`}>{c.title || t('Neuer Chat')}</span>
               </button>
               {armed === c.id
@@ -600,7 +606,13 @@ const IDEAS = ['Was steht heute bei mir an?', 'Lass uns mit dem Onboarding weite
 const IDEAS_OFFICE = ['Schreib aus meinem Text einen Wissensartikel', 'Ersetze einen Wissensartikel durch eine neue Fassung', 'Veröffentliche eine News für alle Studios', 'Wer hat auf die nächste Schulung noch nicht geantwortet?']
 const IDEAS_LEAD = ['Gib meinem Studio eine Aufgabe für morgen', 'Leg ein Team-Meeting an', 'Frag eine Aushilfe für Samstag an', 'Wer hat auf die nächste Schulung noch nicht geantwortet?']
 
-export function BenniChat({ variant = 'app', backoffice = false, onOpenArticle, onOpenClient, onClose, onBack }: { variant?: 'app' | 'panel'; backoffice?: boolean; onOpenArticle?: (id: string) => void; onOpenClient?: (id: string) => void; onClose?: () => void; onBack?: () => void }) {
+type BenniChatProps = { variant?: 'app' | 'panel'; backoffice?: boolean; onOpenArticle?: (id: string) => void; onOpenClient?: (id: string) => void; onClose?: () => void; onBack?: () => void }
+export function BenniChat(props: BenniChatProps) {
+  const { me } = useApp()
+  const office = !!props.backoffice && (me.app_role === 'buero' || me.app_role === 'filialleitung')
+  return <Who.Provider value={office ? 'Jarvis' : 'Marc'}><BenniChatBody {...props} /></Who.Provider>
+}
+function BenniChatBody({ variant = 'app', backoffice = false, onOpenArticle, onOpenClient, onClose, onBack }: BenniChatProps) {
   const { employee, me, t, reload } = useApp()
   const st = useBenni()
   const copilot = backoffice && (me.app_role === 'buero' || me.app_role === 'filialleitung')
@@ -610,8 +622,8 @@ export function BenniChat({ variant = 'app', backoffice = false, onOpenArticle, 
   const chat = st.chats.find(c => c.id === st.active) ?? null
   const msgs = chat?.msgs ?? []
   useEffect(() => { loadChats(employee.id) }, [employee.id, st.loaded])
-  const send = (text: string, files: Attach[] = [], opts = { model: tierPref, web: false }) =>
-    sendMessage(employee.id, text, files, opts, t('Ich bin gerade nicht erreichbar. Bitte versuche es gleich noch einmal.'), () => { reload(); reloadTodos() })
+  const send = (text: string, files: Attach[] = [], opts: { model: Tier; web: boolean } = { model: tierPref, web: false }) =>
+    sendMessage(employee.id, text, files, { ...opts, surface: copilot ? 'backoffice' : 'app' }, t('Ich bin gerade nicht erreichbar. Bitte versuche es gleich noch einmal.'), () => { reload(); reloadTodos() })
   // Frage aus dem Onboarding („Mit Marc lernen“)
   useEffect(() => { if (pendingAsk) { const q = pendingAsk; pendingAsk = null; send(q) } }, [st.ver]) // eslint-disable-line react-hooks/exhaustive-deps
   // Neue Antwort: Frage und Antwortanfang zeigen (lange Antworten liest man von oben); sonst ans Ende

@@ -19,7 +19,7 @@ test('comments use profile author, preserve failed draft with retry, guard pendi
   f.send((...args) => { calls.push(args); return ++count === 1 ? pending.promise : Promise.resolve(true) });
   const ui = await mount(h(f.Comments, { tk: ticket })); t.after(() => ui.close());
   assert.match(ui.host.textContent, /Test Person/); assert.doesNotMatch(ui.host.textContent, /Untrusted display name/);
-  const area = ui.host.querySelector('textarea'), button = ui.host.querySelector('button');
+  const area = ui.host.querySelector('textarea'), button = ui.host.querySelector('button[aria-label="Kommentar senden"]');
   assert.equal(button.getAttribute('aria-label'), 'Kommentar senden'); assert.match(button.className, /h-11 w-11/);
   await type(area, 'A useful\ncomment');
   await React.act(async () => { button.dispatchEvent(new MouseEvent('click', { bubbles: true })); button.dispatchEvent(new MouseEvent('click', { bubbles: true })); await Promise.resolve() });
@@ -40,7 +40,7 @@ test('comments mobile Enter and IME do not send; ticket/account switch clears dr
   await key(ui.host.querySelector('textarea'), 'Enter'); assert.equal(count, 0);
   window.matchMedia = () => ({ matches: true });
   await key(ui.host.querySelector('textarea'), 'Enter', { isComposing: true }); assert.equal(count, 0);
-  await click(ui.host.querySelector('button')); assert.equal(count, 1);
+  await click(ui.host.querySelector('button[aria-label="Kommentar senden"]')); assert.equal(count, 1);
   await ui.render(h(f.Comments, { tk: { id: 'ticket-2', comments: [] } }));
   assert.equal(ui.host.querySelector('textarea').value, '');
   await flush(() => pending.reject(new Error('offline'))); assert.equal(ui.host.querySelector('[role="alert"]'), null);
@@ -88,7 +88,7 @@ test('real same-ID role refresh never re-submits role through profile save; unto
   assert.deepEqual(f.calls, [{ action: 'set_role', employee_id: person.id, app_role: 'filialleitung' }]);
   await ui.render(page(f, { ...person, app_role: 'filialleitung', branch_id: 'b2' }));
   const displayedBranch = ui.host.querySelector('select[aria-label="Studio"]').value;
-  await type(ui.host.querySelector('input'), 'Edited job');
+  await type(ui.host.querySelector('input:not([type="file"])'), 'Edited job');
   await click(saveButton(ui.host));
   assert.equal(f.updates.length, 1); assert.equal(f.updates[0].payload.job_title, 'Edited job');
   assert.ok(!Object.hasOwn(f.updates[0].payload, 'app_role'), 'profile save must never revert the separately updated role');
@@ -99,27 +99,27 @@ test('real same-ID role refresh never re-submits role through profile save; unto
 
 test('same-ID server updates preserve draft but block conflicting write; server race/failure keeps retry draft', async t => {
   const f = teamFixture(); const ui = await mount(page(f, person)); t.after(() => ui.close());
-  await type(ui.host.querySelector('input'), 'My draft');
+  await type(ui.host.querySelector('input:not([type="file"])'), 'My draft');
   await ui.render(page(f, { ...person, role: 'Concurrent job' }));
-  assert.equal(ui.host.querySelector('input').value, 'My draft');
+  assert.equal(ui.host.querySelector('input:not([type="file"])').value, 'My draft');
   await click(saveButton(ui.host)); assert.equal(f.updates.length, 0); assert.match(ui.host.querySelector('[role="alert"]').textContent, /inzwischen geändert/);
   await click([...ui.host.querySelectorAll('button')].find(b => b.textContent === 'Verwerfen'));
-  assert.equal(ui.host.querySelector('input').value, 'Concurrent job');
-  await type(ui.host.querySelector('input'), 'New draft');
+  assert.equal(ui.host.querySelector('input:not([type="file"])').value, 'Concurrent job');
+  await type(ui.host.querySelector('input:not([type="file"])'), 'New draft');
   f.respond(q => q.table === 'employees' ? { data: null, error: null } : { data: [], error: null });
   await click(saveButton(ui.host)); assert.equal(f.updates.length, 1);
-  assert.match(ui.host.querySelector('[role="alert"]').textContent, /inzwischen geändert/); assert.equal(ui.host.querySelector('input').value, 'New draft');
+  assert.match(ui.host.querySelector('[role="alert"]').textContent, /inzwischen geändert/); assert.equal(ui.host.querySelector('input:not([type="file"])').value, 'New draft');
 });
 
 test('lead cannot edit own skills/function; office can edit own function but not studio/role', async t => {
   const f = teamFixture(); f.ctx.me = { ...person, app_role: 'filialleitung' }; f.scope.setAccountScope('lead-session', person.id);
   const ui = await mount(page(f, f.ctx.me)); t.after(() => ui.close());
-  assert.equal(ui.host.querySelector('input').disabled, true);
+  assert.equal(ui.host.querySelector('input:not([type="file"])').disabled, true);
   assert.equal([...ui.host.querySelectorAll('button')].find(b => b.textContent === 'Test skill').disabled, true);
   assert.equal(ui.host.querySelector('select'), null);
   f.ctx.me = { ...person, app_role: 'buero' }; f.scope.setAccountScope('office-self', person.id);
   await ui.render(page(f, f.ctx.me));
-  assert.equal(ui.host.querySelector('input').disabled, false);
+  assert.equal(ui.host.querySelector('input:not([type="file"])').disabled, false);
   assert.equal(ui.host.querySelector('select[aria-label="Studio"]').disabled, true);
   assert.equal(ui.host.querySelector('select[aria-label="role"]'), null);
 });
@@ -128,11 +128,11 @@ test('lead can view shared staff without editing profiles owned by an outside pr
   const f = teamFixture(); f.ctx.me = { ...person, id: 'lead', app_role: 'filialleitung' }; f.scope.setAccountScope('lead-session', 'lead');
   const outside = { ...person, branch_id: 'b2', extra: ['b1'] };
   const ui = await mount(page(f, outside)); t.after(() => ui.close());
-  assert.equal(ui.host.querySelector('input').disabled, true);
+  assert.equal(ui.host.querySelector('input:not([type="file"])').disabled, true);
   assert.equal([...ui.host.querySelectorAll('button')].find(b => b.textContent === 'Test skill').disabled, true);
   assert.equal([...ui.host.querySelectorAll('button')].find(b => b.textContent === 'Deaktivieren'), undefined);
   await ui.render(page(f, { ...person, app_role: 'buero' }));
-  assert.equal(ui.host.querySelector('input').disabled, true);
+  assert.equal(ui.host.querySelector('input:not([type="file"])').disabled, true);
 });
 
 test('concurrent skill editors cannot erase another saved skill; update-zero is a conflict with no success toast', async t => {

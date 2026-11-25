@@ -7,6 +7,7 @@ import { captureAccountScope, isCurrentAccountScope, type AccountScope } from '.
 import { setWikiStructure, catLabel, type AreaRow } from './lib/wiki'
 import { tr, setCurrentLang, savedLang, locale, type Lang } from './lib/i18n'
 import { toast } from './Toast'
+import { displayableImage } from './lib/files'
 export type { Lang }
 
 /* ---------- Typen ---------- */
@@ -18,7 +19,8 @@ export type TaskItem = { id: string; title: string; time: string; group: string;
 export type Template = { id: string; name: string; repeat: Repeat; weekday: number | null; weekdays: number[] | null; monthday: number | null; everyDays: number | null; startDay: string | null; branchIds: string[]; items: TaskItem[]; active: boolean; proposed: boolean; sample: boolean }
 export type Done = { by: string; byId: string | null; at: string; photo: string | null }
 export type Ticket = { id: string; kind: 'Meldung' | 'Idee' | 'Learning' | 'Anliegen'; title: string; body: string; branch: string; branchId: string; allStudios: boolean; status: 'Neu' | 'Zugewiesen' | 'In Arbeit' | 'Erledigt'; who: string; when: string; createdAt?: string; assignee: string | null; photo: string | null; mediaKind: 'photo' | 'video'; viaAI: boolean; mine: boolean; votes: number; voted: boolean; comments: Comment[] }
-export type Comment = { id: string; author: string; authorId: string | null; body: string; when: string }
+export type CommentFile = { path: string; name: string; type: string; size: number; url: string | null }
+export type Comment = { id: string; author: string; authorId: string | null; body: string; when: string; files: CommentFile[] }
 export type Ev = { id: string; title: string; kind: string; description: string; startsAt: string; endsAt: string | null; place: string; link: string | null; capacity: number | null; registerUntil: string | null; audienceBranches: string[]; audienceSkills: string[]; audiencePeople: string[]; phorestSync: boolean; phorestPaid: boolean; taken: number; waiting: number; createdBy: string | null; raw: { title: string; description: string; place: string }; image: string | null; imagePath: string | null; createdAt: string }
 // Bild oder Video zu einem Aufzählungspunkt (26.10., Renée): media[j] gehört zu items[j]
 export type ItemMedia = { t: 'img' | 'video'; src?: string; url?: string; name?: string }
@@ -76,7 +78,7 @@ type Ctx = {
   coverTasks: { branchId: string; branch: string; who: string; items: TaskItem[]; done: Map<string, Done> }[]
   completionsToday: { item_id: string; branch_id: string }[]
   tickets: Ticket[]; addTicket: (t: { kind: 'Meldung' | 'Idee' | 'Learning' | 'Anliegen'; title: string; body?: string; photo?: File; viaAI?: boolean; branchId?: string; allStudios?: boolean }) => Promise<boolean>
-  addComment: (ticketId: string, body: string) => Promise<boolean>; toggleVote: (ticketId: string) => Promise<void>
+  addComment: (ticketId: string, body: string, files?: File[]) => Promise<boolean>; toggleVote: (ticketId: string) => Promise<void>
   assign: (id: string, a: string) => Promise<void>; setStatus: (id: string, s: Ticket['status']) => Promise<void>
   events: Ev[]; joined: Set<string>; declined: Set<string>; waiting: Set<string>; toggleEvent: (id: string) => Promise<string | null>; declineEvent: (id: string) => Promise<void>
   registrations: { event_id: string; employee_id: string; coming: boolean; waitlist: boolean; created_at?: string }[]
@@ -123,13 +125,18 @@ async function signedMap(bucket: string, paths: string[], scope: AccountScope) {
   for (const x of data ?? []) if (x.signedUrl && x.path) result.set(x.path, x.signedUrl)
   return result
 }
+/** Anhänge eines Kommentars (ticket_comments.attachments) mit signierter Adresse */
+const attachmentPaths = (comments: any[]): string[] => comments.flatMap(c => Array.isArray(c.attachments) ? c.attachments.map((a: any) => a?.path).filter(Boolean) : [])
+function commentFiles(raw: unknown, urls: Map<string, string>): CommentFile[] {
+  return Array.isArray(raw) ? raw.filter(a => a && typeof a.path === 'string').map(a => ({ path: a.path, name: String(a.name ?? 'Datei'), type: String(a.type ?? ''), size: Number(a.size ?? 0), url: urls.get(a.path) ?? null })) : []
+}
 function ticketSnapshot(tks: any[], comments: any[], votes: { ticket_id: string; employee_id: string }[], photos: Map<string, string>, branches: Branch[], employeeId: string): Ticket[] {
   return tks.map(x => ({
     id: x.id, kind: x.kind, title: x.title, body: x.body, branch: x.all_studios ? tr('Alle Studios') : branches.find(b => b.id === x.branch_id)?.name ?? x.branch_id,
     branchId: x.branch_id, allStudios: !!x.all_studios, status: x.status, who: x.created_by_name,
     when: relWhen(x.created_at), createdAt: x.created_at, assignee: x.assignee, photo: x.photo_path ? photos.get(x.photo_path) ?? null : null, mediaKind: x.media_kind ?? 'photo', viaAI: x.via_ai,
     mine: x.created_by === employeeId, votes: votes.filter(v => v.ticket_id === x.id).length, voted: votes.some(v => v.ticket_id === x.id && v.employee_id === employeeId),
-    comments: comments.filter(c => c.ticket_id === x.id).map(c => ({ id: c.id, author: c.author_name, authorId: c.author_id, body: c.body, when: relWhen(c.created_at) })),
+    comments: comments.filter(c => c.ticket_id === x.id).map(c => ({ id: c.id, author: c.author_name, authorId: c.author_id, body: c.body, when: relWhen(c.created_at), files: commentFiles(c.attachments, photos) })),
   }))
 }
 
@@ -225,13 +232,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const version = ++ticketVersion.current
         const [rows, comments, votes] = await Promise.all([
           allRows(() => supabase!.from('tickets').select('*').order('created_at', { ascending: false }), scope),
-          allRows(() => supabase!.from('ticket_comments').select('id, ticket_id, author_id, author_name, body, created_at').order('created_at'), scope),
+          allRows(() => supabase!.from('ticket_comments').select('id, ticket_id, author_id, author_name, body, created_at, attachments').order('created_at'), scope),
           allRows(() => supabase!.from('ticket_votes').select('ticket_id, employee_id').order('ticket_id'), scope),
         ])
         if (!current()) return
         const input = ticketInputs.current
         const tks = rows.data.filter(x => input.demoData || !x.is_sample)
-        const photos = await signedMap('ticket-photos', tks.map(x => x.photo_path).filter(Boolean), scope)
+        const photos = await signedMap('ticket-photos', [...tks.map(x => x.photo_path).filter(Boolean), ...attachmentPaths(comments.data)], scope)
         if (current() && version === ticketVersion.current) setTickets(ticketSnapshot(tks, comments.data, votes.data, photos, input.branches, employee.id))
       } while (job.again && current())
     }
@@ -318,7 +325,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       sb.from('onboarding_progress').select('step_id').eq('employee_id', employee.id).abortSignal(scope.signal),
       sb.from('employee_phorest').select('branch_id, staff_id').eq('employee_id', employee.id).abortSignal(scope.signal),
       sb.rpc('app_flags').abortSignal(scope.signal),
-      all(() => sb.from('ticket_comments').select('id, ticket_id, author_id, author_name, body, created_at').order('created_at')),
+      all(() => sb.from('ticket_comments').select('id, ticket_id, author_id, author_name, body, created_at, attachments').order('created_at')),
       all(() => sb.from('ticket_votes').select('ticket_id, employee_id').order('ticket_id')),
       sb.from('standby_days').select('employee_id, day, note').gte('day', today).order('day').abortSignal(scope.signal),
       sb.from('quizzes').select('id, news_id, article_id, title, pass_pct, is_sample, i18n, draw_count').abortSignal(scope.signal),
@@ -338,7 +345,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const [photos, nImgs, tkPhotos] = await Promise.all([
       signedMap('profile-photos', (em.data ?? []).map((e: any) => e.photo_path).filter(Boolean), scope),
       signedMap('media', [...keep(nw.data).map((n: any) => n.image_path), ...keep(ev.data).map((e: any) => e.image_path)].filter(Boolean), scope),
-      signedMap('ticket-photos', tks.map((x: any) => x.photo_path).filter(Boolean), scope),
+      signedMap('ticket-photos', [...tks.map((x: any) => x.photo_path).filter(Boolean), ...attachmentPaths(tcm.data ?? [])], scope),
     ])
     if (!valid()) return
     const progressCurrent = progressRevision === progressRequestVersion.current
@@ -523,16 +530,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (!error) { await reload(); if (!current()) return false; toast(tr(kind === 'Idee' ? 'Idee gesendet' : kind === 'Learning' ? 'Mit dem Team geteilt' : kind === 'Anliegen' ? 'Anliegen vertraulich gesendet' : 'Meldung gesendet')) } else toast(tr('Senden hat nicht geklappt'), 'error')
       return !error
     },
-    addComment: async (ticketId, body) => {
+    addComment: async (ticketId, body, files = []) => {
       const text = body.trim()
-      if (!current() || !text) return false
-      const retryKey = JSON.stringify([ticketId, text])
+      if (!current() || (!text && !files.length)) return false
+      const retryKey = JSON.stringify([ticketId, text, ...files.map(f => [f.name, f.size, f.lastModified])])
       let id = pendingComments.current.get(retryKey)
       if (!id) { id = crypto.randomUUID(); pendingComments.current.set(retryKey, id) }
-      const fields = 'id, ticket_id, author_id, author_name, body, created_at'
-      let row: { id: string; ticket_id: string; author_id: string; author_name: string; body: string; created_at: string } | null = null
+      // Anhänge zuerst hochladen (eigener Ordner, Name aus der Kommentar-ID): ein erneuter Versuch überschreibt dieselben Dateien
+      const attachments: { path: string; name: string; type: string; size: number }[] = []
+      for (const [i, raw] of files.slice(0, 6).entries()) {
+        const file = await displayableImage(raw)
+        if (!current()) return false
+        const ext = (file.name.split('.').pop() || 'bin').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8) || 'bin'
+        const path = `${employee.id}/c-${id}-${i}.${ext}`
+        const { error } = await sb.storage.from('ticket-photos').upload(path, file, { upsert: true, contentType: file.type || 'application/octet-stream' })
+        if (!current() || error) return false
+        attachments.push({ path, name: file.name.slice(0, 200), type: file.type || '', size: file.size })
+      }
+      const fields = 'id, ticket_id, author_id, author_name, body, created_at, attachments'
+      let row: { id: string; ticket_id: string; author_id: string; author_name: string; body: string; created_at: string; attachments: unknown } | null = null
       try {
-        const { data, error } = await sb.from('ticket_comments').insert({ id, ticket_id: ticketId, author_id: employee.id, author_name: `${employee.first_name} ${employee.last_name}`, body: text }).select(fields).abortSignal(scope!.signal).single()
+        const { data, error } = await sb.from('ticket_comments').insert({ id, ticket_id: ticketId, author_id: employee.id, author_name: `${employee.first_name} ${employee.last_name}`, body: text, attachments }).select(fields).abortSignal(scope!.signal).single()
         if (!current()) return false
         if (!error) row = data
       } catch { /* An insert may have committed even if its acknowledgement was lost. */ }
@@ -548,8 +566,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const saved = row
       pendingComments.current.delete(retryKey)
       ticketVersion.current++
-      setTickets(rows => rows.map(tk => tk.id !== ticketId || tk.comments.some(c => c.id === saved.id) ? tk : { ...tk, comments: [...tk.comments, { id: saved.id, authorId: saved.author_id, author: saved.author_name, body: saved.body, when: relWhen(saved.created_at) }] }))
+      const urls = await signedMap('ticket-photos', attachments.map(a => a.path), scope!)
+      if (!current()) return false
+      setTickets(rows => rows.map(tk => tk.id !== ticketId || tk.comments.some(c => c.id === saved.id) ? tk : { ...tk, comments: [...tk.comments, { id: saved.id, authorId: saved.author_id, author: saved.author_name, body: saved.body, when: relWhen(saved.created_at), files: commentFiles(saved.attachments, urls) }] }))
       void refreshTickets().catch(() => {})
+      // Mitteilung an die Beteiligten sofort anstossen statt auf den 2-Minuten-Takt zu warten
+      void (async () => { try { await sb.functions.invoke('notify', { body: {} }) } catch { /* der 2-Minuten-Takt holt es nach */ } })()
       return true
     },
     toggleVote: async (ticketId) => {

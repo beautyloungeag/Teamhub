@@ -7,8 +7,7 @@ import {
   Home, ListChecks, BookOpen, LayoutGrid, Sparkles, ChevronLeft, ChevronRight, Check, Camera, MapPin, Users,
   Search, Lightbulb, AlertTriangle, CalendarDays, Send, Newspaper, Plane, Play, Video,
   ArrowUp, ArrowUpRight, LogOut, Phone, ArrowBigUp, GraduationCap, Link2, Lock, FileText, Smartphone, ExternalLink, Monitor,
-  TrendingUp, MessageCircle, Clock, Share2, Circle, Mail, X, ChevronDown, Layers, Flame, ChevronsLeft,
-} from 'lucide-react'
+  TrendingUp, MessageCircle, Clock, Share2, Circle, Mail, X, ChevronDown, Layers, Flame, ChevronsLeft, Bell } from 'lucide-react'
 import { useAuth } from './lib/auth'
 import { supabase } from './lib/supabase'
 import { phorest, type MyDay, type StaffWeek, type ClientHit, type ClientHistory } from './lib/phorest'
@@ -43,6 +42,8 @@ import { toast } from './Toast'
 
 // Name des KI-Reiters (im Vertrag „Marc Beau“, im abgestimmten Prototyp „Marc“)
 export const ASSISTANT = 'Marc'
+// Im Backoffice heisst der Assistent Jarvis (Inhaberin 19.11.): er bedient das Backoffice, Marc bleibt der Assistent der Mitarbeiterinnen in der App.
+export const OFFICE_ASSISTANT = 'Jarvis'
 
 type Tab = 'home' | 'tasks' | 'ai' | 'wiki' | 'menu'
 type Sub = null | { k: 'news-list' } | { k: 'news'; item: News } | { k: 'wiki'; item: WikiArticle } | { k: 'wiki-cat'; key: string; name: string } | { k: 'onboarding' } | { k: 'team' } | { k: 'profile'; item: Staff }
@@ -252,7 +253,7 @@ function useMyDay() {
   return day
 }
 function Today({ open, go }: { open: (s: Sub) => void; go: (t: Tab) => void }) {
-  const { me, t, done, read, opened, tasks, news: allNews, quizzes, branches, photo, wiki, tickets, events, joined, declined } = useApp()
+  const { me, t, done, read, opened, openNews, tasks, news: allNews, quizzes, branches, photo, wiki, tickets, events, joined, declined } = useApp()
   const news = live(allNews)
   const day = useMyDay()
   const due = useDue()
@@ -276,9 +277,10 @@ function Today({ open, go }: { open: (s: Sub) => void; go: (t: Tab) => void }) {
   const mailUnread = useMailUnread()
   // Neuigkeiten der letzten 30 Tage, die diese Person noch nicht gelesen hat
   const since = Date.now() - 30 * 864e5
+  // Ungelesene News stehen ganz oben, direkt unter dem Begrüssungsbild (Inhaberin 19.11.): Pflicht-News zuerst,
+  // dann das Neueste. «Gelesen» nimmt eine News von hier weg, sie bleibt unter «Alle News».
+  const unreadNews = [...must, ...news.filter(n => !n.mustRead && !opened.has(n.id) && new Date(n.publishAt).getTime() > since).sort((a, b) => b.publishAt.localeCompare(a.publishAt))]
   const fresh: Fresh[] = [
-    ...news.filter(n => !n.mustRead && !opened.has(n.id) && new Date(n.publishAt).getTime() > since).map(n => ({
-      key: 'n' + n.id, at: n.publishAt, kind: t(newsCat(n)), tone: toneOf(newsCat(n)), title: n.title, teaser: n.teaser, photo: newsPhoto(n), go: () => open({ k: 'news', item: n }) })),
     ...articles.filter(a => a.createdAt && new Date(a.createdAt).getTime() > since && !runs.read.has(a.id)).map(a => ({
       key: 'w' + a.id, at: a.createdAt!, kind: t('Wissen'), tone: 'learn' as Tone, title: a.title, teaser: a.intro || `${catName(a.cat)} · ${t('{n} Min.', { n: a.minutes })}`, photo: a.cover ?? COVER_PHOTO[areaOf(a.catKey, a.title)] ?? '/hero-studio.jpg', go: () => open({ k: 'wiki', item: a }) })),
     ...events.filter(e => new Date(e.startsAt).getTime() > Date.now() && new Date(e.createdAt).getTime() > since && !joined.has(e.id) && !declined.has(e.id) && assignedToEvent(me, e)).map(e => ({
@@ -301,6 +303,12 @@ function Today({ open, go }: { open: (s: Sub) => void; go: (t: Tab) => void }) {
         </div>
       </div>
 
+      {unreadNews.length > 0 && <div className="mt-3 space-y-2.5">
+        {unreadNews.slice(0, 2).map(n => <NewsAlert key={n.id} n={n} quiz={quizzes.some(q => q.newsId === n.id)} onOpen={() => open({ k: 'news', item: n })} onRead={() => openNews(n.id)} />)}
+        {unreadNews.length > 2 && <button onClick={() => open({ k: 'news-list' })} className="w-full h-11 rounded-[14px] bg-white text-[15.5px] font-medium">{t('Alle {n} ungelesenen News', { n: unreadNews.length })}</button>}
+      </div>}
+      <PushNudge />
+
       <div className="mt-3 grid grid-cols-3 gap-2.5">
         {tile('done', `${doneN}/${tasks.length}`, t('Checkliste'), () => { tasksView = 'studio'; go('tasks') })}
         {tile(must.length ? 'duty' : 'done', String(must.length), t('Pflicht offen'), () => must[0] ? open({ k: 'news', item: must[0] }) : open({ k: 'news-list' }))}
@@ -321,15 +329,8 @@ function Today({ open, go }: { open: (s: Sub) => void; go: (t: Tab) => void }) {
       <ReadyCard open={open} />
       <StandbyAsk />
 
-      {must.length > 0 && <>
-        <Label action={<span className="text-[13px] text-mute tabular-nums">{t('{n} offen', { n: must.length })}</span>}>{t('Bitte lesen')}</Label>
-        <div className="space-y-3">{must.slice(0, 2).map(n => <NewsCard key={n.id} n={n} onClick={() => open({ k: 'news', item: n })} />)}</div>
-        {must.length > 2 && <button onClick={() => open({ k: 'news-list' })} className="mt-2 w-full h-11 rounded-[14px] bg-white text-[15.5px] font-medium">{t('Alle {n} anzeigen', { n: must.length })}</button>}
-        {must.some(n => quizzes.some(q => q.newsId === n.id)) && <p className="mt-2 px-1 text-[14px] text-mute">{t('Bei manchen News folgt ein kurzes Quiz.')}</p>}
-      </>}
-
-      {/* Neuigkeiten zum Wischen (Renée 27.10.): News, neue Wissensartikel und neue Schulungen zusammen, das Neueste zuerst.
-          Gelesenes verschwindet von hier und bleibt in seiner Rubrik (News, Wissen, Kalender). */}
+      {/* Neuigkeiten zum Wischen (27.10.): neue Wissensartikel und neue Schulungen, das Neueste zuerst. News stehen seit
+          25.11. oben unter dem Begrüssungsbild. Gelesenes verschwindet von hier und bleibt in seiner Rubrik. */}
       <Label action={<button onClick={() => open({ k: 'news-list' })} className="text-[14.5px] text-sage-800">{t('Alle News')}</button>}>{t('Neu für dich')}</Label>
       <FreshStrip items={fresh} />
 
@@ -418,11 +419,31 @@ function useNewsProgress() {
 }
 type Fresh = { key: string; at: string; kind: string; tone: Tone; title: string; teaser: string; photo: string; go: () => void }
 /** Neuigkeiten als Karten zum Wischen, mit Punkten darunter */
+/** Ungelesene News oben auf «Heute»: Bild, Titel, Anriss. Ein Tipp öffnet sie, «Gelesen» nimmt sie von der Startseite.
+ *  Pflicht-News lassen sich nur durch Öffnen und Bestätigen erledigen. */
+function NewsAlert({ n, quiz, onOpen, onRead }: { n: News; quiz: boolean; onOpen: () => void; onRead: () => void }) {
+  const { t } = useApp()
+  const cat = newsCat(n), tone = TONE[toneOf(cat, n.mustRead)]
+  return <div className="rounded-[20px] bg-white overflow-hidden shadow-[0_1px_2px_rgba(29,34,28,.05)]">
+    <button onClick={onOpen} className="w-full text-left flex gap-3 p-3">
+      <img src={newsPhoto(n)} alt="" className="w-[84px] h-[84px] rounded-[14px] object-cover bg-sage-100 shrink-0" />
+      <span className="min-w-0 flex-1">
+        <span className="flex items-center gap-2 text-[13.5px]"><span className={`px-2.5 py-0.5 rounded-full font-semibold text-white ${tone.solid}`}>{n.mustRead ? t('Bitte lesen') : t(cat)}</span><span className="text-mute truncate">{newsWhen(n.publishAt, t)}</span></span>
+        <span className="mt-1 font-display text-[19px] leading-snug line-clamp-2">{n.title}</span>
+        {n.teaser && <span className="mt-0.5 text-[15px] text-ink/70 leading-snug line-clamp-2">{n.teaser}</span>}
+      </span>
+    </button>
+    <div className="px-3 pb-3 flex gap-2">
+      <button onClick={onOpen} className="flex-1 h-11 rounded-[12px] bg-olive-700 text-white text-[15.5px] font-medium">{n.mustRead ? (quiz ? t('Lesen, bestätigen und Quiz') : t('Lesen und bestätigen')) : t('Lesen')}</button>
+      {!n.mustRead && <button onClick={onRead} className="h-11 px-4 rounded-[12px] bg-sage-50 text-[15.5px] flex items-center gap-1.5"><Check size={16} />{t('Gelesen')}</button>}
+    </div>
+  </div>
+}
 function FreshStrip({ items }: { items: Fresh[] }) {
   const { t } = useApp()
   const [idx, setIdx] = useState(0)
   const rail = useRef<HTMLDivElement>(null)
-  if (!items.length) return <p className="px-1 text-[15.5px] text-mute">{t('Du bist auf dem neusten Stand. Neue News, Artikel und Schulungen erscheinen hier zuerst.')}</p>
+  if (!items.length) return <p className="px-1 text-[15.5px] text-mute">{t('Du bist auf dem neusten Stand. Neue Artikel und Schulungen erscheinen hier zuerst.')}</p>
   return <div>
     <div ref={rail} onScroll={e => { const el = e.currentTarget, w = (el.firstElementChild as HTMLElement | null)?.offsetWidth ?? el.clientWidth; setIdx(Math.round(el.scrollLeft / Math.max(1, w + 12))) }}
       className="-mx-4 px-4 flex gap-3 overflow-x-auto snap-x snap-mandatory scroll-px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" aria-roledescription={t('Galerie')}>
@@ -1620,6 +1641,33 @@ function ReadyCard({ open }: { open: (s: Sub) => void }) {
     <Smartphone size={20} className="text-olive-700 shrink-0" />
     <button onClick={() => open({ k: 'install' })} className="flex-1 text-left"><span className="block text-[17px] text-olive-700 font-medium">{t('TeamHub als App einrichten')}</span><span className="block text-[13px] text-mute mt-0.5">{t('Mit eigenem Symbol und Mitteilungen auf deinem Handy')}</span></button>
     <button onClick={() => { setHide(true); try { localStorage.setItem(key, String(Date.now() + 14 * 864e5)) } catch { /* private mode */ } }} className="text-[14.5px] text-mute">{t('Später')}</button>
+  </div>
+}
+/** Auf «Heute», solange Mitteilungen auf diesem Gerät möglich, aber noch aus sind: ein Tipp schaltet sie ein.
+ *  Ohne das erreichen News und Antworten auf Meldungen die Person nur, wenn sie die App öffnet. «Später» hält sieben Tage. */
+function PushNudge() {
+  const { me, t } = useApp()
+  const [st, refresh] = usePush()
+  const key = `th-push-later-${me.id}`
+  const [hide, setHide] = useState(() => { try { return Number(localStorage.getItem(key) ?? 0) > Date.now() } catch { return false } })
+  const [busy, setBusy] = useState(false), [msg, setMsg] = useState('')
+  if (hide || st !== 'off' || matchMedia(DESKTOP_MEDIA).matches) return null
+  const enable = async () => {
+    setBusy(true); setMsg('')
+    try { const next = await enablePush(me.id); await refresh(); if (next === 'on') toast(t('Mitteilungen eingeschaltet')); else if (next === 'denied') setMsg(t('Du hast Mitteilungen abgelehnt.')) }
+    catch { setMsg(t('Mitteilungen konnten nicht eingerichtet werden. Lade die App neu und versuche es noch einmal.')); await refresh() }
+    finally { setBusy(false) }
+  }
+  return <div className="mt-3 rounded-[16px] bg-white px-4 py-3.5">
+    <div className="flex gap-3 items-center">
+      <Bell size={20} className="text-olive-700 shrink-0" />
+      <p className="flex-1 min-w-0"><span className="block text-[17px] font-medium">{t('Mitteilungen einschalten')}</span><span className="block text-[13.5px] text-mute mt-0.5">{t('Damit dich News und Antworten auf deine Meldungen sofort erreichen')}</span></p>
+    </div>
+    <div className="mt-3 flex gap-2">
+      <button disabled={busy} onClick={enable} className="flex-1 h-11 rounded-[12px] bg-olive-700 text-white text-[15.5px] font-medium disabled:opacity-60">{busy ? t('Wird eingerichtet …') : t('Einschalten')}</button>
+      <button onClick={() => { setHide(true); try { localStorage.setItem(key, String(Date.now() + 7 * 864e5)) } catch { /* private mode */ } }} className="h-11 px-4 rounded-[12px] text-[15.5px] text-mute">{t('Später')}</button>
+    </div>
+    {msg && <p role="status" className="mt-2 text-[14px] text-mute">{msg}</p>}
   </div>
 }
 function PushToggle() {

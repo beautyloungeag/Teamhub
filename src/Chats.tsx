@@ -3,7 +3,7 @@ import { ViewportOverlay } from './ViewportOverlay'
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { captureAccountScope, isCurrentAccountScope, onAccountScopeChange } from './lib/account-scope'
 import { ChatTimeline, type ChatMessage } from './lib/chat-timeline'
-import { AlertTriangle, Camera, ChevronLeft, SquarePen, Send, Users, Search, Check, X } from 'lucide-react'
+import { AlertTriangle, Camera, ChevronLeft, SquarePen, Send, Users, Search, Check, X, Settings2, Trash2 } from 'lucide-react'
 import { supabase } from './lib/supabase'
 import { useApp, type Staff } from './store'
 import { Avatar } from './People'
@@ -16,7 +16,7 @@ import { toast } from './Toast'
 // Seit 22.10. zum Start nur die festen Gruppen (Studio, ganzes Team); Einzel- und eigene Gruppenchats schaltet das Büro
 // bei Bedarf ein (app_settings chat_private), bis dahin sperrt die Datenbank sie auch.
 // Marc steht oben angeheftet, damit der Assistent ein eigener Eintrag bleibt.
-type Room = { id: string; kind: 'studio' | 'team' | 'direkt' | 'gruppe'; branch_id: string | null; title: string | null; last_message_at: string }
+type Room = { id: string; kind: 'studio' | 'team' | 'direkt' | 'gruppe'; branch_id: string | null; title: string | null; last_message_at: string; office?: boolean }
 type Member = { room_id: string; employee_id: string; last_read_at: string }
 type Msg = ChatMessage
 export type ChatSummary = { room: Room; members: string[]; last: Msg | null; unread: boolean }
@@ -26,7 +26,7 @@ export async function loadChatSummaries(meId: string): Promise<ChatSummary[]> {
   if (!supabase || !scope) throw new Error('chat_session_unavailable')
   const rooms: Room[] = []
   for (let offset = 0; ; offset += 100) {
-    const result = await supabase.from('chat_rooms').select('id, kind, branch_id, title, last_message_at').order('last_message_at', { ascending: false }).range(offset, offset + 99).abortSignal(scope.signal)
+    const result = await supabase.from('chat_rooms').select('id, kind, branch_id, title, last_message_at, office').order('last_message_at', { ascending: false }).range(offset, offset + 99).abortSignal(scope.signal)
     if (!isCurrentAccountScope(scope)) throw new Error('chat_session_changed')
     if (result.error) throw result.error
     const batch = (result.data ?? []) as Room[]
@@ -107,7 +107,7 @@ function roomName(r: Room, members: string[], staff: Staff[], meId: string, t: (
   return others.map(s => r.kind === 'direkt' ? `${s.first} ${s.last}` : s.first).join(', ') || t('Chat')
 }
 
-export function ChatHub({ onOpenMarc, onOpenRoom, onOpenTickets, active, compact }: { onOpenMarc: () => void; onOpenRoom: (id: string) => void; onOpenTickets: () => void; active?: string | null; compact?: boolean }) {
+export function ChatHub({ onOpenMarc, onOpenRoom, onOpenTickets, active, compact, assistant = 'Marc' }: { onOpenMarc: () => void; onOpenRoom: (id: string) => void; onOpenTickets: () => void; active?: string | null; compact?: boolean; assistant?: string }) {
   const { me, staff, branches, t, privateChats, tickets } = useApp()
   const openTickets = tickets.filter(x => x.kind !== 'Learning' && x.status !== 'Erledigt').length
   const [list, setList] = useState<ChatSummary[] | null>(null)
@@ -134,21 +134,21 @@ export function ChatHub({ onOpenMarc, onOpenRoom, onOpenTickets, active, compact
   }, [me.id])
   // Wie bei WhatsApp: der Chat mit der neusten Nachricht oben (Matteo 28.10.). Ohne Nachricht: ganzes Team, dann Studios in fester Reihenfolge
   const order = (x: ChatSummary) => x.room.kind === 'team' ? -1 : branches.findIndex(b => b.id === x.room.branch_id)
-  const sorted = useMemo(() => [...(list ?? [])].filter(x => privateChats || x.room.kind === 'studio' || x.room.kind === 'team').sort((a, b) =>
+  const sorted = useMemo(() => [...(list ?? [])].filter(x => privateChats || x.room.kind === 'studio' || x.room.kind === 'team' || (x.room.kind === 'gruppe' && !!x.room.office)).sort((a, b) =>
     (b.last?.created_at ?? '').localeCompare(a.last?.created_at ?? '') || order(a) - order(b)), [list, privateChats, branches]) // eslint-disable-line react-hooks/exhaustive-deps
   const other = (s: ChatSummary) => s.room.kind === 'direkt' ? staff.find(x => x.id === s.members.find(m => m !== me.id)) : undefined
   return (
     <div className="pb-10">
       <div className={`${compact ? 'px-4 pt-1' : 'px-5 pt-3'} pb-4 flex items-end justify-between gap-3`}>
         <h1 className={compact ? 'text-[24px] leading-tight' : 'text-[30px] leading-tight'}>{t('Chats')}</h1>
-        {privateChats && <button onClick={() => setPicking(true)} className="h-10 px-3.5 rounded-full bg-white text-[15.5px] font-medium flex items-center gap-1.5"><SquarePen size={16} />{t('Neuer Chat')}</button>}
+        {(privateChats || me.app_role === 'buero') && <button onClick={() => setPicking(true)} className="h-10 px-3.5 rounded-full bg-white text-[15.5px] font-medium flex items-center gap-1.5"><SquarePen size={16} />{privateChats ? t('Neuer Chat') : t('Neue Gruppe')}</button>}
       </div>
       <div className="px-4 space-y-3">
         {/* Marc und „Melden & Ideen“ nebeneinander (Entwurf Matteo 28.10.): wer etwas schicken will, geht über die Chats */}
         <div className="grid grid-cols-2 gap-3">
           <button onClick={onOpenMarc} className="rounded-[20px] bg-white p-3.5 flex items-center gap-3 text-left min-w-0">
             <BMark className="w-11 h-11 shrink-0" />
-            <span className="min-w-0"><span className="block text-[17px] font-semibold">Marc</span><span className="block text-[14.5px] leading-snug text-mute">{t('Dein Assistent')}</span></span>
+            <span className="min-w-0"><span className="block text-[17px] font-semibold">{assistant}</span><span className="block text-[14.5px] leading-snug text-mute">{t('Dein Assistent')}</span></span>
           </button>
           <button onClick={onOpenTickets} className="rounded-[20px] bg-white p-3.5 flex items-center gap-3 text-left min-w-0">
             <span className="w-11 h-11 rounded-full bg-note-50 text-note flex items-center justify-center shrink-0"><AlertTriangle size={19} /></span>
@@ -174,28 +174,38 @@ export function ChatHub({ onOpenMarc, onOpenRoom, onOpenTickets, active, compact
             </button> })}
         </div>
       </div>
-      {picking && <PeoplePicker onClose={() => setPicking(false)} onStart={async (ids, title) => {
+      {picking && <PeoplePicker group={!privateChats} onClose={() => setPicking(false)} onStart={async (ids, title) => {
         const scope = captureAccountScope(me.id)
         if (!scope) return
         const { data, error } = await supabase!.rpc('start_chat', { p_people: ids, p_title: title || null }).abortSignal(scope.signal)
         if (!isCurrentAccountScope(scope)) return
         if (error || !data) { toast(t('Das hat nicht geklappt'), 'error'); return }
-        setPicking(false); onOpenRoom(data as string)
+        setPicking(false); window.dispatchEvent(new Event('th-chat-change')); onOpenRoom(data as string)
       }} />}
     </div>
   )
 }
 
-function PeoplePicker({ onClose, onStart }: { onClose: () => void; onStart: (ids: string[], title: string) => Promise<void> }) {
-  const { staff, me, t } = useApp()
-  const [q, setQ] = useState(''), [sel, setSel] = useState<string[]>([]), [title, setTitle] = useState(''), [busy, setBusy] = useState(false)
-  const list = staff.filter(s => s.active && s.id !== me.id && `${s.first} ${s.last} ${s.branch} ${s.role}`.toLowerCase().includes(q.toLowerCase()))
+/** Personen wählen. `group`: benannte Gruppe des Büros (Name ist Pflicht). `initial`: bestehende Gruppe bearbeiten. */
+function PeoplePicker({ onClose, onStart, group, initial, onDelete }: { onClose: () => void; onStart: (ids: string[], title: string) => Promise<void>; group?: boolean; initial?: { title: string; people: string[] }; onDelete?: () => Promise<void> }) {
+  const { staff, me, t, branches } = useApp()
+  const [q, setQ] = useState(''), [sel, setSel] = useState<string[]>(initial?.people.filter(x => x !== me.id) ?? []), [title, setTitle] = useState(initial?.title ?? ''), [busy, setBusy] = useState(false)
+  const everyone = staff.filter(s => s.active && s.id !== me.id)
+  const list = everyone.filter(s => `${s.first} ${s.last} ${s.branch} ${s.role}`.toLowerCase().includes(q.toLowerCase()))
   const toggle = (id: string) => setSel(x => x.includes(id) ? x.filter(y => y !== id) : [...x, id])
+  // Ganzes Studio auf einmal (Gruppen des Büros): ein Tipp wählt alle aus dem Studio, ein zweiter nimmt sie wieder heraus
+  const studios = group ? branches.filter(b => everyone.some(s => s.branch_id === b.id)) : []
+  const toggleStudio = (id: string) => { const ids = everyone.filter(s => s.branch_id === id).map(s => s.id); setSel(x => ids.every(i => x.includes(i)) ? x.filter(i => !ids.includes(i)) : [...new Set([...x, ...ids])]) }
+  const heading = initial ? t('Gruppe verwalten') : group ? t('Neue Gruppe') : t('Neuer Chat')
+  const ready = sel.length > 0 && (!group || !!title.trim())
   return (
-    <ViewportOverlay label={t('Neuer Chat')} onClose={onClose} className="bg-ink/30 flex items-end md:items-center justify-center">
+    <ViewportOverlay label={heading} onClose={onClose} className="bg-ink/30 flex items-end md:items-center justify-center">
       <div onClick={e => e.stopPropagation()} className="w-full md:max-w-[480px] mobile-sheet max-h-[88dvh] bg-paper rounded-t-[24px] md:rounded-[24px] flex flex-col">
-        <div className="px-5 pt-5 pb-3 flex items-center justify-between"><p className="text-[20px]">{t('Neuer Chat')}</p><button onClick={onClose} aria-label={t('Schliessen')} className="w-9 h-9 rounded-full bg-white flex items-center justify-center"><X size={18} /></button></div>
+        <div className="px-5 pt-5 pb-3 flex items-center justify-between"><p className="text-[20px]">{heading}</p><button onClick={onClose} aria-label={t('Schliessen')} className="w-9 h-9 rounded-full bg-white flex items-center justify-center"><X size={18} /></button></div>
+        {group && <div className="px-5 pb-2"><input value={title} onChange={e => setTitle(e.target.value)} maxLength={80} placeholder={t('Name der Gruppe')} aria-label={t('Name der Gruppe')} className="w-full h-11 rounded-2xl bg-white px-4 text-[17px] outline-none placeholder:text-mute" /></div>}
         <div className="px-5"><div className="h-11 rounded-2xl bg-white px-3.5 flex items-center gap-2"><Search size={18} className="text-mute" /><input value={q} onChange={e => setQ(e.target.value)} placeholder={t('Name oder Studio')} className="flex-1 bg-transparent outline-none text-[17px] placeholder:text-mute" /></div></div>
+        {studios.length > 0 && <div className="px-5 pt-2.5 flex gap-2 overflow-x-auto no-scrollbar shrink-0">{studios.map(b => { const ids = everyone.filter(s => s.branch_id === b.id).map(s => s.id), on = ids.every(i => sel.includes(i))
+          return <button key={b.id} onClick={() => toggleStudio(b.id)} className={`h-9 px-3.5 rounded-full text-[14.5px] shrink-0 ${on ? 'bg-olive-700 text-white' : 'bg-white shadow-[inset_0_0_0_1px_#DDE3D6]'}`}>{b.name}</button> })}</div>}
         <div className="min-h-0 flex-1 overflow-y-auto no-scrollbar px-5 py-3"><div className="rounded-[18px] bg-white divide-y divide-line overflow-hidden">
           {list.map(s => { const on = sel.includes(s.id)
             return <button key={s.id} onClick={() => toggle(s.id)} className="w-full px-4 py-3 flex items-center gap-3 text-left">
@@ -204,9 +214,10 @@ function PeoplePicker({ onClose, onStart }: { onClose: () => void; onStart: (ids
             </button> })}
         </div></div>
         <div className="px-5 pt-2 pb-7 space-y-2 border-t border-line bg-paper">
-          {sel.length > 1 && <input value={title} onChange={e => setTitle(e.target.value)} placeholder={t('Name der Gruppe (optional)')} className="w-full h-11 rounded-2xl bg-white px-4 text-[17px] outline-none placeholder:text-mute" />}
-          <button disabled={!sel.length || busy} onClick={async () => { const scope = captureAccountScope(me.id); if (!scope || busy) return; setBusy(true); try { await onStart(sel, title.trim()) } catch { if (isCurrentAccountScope(scope)) toast(t('Das hat nicht geklappt'), 'error') } finally { if (isCurrentAccountScope(scope)) setBusy(false) } }} className="w-full h-12 rounded-2xl bg-olive-700 text-white font-medium disabled:opacity-50">
-            {sel.length > 1 ? t('Gruppe mit {n} Personen starten', { n: sel.length }) : t('Chat starten')}</button>
+          {!group && sel.length > 1 && <input value={title} onChange={e => setTitle(e.target.value)} placeholder={t('Name der Gruppe (optional)')} className="w-full h-11 rounded-2xl bg-white px-4 text-[17px] outline-none placeholder:text-mute" />}
+          <button disabled={!ready || busy} onClick={async () => { const scope = captureAccountScope(me.id); if (!scope || busy) return; setBusy(true); try { await onStart(sel, title.trim()) } catch { if (isCurrentAccountScope(scope)) toast(t('Das hat nicht geklappt'), 'error') } finally { if (isCurrentAccountScope(scope)) setBusy(false) } }} className="w-full h-12 rounded-2xl bg-olive-700 text-white font-medium disabled:opacity-50">
+            {initial ? t('Speichern') : group ? t('Gruppe mit {n} Personen anlegen', { n: sel.length }) : sel.length > 1 ? t('Gruppe mit {n} Personen starten', { n: sel.length }) : t('Chat starten')}</button>
+          {onDelete && <button disabled={busy} onClick={async () => { if (!confirm(t('Gruppe mit allen Nachrichten endgültig löschen?'))) return; setBusy(true); try { await onDelete() } finally { setBusy(false) } }} className="w-full h-11 text-[15px] text-alert flex items-center justify-center gap-1.5"><Trash2 size={15} />{t('Gruppe löschen')}</button>}
         </div>
       </div>
     </ViewportOverlay>
@@ -224,7 +235,7 @@ function ChatRoomSession({ id, onBack, embedded }: { id: string; onBack: () => v
   const { me, staff, branches, t } = useApp()
   const messagesPane = useRef<HTMLDivElement>(null), input = useRef<HTMLTextAreaElement>(null), end = useRef<HTMLDivElement>(null), roomRoot = useRef<HTMLDivElement>(null)
   const [roomReady, setRoomReady] = useState(false), [readReady, setReadReady] = useState(false)
-  const [room, setRoom] = useState<Room | null>(null), [members, setMembers] = useState<string[]>([])
+  const [room, setRoom] = useState<Room | null>(null), [members, setMembers] = useState<string[]>([]), [managing, setManaging] = useState(false)
   const [msgs, setMsgs] = useState<Msg[] | null>(null)
   const [text, setText] = useState(''), [busy, setBusy] = useState(false)
   // Fotos im Chat (Matteo 28.10.): Ablage chat-photos/<raum>/<id>.<endung>, Anzeige über kurzlebige Links
@@ -295,7 +306,7 @@ function ChatRoomSession({ id, onBack, embedded }: { id: string; onBack: () => v
       const timeout = window.setTimeout(cancel, 15000)
       try {
         const [r, people, messages] = await Promise.all([
-          supabase!.from('chat_rooms').select('id, kind, branch_id, title, last_message_at').eq('id', id).abortSignal(request.signal).maybeSingle(),
+          supabase!.from('chat_rooms').select('id, kind, branch_id, title, last_message_at, office').eq('id', id).abortSignal(request.signal).maybeSingle(),
           supabase!.from('chat_members').select('employee_id').eq('room_id', id).abortSignal(request.signal),
           supabase!.from('chat_messages').select('id, room_id, sender_id, body, created_at, photo_path').eq('room_id', id).order('created_at', { ascending: false }).order('id', { ascending: false }).limit(200).abortSignal(request.signal),
         ])
@@ -405,13 +416,27 @@ function ChatRoomSession({ id, onBack, embedded }: { id: string; onBack: () => v
   const name = room ? roomName(room, members, staff, me.id, t, b => branches.find(x => x.id === b)?.name ?? b) : ''
   const sub = room?.kind === 'team' ? t('Alle Studios') : room?.kind === 'studio' ? t('Alle im Studio') : members.length > 2 ? t('{n} Personen', { n: members.length }) : ''
   const day = (iso: string) => new Intl.DateTimeFormat(locale(), { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date(iso))
+  // Gruppen des Büros verwaltet das Büro: Name, Mitglieder, Löschen
+  const manageable = !!room && room.kind === 'gruppe' && !!room.office && me.app_role === 'buero'
   if (roomReady && !room) return <div className="chat-app-header px-5"><button onClick={onBack} className="h-11 text-olive-700">{t('Zurück zu den Chats')}</button><p className="mt-4 text-[16px] text-mute">{t('Dieser Chat ist nicht mehr verfügbar oder gerade nicht erreichbar.')}</p></div>
   return (
     <div ref={roomRoot} className="chat-screen h-full min-h-0 flex flex-col">
       <div className="chat-app-header shrink-0 md:pt-3 pb-2 px-3 flex items-center gap-2 bg-paper border-b border-line">
         {!embedded && <button onClick={onBack} className="h-11 px-1 flex items-center gap-0.5 text-sage-800 text-[17px]"><ChevronLeft size={22} />{t('Chats')}</button>}
-        <div className={`flex-1 min-w-0 ${embedded ? 'py-1.5 px-2' : 'text-center pr-16'}`}><p className="text-[17px] font-semibold truncate">{name}</p>{sub && <p className="text-[13px] text-mute">{sub}</p>}</div>
+        <div className={`flex-1 min-w-0 ${embedded ? 'py-1.5 px-2' : manageable ? 'text-center' : 'text-center pr-16'}`}><p className="text-[17px] font-semibold truncate">{name}</p>{sub && <p className="text-[13px] text-mute">{sub}</p>}</div>
+        {manageable && <button onClick={() => setManaging(true)} aria-label={t('Gruppe verwalten')} title={t('Gruppe verwalten')} className="w-11 h-11 rounded-full flex items-center justify-center text-sage-800 shrink-0"><Settings2 size={19} /></button>}
       </div>
+      {managing && room && <PeoplePicker group initial={{ title: room.title ?? '', people: members }} onClose={() => setManaging(false)}
+        onStart={async (ids, title) => {
+          const { error } = await supabase!.rpc('update_office_group', { p_room: room.id, p_title: title, p_people: ids })
+          if (error) { toast(t('Das hat nicht geklappt'), 'error'); return }
+          setManaging(false); toast(t('Gruppe gespeichert')); void life.current?.reload(); window.dispatchEvent(new Event('th-chat-change'))
+        }}
+        onDelete={async () => {
+          const { error } = await supabase!.rpc('delete_office_group', { p_room: room.id })
+          if (error) { toast(t('Das hat nicht geklappt'), 'error'); return }
+          setManaging(false); toast(t('Gruppe gelöscht')); window.dispatchEvent(new Event('th-chat-change')); onBack()
+        }} />}
       <div ref={messagesPane} onScroll={scroll} className="min-h-0 flex-1 overflow-y-auto no-scrollbar bg-sage-50">
         <div className="max-w-[760px] mx-auto px-4 py-4 space-y-1.5">
           {(loadError || connectionError || readError) && <p role="alert" className="mb-3 text-[14px] text-alert">{t(loadError ? 'Nachrichten konnten nicht geladen werden.' : connectionError ? 'Die Chatverbindung wird wiederhergestellt.' : 'Der Lesestatus konnte nicht aktualisiert werden.')} <button onClick={() => void life.current?.reload()} className="underline underline-offset-2">{t('Erneut versuchen')}</button></p>}

@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { captureAccountScope, isCurrentAccountScope } from '../lib/account-scope'
 import { postgresTextArray, profilePatch, type EditableProfile, type ProfileDraft } from '../lib/person-profile-draft'
-import { ArrowLeft, ChevronLeft, ChevronRight, Search, Smartphone, Bell, Trash2, X, Pencil } from 'lucide-react'
+import { ArrowLeft, ChevronLeft, ChevronRight, Search, Smartphone, Bell, Trash2, X, Pencil, Camera } from 'lucide-react'
 import { useApp, addDays, fmtDate, inNewsAudience, type Staff } from '../store'
 import { supabase } from '../lib/supabase'
 import { phorest, type StaffWeek } from '../lib/phorest'
 import { Avatar } from '../People'
 import { toast } from '../Toast'
+import { displayableImage } from '../lib/files'
 import { PersonPerformance } from '../Performance'
 import { H, New, Th, Field, Section, DataRow, Status, Empty, inpStone, btn, btn2, Err, isTest, inBranch, Select, Modal, Dot, InfoTip } from './kit'
 
@@ -200,7 +201,7 @@ function PersonPage({ p, pos, onBack, onStep }: { p: Staff; pos: { i: number; n:
       </div>}
     </div>
     <div className="flex items-center gap-4 min-[900px]:gap-5">
-      <Avatar s={p} photo={p.photo} size="w-14 h-14 text-[18px] min-[900px]:w-20 min-[900px]:h-20 min-[900px]:text-[24px]" />
+      {office ? <PersonPhoto key={p.id} p={p} /> : <Avatar s={p} photo={p.photo} size="w-14 h-14 text-[18px] min-[900px]:w-20 min-[900px]:h-20 min-[900px]:text-[24px]" />}
       <div className="min-w-0">
         <PersonName key={p.id} p={p} canEdit={office} />
         <p className="text-[14px] text-mute mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -267,6 +268,48 @@ function PersonPage({ p, pos, onBack, onStep }: { p: Staff; pos: { i: number; n:
 
 /** Name ändern (28.10., Sarah ohne Nachnamen): nur das Büro, auch beim eigenen Profil. Gespeichert wird nur, wenn der
  *  Name seit dem Öffnen gleich geblieben ist, sonst würde eine gleichzeitige Änderung still überschrieben. */
+/** Profilbild einer Person durch das Büro (24.11.): Klick aufs Bild wählt ein Foto, die Person kann es selbst jederzeit ersetzen.
+ *  Die Datei liegt im Ordner der hochladenden Person (Speicherregel), der Verweis steht am Profil der Zielperson. */
+function PersonPhoto({ p }: { p: Staff }) {
+  const { me, reload } = useApp()
+  const input = useRef<HTMLInputElement>(null)
+  const [busy, setBusy] = useState(false)
+  const pick = async (raw?: File) => {
+    if (!raw || busy) return
+    const scope = captureAccountScope(me.id); if (!scope) return
+    setBusy(true)
+    try {
+      const f = await displayableImage(raw)
+      if (!f.type.startsWith('image/') && !/\.(jpe?g|png|webp|heic|heif)$/i.test(f.name)) { toast('Bitte ein Foto wählen.', 'error'); return }
+      if (f.size > 15 * 1024 * 1024) { toast('Das Foto ist grösser als 15 MB.', 'error'); return }
+      const ext = (f.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg'
+      const path = `${me.id}/person-${p.id}-${Date.now()}.${ext}`
+      const up = await supabase!.storage.from('profile-photos').upload(path, f, { upsert: true, contentType: f.type || 'image/jpeg' })
+      if (!isCurrentAccountScope(scope)) return
+      if (up.error) { toast('Das Bild liess sich nicht hochladen', 'error'); return }
+      const { error } = await supabase!.from('employees').update({ photo_path: path, updated_at: new Date().toISOString() }).eq('id', p.id).abortSignal(scope.signal)
+      if (!isCurrentAccountScope(scope)) return
+      if (error) { toast('Speichern hat nicht geklappt', 'error'); return }
+      await reload(); toast('Profilbild gespeichert')
+    } finally { if (isCurrentAccountScope(scope)) setBusy(false) }
+  }
+  const remove = async () => {
+    if (busy || !confirm(`Profilbild von ${p.first} entfernen?`)) return
+    setBusy(true)
+    const { error } = await supabase!.from('employees').update({ photo_path: null, updated_at: new Date().toISOString() }).eq('id', p.id)
+    setBusy(false)
+    if (error) { toast('Speichern hat nicht geklappt', 'error'); return }
+    await reload(); toast('Profilbild entfernt')
+  }
+  return <div className="shrink-0 flex flex-col items-center gap-1">
+    <button onClick={() => input.current?.click()} disabled={busy} title={p.photo ? 'Profilbild ändern' : 'Profilbild hochladen'} aria-label={p.photo ? 'Profilbild ändern' : 'Profilbild hochladen'} className={`relative group rounded-full ${busy ? 'opacity-50' : ''}`}>
+      <Avatar s={p} photo={p.photo} size="w-14 h-14 text-[18px] min-[900px]:w-20 min-[900px]:h-20 min-[900px]:text-[24px]" />
+      <span className="absolute -right-0.5 -bottom-0.5 w-7 h-7 rounded-full bg-white text-olive-800 shadow-[0_1px_3px_rgba(29,34,28,.25)] flex items-center justify-center"><Camera size={14} /></span>
+    </button>
+    {p.photo && <button onClick={remove} disabled={busy} className="text-[12px] text-mute hover:text-alert">Entfernen</button>}
+    <input ref={input} type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; void pick(f) }} />
+  </div>
+}
 function PersonName({ p, canEdit }: { p: Staff; canEdit: boolean }) {
   const { reload, me } = useApp()
   const [edit, setEdit] = useState(false), [first, setFirst] = useState(''), [last, setLast] = useState(''), [busy, setBusy] = useState(false), [err, setErr] = useState('')

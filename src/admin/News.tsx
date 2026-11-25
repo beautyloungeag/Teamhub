@@ -146,7 +146,7 @@ function Compose({ edit, onClose }: { edit: News | null; onClose: () => void }) 
     setAi('text'); setErr('')
     const { data, error } = await supabase!.functions.invoke('newsdraft', { body: { action: 'text', brief } })
     setAi('')
-    if (error || !data?.ok) { setErr('Marc konnte gerade keinen Entwurf schreiben.'); return }
+    if (error || !data?.ok) { setErr('Jarvis konnte gerade keinen Entwurf schreiben.'); return }
     setF(v => ({ ...v, title: data.title, teaser: data.teaser, body: data.body })); setImgPrompt(data.image_prompt || data.title)
   }
   const image = async () => {
@@ -227,7 +227,7 @@ function Compose({ edit, onClose }: { edit: News | null; onClose: () => void }) 
       {!loaded ? <p className="text-[14px] text-mute py-6">Lädt …</p> : <div className="grid grid-cols-1 min-[900px]:grid-cols-[minmax(0,1fr)_300px] gap-6">
         <div className="space-y-3">
           {!edit && <div className="flex gap-2 items-center rounded-[12px] bg-sage-50 p-2"><BMark className="w-7 h-7" working={!!ai} />
-            <input value={brief} onChange={e => setBrief(e.target.value)} onKeyDown={e => e.key === 'Enter' && draft()} placeholder="Worum geht es? Marc schreibt einen Entwurf" className="flex-1 h-9 bg-transparent px-1 text-[14px] outline-none" />
+            <input value={brief} onChange={e => setBrief(e.target.value)} onKeyDown={e => e.key === 'Enter' && draft()} placeholder="Worum geht es? Jarvis schreibt einen Entwurf" className="flex-1 h-9 bg-transparent px-1 text-[14px] outline-none" />
             <button disabled={!brief.trim() || !!ai} onClick={draft} className="h-9 px-3 rounded-[8px] bg-olive-700 text-white text-[13px] disabled:opacity-40">{ai === 'text' ? 'Schreibt …' : 'Entwurf schreiben'}</button></div>}
           <input value={f.title} onChange={e => setF({ ...f, title: e.target.value })} placeholder="Titel" className="w-full text-[20px] font-medium outline-none" />
           <input value={f.teaser} onChange={e => setF({ ...f, teaser: e.target.value })} placeholder="Kurzfassung für die Karte (optional)" className="w-full text-[15px] outline-none text-ink/70" />
