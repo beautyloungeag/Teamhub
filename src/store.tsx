@@ -26,7 +26,7 @@ export type Ev = { id: string; title: string; kind: string; description: string;
 export type ItemMedia = { t: 'img' | 'video'; src?: string; url?: string; name?: string }
 export type WikiBlock = { t: 'h' | 'p' | 'ul' | 'ol' | 'quote' | 'img' | 'video' | 'file'; text?: string; items?: string[]; media?: (ItemMedia | null)[]; src?: string; url?: string; name?: string; level?: number; check?: boolean }
 export type WikiArticle = { id: string; cat: string; catKey: string; title: string; cover?: string | null; coverPath?: string | null; minutes: number; updated: string; at: string; body: string[]; mediaKind: string; mediaUrl: string | null; published: boolean; fromNews?: boolean; intro: string; tags: string[]; accessLevel: 'alle' | 'filialleitung' | 'buero'; imported: boolean; createdAt?: string; reviewDue?: string | null; ownerId?: string | null }
-export type Step = { id: string; title: string; minutes: number; articleId: string | null; proposed: boolean; branchIds: string[] }
+export type Step = { id: string; title: string; minutes: number; articleId: string | null; proposed: boolean; branchIds: string[]; sort?: number }
 export type Branch = { id: string; name: string; is_office: boolean }
 export type Quiz = { id: string; newsId: string | null; articleId: string | null; title: string; passPct: number; sample: boolean; drawCount: number | null }
 export type Attempt = { quizId: string; employeeId: string; scorePct: number; passed: boolean; at: string; results?: Record<string, boolean>; questionIds?: string[] | null }
@@ -388,7 +388,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (progressCurrent) setAttempts((qa.data ?? []).map((a: any) => ({ quizId: a.quiz_id, employeeId: a.employee_id, scorePct: a.score_pct, passed: a.passed, at: a.created_at, results: a.results ?? undefined, questionIds: a.question_ids ?? null })))
     newsForWiki.current = keep(nw.data).map((n: any) => ({ ...n, title: tx(n, 'title', lang), teaser: tx(n, 'teaser', lang), body: tx(n, 'body', lang) }))
     void wk
-    setAllSteps(keep(ob.data).map((s: any) => ({ id: s.id, title: tx(s, 'title', lang), minutes: s.minutes, articleId: s.article_id, proposed: !!s.proposed, branchIds: s.branch_ids ?? [] })))
+    setAllSteps(keep(ob.data).map((s: any) => ({ id: s.id, title: tx(s, 'title', lang), minutes: s.minutes, articleId: s.article_id, proposed: !!s.proposed, branchIds: s.branch_ids ?? [], sort: s.sort })))
     if (progressCurrent) setObDone(new Set((obp.data ?? []).map((x: any) => x.step_id)))
     setMyPhorest((mp.data ?? []) as Ctx['myPhorest'])
     hadData.current = true

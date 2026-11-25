@@ -1,6 +1,6 @@
 import { captureAccountScope, isCurrentAccountScope } from '../lib/account-scope'
 import { Fragment, useEffect, useMemo, useState } from 'react'
-import { Check, ChevronRight, Lock, Plus, Trash2, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, Check, ChevronRight, Lock, Plus, Trash2, X } from 'lucide-react'
 import { useApp, fmtDate, inNewsAudience, type Quiz, type Staff, type Step } from '../store'
 import { supabase } from '../lib/supabase'
 import { notifyNow } from '../lib/push'
@@ -115,8 +115,25 @@ function PersonLearn({ p, st, onClose }: { p: Staff; st: ReturnType<ReturnType<t
 
 /* ---------- Lektionen ---------- */
 function Lessons({ onOpen, includeTests }: { onOpen: (s: Step) => void; includeTests: boolean }) {
-  const { steps, wiki, me, branches } = useApp()
+  const { steps, wiki, me, branches, reload } = useApp()
   const { people } = useScope(includeTests)
+  // Reihenfolge der Lektionen (Inhaberin 19.11.: «der Reihe nach»): das Büro schiebt eine Lektion nach oben oder unten.
+  const [moving, setMoving] = useState(false)
+  const move = async (i: number, dir: -1 | 1) => {
+    const j = i + dir
+    if (moving || j < 0 || j >= steps.length) return
+    setMoving(true)
+    // Normalfall: die beiden Nachbarn tauschen ihre Nummer (zwei Einträge im Protokoll). Nur bei gleichen oder fehlenden
+    // Nummern wird die ganze Liste neu durchnummeriert.
+    const a = steps[i], b = steps[j]
+    const order = [...steps]; [order[i], order[j]] = [order[j], order[i]]
+    const changes = typeof a.sort === 'number' && typeof b.sort === 'number' && a.sort !== b.sort
+      ? [{ id: a.id, sort: b.sort }, { id: b.id, sort: a.sort }] : order.map((s, n) => ({ id: s.id, sort: n }))
+    const results = await Promise.all(changes.map(c => supabase!.from('onboarding_steps').update({ sort: c.sort }).eq('id', c.id)))
+    setMoving(false)
+    if (results.some(r => r.error)) toast('Die Reihenfolge liess sich nicht speichern', 'error')
+    await reload()
+  }
   const stats = useLearnStats()
   const office = me.app_role === 'buero'
   const mine = [me.branch_id, ...(me.extra ?? [])]
@@ -126,14 +143,17 @@ function Lessons({ onOpen, includeTests }: { onOpen: (s: Step) => void; includeT
     <LearnSettings />
     {office && <Proposal />}
     {steps.length === 0 ? <Empty>Noch keine Lektionen.</Empty> :
-    <table className="tbl w-full text-[14px] table-fixed"><thead><tr><Th>Lektion</Th><th className="w-[260px] text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">Lernstoff</th><th className="w-[150px] text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">Für</th><th className="w-[200px] text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">Erledigt</th><th className="w-10 border-b border-line" /></tr></thead>
+    <table className="tbl w-full text-[14px] table-fixed"><thead><tr><Th>Lektion</Th><th className="w-[260px] text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">Lernstoff</th><th className="w-[150px] text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">Für</th><th className="w-[200px] text-left font-normal text-xs text-mute px-4 py-2.5 border-b border-line">Erledigt</th><th className={`${office ? 'w-[104px]' : 'w-10'} border-b border-line`} /></tr></thead>
       <tbody className="divide-y divide-line">{steps.map((s, i) => { const [a, b] = doneBy(s), ed = canEdit(s)
         return <tr key={s.id} onClick={() => ed && onOpen(s)} className={ed ? 'cursor-pointer hover:bg-sage-50/70' : ''}>
           <td className="px-4 py-3"><span className="flex items-baseline gap-2 min-w-0"><span className="text-mute tabular-nums text-[13px] w-5 shrink-0">{i + 1}.</span><span className="truncate">{s.title}</span></span><span className="block text-[12.5px] text-mute pl-7">{s.minutes} Min.</span></td>
           <td className="px-4 text-ink/80 truncate">{wiki.find(a => a.id === s.articleId)?.title ?? <span className="text-mute">passender Artikel aus dem Wissen</span>}</td>
           <td className="px-4 text-mute truncate">{s.branchIds.length ? s.branchIds.map(id => branches.find(x => x.id === id)?.name).join(', ') : 'Alle Studios'}</td>
           <td className="px-4"><span className="flex items-center gap-3"><span className="flex-1 h-2 rounded-full bg-sage-100 overflow-hidden"><span className="block h-full rounded-full bg-done" style={{ width: `${b ? a / b * 100 : 0}%` }} /></span><span className="text-[12.5px] text-mute tabular-nums w-10 text-right">{a}/{b}</span></span></td>
-          <td className="px-2 text-right text-mute">{ed ? <ChevronRight size={15} className="inline" /> : <Lock size={13} className="inline text-sage-400" aria-label="vom Büro" />}</td>
+          <td className="px-2 text-right text-mute whitespace-nowrap">{office && <span className="inline-flex mr-1 align-middle" onClick={e => e.stopPropagation()}>
+              <button disabled={moving || i === 0} onClick={() => void move(i, -1)} aria-label={`„${s.title}“ nach oben`} title="Nach oben" className="w-7 h-7 rounded-[7px] hover:bg-sage-100 inline-flex items-center justify-center disabled:opacity-25"><ArrowUp size={14} /></button>
+              <button disabled={moving || i === steps.length - 1} onClick={() => void move(i, 1)} aria-label={`„${s.title}“ nach unten`} title="Nach unten" className="w-7 h-7 rounded-[7px] hover:bg-sage-100 inline-flex items-center justify-center disabled:opacity-25"><ArrowDown size={14} /></button>
+            </span>}{ed ? <ChevronRight size={15} className="inline" /> : <Lock size={13} className="inline text-sage-400" aria-label="vom Büro" />}</td>
         </tr> })}</tbody></table>}
     {!office && <p className="mt-3"><ReadOnly>Lektionen mit Schloss kommen vom Büro und gelten für alle Studios. Eigene für dein Studio legst du oben rechts an.</ReadOnly></p>}
   </>)
